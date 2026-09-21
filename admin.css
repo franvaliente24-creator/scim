@@ -1,1 +1,173 @@
-.admin-page{max-width:1100px;margin:auto;padding:40px 24px}.admin-header{height:auto;padding:0 0 28px;justify-content:space-between}.admin-header a{color:#4f46e5;text-decoration:none;font-weight:700}.admin-header h1{margin:18px 0 4px}.admin-header p{color:#64748b;margin:0}.text-button{border:1px solid #c7d2fe;background:#fff;color:#4338ca;border-radius:8px;padding:9px 13px;cursor:pointer}.admin-grid{display:grid;grid-template-columns:360px 1fr;gap:20px}.admin-card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;box-shadow:0 2px 5px #0f172a08}.admin-card h2{margin-top:0;font-size:18px}.admin-card label{display:block;font-weight:600;margin:14px 0}.admin-card input,.admin-card select{display:block;width:100%;margin-top:6px;padding:11px;border:1px solid #cbd5e1;border-radius:8px;background:#fff}.primary{width:100%;border:0;border-radius:8px;padding:12px;background:#4f46e5;color:white;font-weight:700;cursor:pointer}.form-message{min-height:20px;color:#047857}.user-row{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid #f1f5f9}.user-row small{display:block;color:#64748b;margin-top:3px}.role{padding:5px 9px;border-radius:999px;font-size:11px;font-weight:700;background:#eef2ff;color:#4338ca}.role.admin{background:#fef3c7;color:#92400e}.role.manager{background:#dcfce7;color:#166534}.roles{margin-top:20px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.roles span{display:block;color:#64748b;margin-top:6px}.access-denied{max-width:520px;margin:15vh auto;text-align:center}@media(max-width:750px){.admin-grid,.roles{grid-template-columns:1fr}.admin-page{padding:22px 16px}}
+/* ==========================================
+   1. PAGE LAYOUT & CONTAINER
+   ========================================== */
+.admin-page {
+  max-width: 1100px;
+  margin: auto;
+  padding: 40px 24px;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 20px;
+}
+
+.access-denied {
+  max-width: 520px;
+  margin: 15vh auto;
+  text-align: center;
+}
+
+
+/* ==========================================
+   2. HEADER STYLES
+   ========================================== */
+.admin-header {
+  height: auto;
+  padding: 0 0 28px;
+  justify-content: space-between;
+}
+
+.admin-header a {
+  color: #4f46e5;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.admin-header h1 {
+  margin: 18px 0 4px;
+}
+
+.admin-header p {
+  color: #64748b;
+  margin: 0;
+}
+
+
+/* ==========================================
+   3. CARDS & FORMS
+   ========================================== */
+.admin-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 2px 5px #0f172a08;
+}
+
+.admin-card h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+
+.admin-card label {
+  display: block;
+  font-weight: 600;
+  margin: 14px 0;
+}
+
+.admin-card input,
+.admin-card select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.form-message {
+  min-height: 20px;
+  color: #047857;
+}
+
+
+/* ==========================================
+   4. BUTTONS
+   ========================================== */
+.primary {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #4f46e5;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.text-button {
+  border: 1px solid #c7d2fe;
+  background: #fff;
+  color: #4338ca;
+  border-radius: 8px;
+  padding: 9px 13px;
+  cursor: pointer;
+}
+
+
+/* ==========================================
+   5. USERS & ROLES LISTS
+   ========================================== */
+.user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.user-row small {
+  display: block;
+  color: #64748b;
+  margin-top: 3px;
+}
+
+.roles {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.roles span {
+  display: block;
+  color: #64748b;
+  margin-top: 6px;
+}
+
+.role {
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.role.admin {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.role.manager {
+  background: #dcfce7;
+  color: #166534;
+}
+
+
+/* ==========================================
+   6. RESPONSIVE MEDIA QUERIES
+   ========================================== */
+@media (max-width: 750px) {
+  .admin-grid,
+  .roles {
+    grid-template-columns: 1fr;
+  }
+  
+  .admin-page {
+    padding: 22px 16px;
+  }
+}

@@ -1,3 +1,47 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in | Great Solomon</title><link rel="stylesheet" href="styles.css?v=3"><link rel="stylesheet" href="auth.css?v=1"></head>
-<body class="login-page"><main class="auth-card"><div class="crown" aria-hidden="true">♛</div><h1>Sign In</h1><p class="auth-subtitle">Great Solomon Manpower Services Inc.</p><form id="loginForm" novalidate><label>Email<span class="field"><span>✉</span><input name="email" type="email" placeholder="you@company.com" autocomplete="email" required></span></label><label>Password<span class="field"><span>♙</span><input id="password" name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required><button type="button" id="togglePassword" class="show-password" aria-label="Show password">◉</button></span></label><div class="auth-options"><label class="remember"><input type="checkbox" name="remember"> Remember me</label><a href="#" id="forgotPassword">Forgot password?</a></div><p id="loginError" class="login-error" role="alert"></p><button class="signin-button" type="submit">Sign In</button></form></main><script src="login.js"></script></body></html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in | Great Solomon</title>
+    <link rel="stylesheet" href="styles.css?v=3">
+    <link rel="stylesheet" href="auth.css?v=1">
+  </head>
+  <body class="login-page">
+    <main class="auth-card">
+      <div class="crown" aria-hidden="true">♛</div>
+      <h1>Sign In</h1>
+      <p class="auth-subtitle">Great Solomon Manpower Services Inc.</p>
+      
+      <form id="loginForm" novalidate>
+        <label>Email
+          <span class="field">
+            <span>✉</span>
+            <input name="email" type="email" placeholder="you@company.com" autocomplete="email" required>
+          </span>
+        </label>
+        
+        <label>Password
+          <span class="field">
+            <span>♙</span>
+            <input id="password" name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required>
+            <button type="button" id="togglePassword" class="show-password" aria-label="Show password">◉</button>
+          </span>
+        </label>
+        
+        <div class="auth-options">
+          <label class="remember">
+            <input type="checkbox" name="remember"> Remember me
+          </label>
+          <a href="#" id="forgotPassword">Forgot password?</a>
+        </div>
+        
+        <p id="loginError" class="login-error" role="alert"></p>
+        
+        <button class="signin-button" type="submit">Sign In</button>
+      </form>
+    </main>
+    
+    <script src="login.js"></script>
+  </body>
+</html>
