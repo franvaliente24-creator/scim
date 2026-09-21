@@ -1,4 +1,5 @@
 Options -Indexes
+DirectoryIndex login.html
 RewriteEngine On
 
 # Route the REST API to the PHP application while keeping its original URL.
