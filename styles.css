@@ -403,6 +403,3 @@ dialog::backdrop {
     margin-top:9px
   }
 }
-#app[hidden] {
-  display:none
-}

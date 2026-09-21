@@ -1,6 +1,7 @@
 // ==========================================
-// 1. UTILITY FUNCTIONS
+// DASHBOARD PAGE LOGIC
 // ==========================================
+
 const $ = (selector) => document.querySelector(selector);
 
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
@@ -12,9 +13,8 @@ const money = (amount) =>
     maximumFractionDigits: 0,
   }).format(amount);
 
-
 // ==========================================
-// 2. DASHBOARD & DATA LOADING
+// DASHBOARD & DATA LOADING
 // ==========================================
 async function load() {
   const [dash, pos, vendors, docs] = await Promise.all([
@@ -121,29 +121,9 @@ async function load() {
     .join('');
 }
 
-
 // ==========================================
-// 3. EVENT LISTENERS & INTERACTION
+// EVENT LISTENERS & INTERACTION
 // ==========================================
-
-// Authentication
-$('#loginForm').onsubmit = async (e) => {
-  e.preventDefault();
-  const formData = new FormData(e.target);
-
-  const response = await fetch('/api/v1/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.fromEntries(formData)),
-  });
-
-  if (!response.ok) return alert('Sign-in failed.');
-
-  $('#login').hidden = true;
-  $('#app').hidden = false;
-  window.scrollTo(0, 0);
-  load();
-};
 
 // Navigation & Sidebar
 $('#toggle').onclick = () => {
@@ -158,7 +138,10 @@ $('#profile').onclick = () => {
   $('#profileMenu').hidden = !$('#profileMenu').hidden;
 };
 
-$('#logout').onclick = () => location.reload();
+$('#logout').onclick = () => {
+  // Redirect to login page
+  window.location.href = 'login.html';
+};
 
 // Scanner Modal Controls
 $('#mobileBtn').onclick = () => $('#scanner').showModal();
@@ -192,3 +175,6 @@ $('#scanNow').onclick = async () => {
 
   if (response.ok) load();
 };
+
+// Load dashboard data on page load
+load();
