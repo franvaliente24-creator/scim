@@ -1,0 +1,11 @@
+Options -Indexes
+RewriteEngine On
+
+# Route the REST API to the PHP application while keeping its original URL.
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^api/ api/index.php [L,QSA]
+
+# Prevent configuration and database seed files being downloaded.
+<FilesMatch "^(config\.php|config\.example\.php|init\.sql)$">
+  Require all denied
+</FilesMatch>
