@@ -19,6 +19,9 @@ button,input {
   font:inherit
 }
 .login {
+  inset: 0;
+  z-index: 1000;
+  position: fixed;
   min-height:100vh;
   display:grid;
   place-items:center;
