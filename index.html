@@ -1,5 +1,135 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Great Solomon | Command Center</title><link rel="stylesheet" href="styles.css"></head><body>
-<div id="login" class="login"><form id="loginForm"><div class="mark">GS</div><h1>Great Solomon</h1><p>Supply Chain Command Center</p><label>Email<input name="email" value="admin@greatsolomon.test" type="email"></label><label>Password<input name="password" value="Welcome123!" type="password"></label><button>Sign in securely</button><small>Demo credentials are prefilled.</small></form></div>
-<div id="app" hidden><aside id="sidebar"><div class="brand"><span class="mark">GS</span><span class="label">Great Solomon<small>Supply Chain Services</small></span></div><nav><a class="active">▦ <span>Dashboard</span></a><a>⌘ <span>Smart Warehousing</span></a><a>▣ <span>Inventory Management</span></a><a>◫ <span>Procurement & Sourcing</span></a><a>♙ <span>Supplier Management</span></a><a>▤ <span>Purchase Orders</span></a><a>▧ <span>Documents & Logistics</span></a></nav><button id="mobileBtn" class="scan">⌁ Open Mobile Scanner</button></aside>
-<main><header><button id="toggle" class="icon">☰</button><div><small>Operations /</small> <b>Dashboard</b></div><div class="grow"></div><button class="icon">♧</button><button id="profile" class="avatar">FR</button><div id="profileMenu" hidden class="menu">My Profile & Preferences<br>Security & MFA Settings<br>Active Sessions<br>System Settings<br>Help & Documentation<br><hr><button id="logout">Log out</button></div></header><section class="content"><div class="page-title"><div><h1>Operations Command Center</h1><p>Live overview of inventory, procurement, and compliance.</p></div><span class="live">● Live sync active</span></div><div id="stats" class="stats"></div><div class="grid two"><section class="card"><h2>Purchase order pipeline</h2><div id="pos"></div></section><section class="card"><h2>Smart warehouse occupancy</h2><div id="zones" class="zones"></div><p class="muted">Green &lt; 60% · Yellow 60–85% · Red &gt; 85%</p></section></div><div class="grid two"><section class="card"><h2>Vendor performance</h2><div id="vendors"></div></section><section class="card"><h2>Real-time mobile scan feed</h2><div id="scans"></div></section></div><section class="card"><h2>Document tracking & logistics</h2><div id="docs"></div></section></section></main></div>
-<dialog id="scanner"><div class="scanner"><button id="closeScan" class="close">×</button><p class="live">● Scanner connected</p><div class="viewport"><span>＋</span><p>Camera preview</p></div><h2>Warehouse Scanner</h2><div class="modes"><button>Inventory Intake</button><button>Asset Transfer</button><button>Contractor Check-Out</button></div><label>QR code<input id="qr" placeholder="QR-LAP-001"></label><button id="scanNow">Record scan</button><p id="scanResult"></p></div></dialog><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Great Solomon | Command Center</title>
+    <link rel="stylesheet" href="styles.css?v=2">
+  </head>
+  <body>
+    <!-- Login Screen -->
+    <div id="login" class="login">
+      <form id="loginForm">
+        <div class="mark">GS</div>
+        <h1>Great Solomon</h1>
+        <p>Supply Chain Command Center</p>
+        <label>Email
+          <input name="email" value="admin@greatsolomon.test" type="email">
+        </label>
+        <label>Password
+          <input name="password" value="Welcome123!" type="password">
+        </label>
+        <button>Sign in securely</button>
+        <small>Demo credentials are prefilled.</small>
+      </form>
+    </div>
+
+    <!-- Main Application Container -->
+    <div id="app" hidden>
+      <!-- Sidebar Navigation -->
+      <aside id="sidebar">
+        <div class="brand">
+          <span class="mark">GS</span>
+          <span class="label">Great Solomon<small>Supply Chain Services</small></span>
+        </div>
+        <nav>
+          <a class="active">▦ <span>Dashboard</span></a>
+          <a>⌘ <span>Smart Warehousing</span></a>
+          <a>▣ <span>Inventory Management</span></a>
+          <a>◫ <span>Procurement & Sourcing</span></a>
+          <a>♙ <span>Supplier Management</span></a>
+          <a>▤ <span>Purchase Orders</span></a>
+          <a>▧ <span>Documents & Logistics</span></a>
+        </nav>
+        <button id="mobileBtn" class="scan">⌁ Open Mobile Scanner</button>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main>
+        <header>
+          <button id="toggle" class="icon">☰</button>
+          <div>
+            <small>Operations /</small> <b>Dashboard</b>
+          </div>
+          <div class="grow"></div>
+          <button class="icon">♧</button>
+          <button id="profile" class="avatar">FR</button>
+          <div id="profileMenu" hidden class="menu">
+            My Profile & Preferences<br>
+            Security & MFA Settings<br>
+            Active Sessions<br>
+            System Settings<br>
+            Help & Documentation<br>
+            <hr>
+            <button id="logout">Log out</button>
+          </div>
+        </header>
+
+        <section class="content">
+          <div class="page-title">
+            <div>
+              <h1>Operations Command Center</h1>
+              <p>Live overview of inventory, procurement, and compliance.</p>
+            </div>
+            <span class="live">● Live sync active</span>
+          </div>
+
+          <div id="stats" class="stats"></div>
+
+          <div class="grid two">
+            <section class="card">
+              <h2>Purchase order pipeline</h2>
+              <div id="pos"></div>
+            </section>
+            <section class="card">
+              <h2>Smart warehouse occupancy</h2>
+              <div id="zones" class="zones"></div>
+              <p class="muted">Green &lt; 60% · Yellow 60–85% · Red &gt; 85%</p>
+            </section>
+          </div>
+
+          <div class="grid two">
+            <section class="card">
+              <h2>Vendor performance</h2>
+              <div id="vendors"></div>
+            </section>
+            <section class="card">
+              <h2>Real-time mobile scan feed</h2>
+              <div id="scans"></div>
+            </section>
+          </div>
+
+          <section class="card">
+            <h2>Document tracking & logistics</h2>
+            <div id="docs"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <!-- Scanner Dialog Modal -->
+    <dialog id="scanner">
+      <div class="scanner">
+        <button id="closeScan" class="close">×</button>
+        <p class="live">● Scanner connected</p>
+        <div class="viewport">
+          <span>＋</span>
+          <p>Camera preview</p>
+        </div>
+        <h2>Warehouse Scanner</h2>
+        <div class="modes">
+          <button>Inventory Intake</button>
+          <button>Asset Transfer</button>
+          <button>Contractor Check-Out</button>
+        </div>
+        <label>QR code
+          <input id="qr" placeholder="QR-LAP-001">
+        </label>
+        <button id="scanNow">Record scan</button>
+        <p id="scanResult"></p>
+      </div>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
