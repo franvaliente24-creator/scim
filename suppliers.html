@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Great Solomon | Supplier Management</title>
+    <link rel="stylesheet" href="styles.css?v=2">
+  </head>
+  <body>
+    <div id="app">
+      <!-- Sidebar Navigation -->
+      <aside id="sidebar">
+        <div class="brand">
+          <span class="mark">GS</span>
+          <span class="label">Great Solomon<small>Supply Chain Services</small></span>
+        </div>
+        <nav>
+          <a href="index.html">▦ <span>Dashboard</span></a>
+          <a href="warehousing.html">⌘ <span>Smart Warehousing</span></a>
+          <a href="inventory.html">▣ <span>Inventory Management</span></a>
+          <a href="procurement.html">◫ <span>Procurement & Sourcing</span></a>
+          <a class="active">♙ <span>Supplier Management</span></a>
+          <a href="purchase-orders.html">▤ <span>Purchase Orders</span></a>
+          <a href="documents.html">▧ <span>Documents & Logistics</span></a>
+        </nav>
+        <button id="mobileBtn" class="scan">⌁ Open Mobile Scanner</button>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main>
+        <header>
+          <button id="toggle" class="icon">☰</button>
+          <div>
+            <small>Operations /</small> <b>Supplier Management</b>
+          </div>
+          <div class="grow"></div>
+          <button class="icon">♧</button>
+          <button id="profile" class="avatar">FR</button>
+          <div id="profileMenu" hidden class="menu">
+            My Profile & Preferences<br>
+            Security & MFA Settings<br>
+            Active Sessions<br>
+            <button id="usersLink">User Management</button><br>
+            Help & Documentation<br>
+            <hr>
+            <button id="logout">Log out</button>
+          </div>
+        </header>
+
+        <section class="content">
+          <div class="page-title">
+            <div>
+              <h1>Supplier/Vendor Management</h1>
+              <p>Performance scorecards tracking On-Time Delivery Rate and Device Defect Rate.</p>
+            </div>
+            <span class="live">● Live sync active</span>
+          </div>
+
+          <div class="stats">
+            <div class="stat">
+              <p>Total Suppliers</p>
+              <strong id="totalSuppliers">0</strong>
+              <small>Active vendors</small>
+            </div>
+            <div class="stat">
+              <p>Average Rating</p>
+              <strong id="avgRating">0.0</strong>
+              <small>Overall performance</small>
+            </div>
+            <div class="stat">
+              <p>On-Time Delivery</p>
+              <strong id="avgOnTime">0%</strong>
+              <small>Industry benchmark</small>
+            </div>
+            <div class="stat">
+              <p>Defect Rate</p>
+              <strong id="avgDefect">0%</strong>
+              <small>Quality metric</small>
+            </div>
+          </div>
+
+          <section class="card">
+            <div class="page-title">
+              <h2>Supplier Performance Scorecards</h2>
+              <div>
+                <input id="searchSuppliers" type="text" placeholder="Search suppliers..." style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; width: 200px;">
+                <button id="addSupplierBtn" style="margin-left: 8px;">+ Add Supplier</button>
+              </div>
+            </div>
+            <div id="supplierTable" class="data-table-container"></div>
+          </section>
+
+          <div class="grid two">
+            <section class="card">
+              <h2>Top Performing Suppliers</h2>
+              <div id="topSuppliers"></div>
+            </section>
+            <section class="card">
+              <h2>Suppliers Needing Attention</h2>
+              <div id="attentionSuppliers"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Add Supplier Dialog Modal -->
+    <dialog id="addSupplierModal">
+      <div class="scanner">
+        <button id="closeSupplier" class="close">×</button>
+        <h2>Add New Supplier</h2>
+        <form id="addSupplierForm">
+          <label>Company Name
+            <input name="name" type="text" required>
+          </label>
+          <label>Contact Email
+            <input name="email" type="email" required>
+          </label>
+          <label>Phone Number
+            <input name="phone" type="tel">
+          </label>
+          <label>Address
+            <textarea name="address" rows="2"></textarea>
+          </label>
+          <label>Category
+            <select name="category" required>
+              <option value="">Select category</option>
+              <option value="IT Equipment">IT Equipment</option>
+              <option value="Office Supplies">Office Supplies</option>
+              <option value="Furniture">Furniture</option>
+              <option value="Services">Services</option>
+            </select>
+          </label>
+          <button type="submit">Add Supplier</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Scanner Dialog Modal -->
+    <dialog id="scanner">
+      <div class="scanner">
+        <button id="closeScan" class="close">×</button>
+        <p class="live">● Scanner connected</p>
+        <div class="viewport">
+          <span>＋</span>
+          <p>Camera preview</p>
+        </div>
+        <h2>Warehouse Scanner</h2>
+        <div class="modes">
+          <button>Inventory Intake</button>
+          <button>Asset Transfer</button>
+          <button>Contractor Check-Out</button>
+        </div>
+        <label>QR code
+          <input id="qr" placeholder="QR-LAP-001">
+        </label>
+        <button id="scanNow">Record scan</button>
+        <p id="scanResult"></p>
+      </div>
+    </dialog>
+
+    <script src="suppliers.js"></script>
+  </body>
+</html>

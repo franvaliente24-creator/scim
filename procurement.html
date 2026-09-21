@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Great Solomon | Procurement & Sourcing</title>
+    <link rel="stylesheet" href="styles.css?v=2">
+  </head>
+  <body>
+    <div id="app">
+      <!-- Sidebar Navigation -->
+      <aside id="sidebar">
+        <div class="brand">
+          <span class="mark">GS</span>
+          <span class="label">Great Solomon<small>Supply Chain Services</small></span>
+        </div>
+        <nav>
+          <a href="index.html">▦ <span>Dashboard</span></a>
+          <a href="warehousing.html">⌘ <span>Smart Warehousing</span></a>
+          <a href="inventory.html">▣ <span>Inventory Management</span></a>
+          <a class="active">◫ <span>Procurement & Sourcing</span></a>
+          <a href="suppliers.html">♙ <span>Supplier Management</span></a>
+          <a href="purchase-orders.html">▤ <span>Purchase Orders</span></a>
+          <a href="documents.html">▧ <span>Documents & Logistics</span></a>
+        </nav>
+        <button id="mobileBtn" class="scan">⌁ Open Mobile Scanner</button>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main>
+        <header>
+          <button id="toggle" class="icon">☰</button>
+          <div>
+            <small>Operations /</small> <b>Procurement & Sourcing</b>
+          </div>
+          <div class="grow"></div>
+          <button class="icon">♧</button>
+          <button id="profile" class="avatar">FR</button>
+          <div id="profileMenu" hidden class="menu">
+            My Profile & Preferences<br>
+            Security & MFA Settings<br>
+            Active Sessions<br>
+            <button id="usersLink">User Management</button><br>
+            Help & Documentation<br>
+            <hr>
+            <button id="logout">Log out</button>
+          </div>
+        </header>
+
+        <section class="content">
+          <div class="page-title">
+            <div>
+              <h1>Procurement & Sourcing Management</h1>
+              <p>Manage requisitions, supplier quotes, and sourcing pipelines.</p>
+            </div>
+            <span class="live">● Live sync active</span>
+          </div>
+
+          <div class="stats">
+            <div class="stat">
+              <p>Active Requisitions</p>
+              <strong id="activeRequisitions">0</strong>
+              <small>Pending processing</small>
+            </div>
+            <div class="stat">
+              <p>Pending Quotes</p>
+              <strong id="pendingQuotes">0</strong>
+              <small>Awaiting vendor response</small>
+            </div>
+            <div class="stat">
+              <p>This Month Spend</p>
+              <strong id="monthlySpend">₱0</strong>
+              <small>Procurement budget</small>
+            </div>
+            <div class="stat">
+              <p>Approved Requests</p>
+              <strong id="approvedRequests">0</strong>
+              <small>This month</small>
+            </div>
+          </div>
+
+          <section class="card">
+            <div class="page-title">
+              <h2>Requisitions</h2>
+              <button id="addRequisitionBtn">+ New Requisition</button>
+            </div>
+            <div id="requisitionTable" class="data-table-container"></div>
+          </section>
+
+          <div class="grid two">
+            <section class="card">
+              <h2>Sourcing Pipeline</h2>
+              <div id="sourcingPipeline"></div>
+            </section>
+            <section class="card">
+              <h2>Recent Supplier Quotes</h2>
+              <div id="recentQuotes"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Add Requisition Dialog Modal -->
+    <dialog id="addRequisitionModal">
+      <div class="scanner">
+        <button id="closeRequisition" class="close">×</button>
+        <h2>New Requisition</h2>
+        <form id="addRequisitionForm">
+          <label>Request Title
+            <input name="title" type="text" required>
+          </label>
+          <label>Department
+            <select name="department" required>
+              <option value="">Select department</option>
+              <option value="IT">IT</option>
+              <option value="Operations">Operations</option>
+              <option value="HR">HR</option>
+              <option value="Finance">Finance</option>
+            </select>
+          </label>
+          <label>Item Description
+            <textarea name="description" rows="3" required></textarea>
+          </label>
+          <label>Estimated Cost (₱)
+            <input name="estimated_cost" type="number" required>
+          </label>
+          <label>Priority
+            <select name="priority" required>
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+              <option value="Urgent">Urgent</option>
+            </select>
+          </label>
+          <label>Needed By
+            <input name="needed_by" type="date" required>
+          </label>
+          <button type="submit">Submit Requisition</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Scanner Dialog Modal -->
+    <dialog id="scanner">
+      <div class="scanner">
+        <button id="closeScan" class="close">×</button>
+        <p class="live">● Scanner connected</p>
+        <div class="viewport">
+          <span>＋</span>
+          <p>Camera preview</p>
+        </div>
+        <h2>Warehouse Scanner</h2>
+        <div class="modes">
+          <button>Inventory Intake</button>
+          <button>Asset Transfer</button>
+          <button>Contractor Check-Out</button>
+        </div>
+        <label>QR code
+          <input id="qr" placeholder="QR-LAP-001">
+        </label>
+        <button id="scanNow">Record scan</button>
+        <p id="scanResult"></p>
+      </div>
+    </dialog>
+
+    <script src="procurement.js"></script>
+  </body>
+</html>

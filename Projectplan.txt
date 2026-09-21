@@ -1,0 +1,142 @@
+PROJECT BLUEPRINT & MASTER 
+DEVELOPMENT PLAN 
+Title: Development and Implementation of a Supply 
+Chain and Inventory Management for Agencies with 
+Smart Warehousing System and QR Scanner 
+(Microservices Architecture) 
+Client: Recruitment Agency (IT) — Great Solomon Supply Chain Services Inc. 
+Deployment Target Platform: hostforgeplatform.cloud (Cloud Application Hosting Platform) 
+1. Executive Summary & Microservices Architecture 
+Overview 
+This document outlines the engineering architecture for your new ful-stack Supply Chain and 
+Inventory Management System, refactored into a scalable microservices architecture. While 
+retaining the robust foundation of your PHP 8.2 backend, vanila JavaScript/HTML/CSS 
+frontend, and MariaDB database, the application is partitioned into independent, decoupled 
+service containers coordinated via an API Gateway and container networking. 
+Technology Stack & Microservices Specifications 
+● Frontend Container (frontend-service): HTML5, Vanila JavaScript (ES6+), CSS3 with 
+Tailwind CSS (preserving the exact indigo/blue theme, rounded sidebar navigation, badge 
+styles, and typography shown in your layout reference). Serves static assets and 
+communicates with the backend via REST and WebSockets. 
+● API Gateway & Routing (gateway-service): Centralized entry point handling request 
+routing, JWT/Session authentication verification, rate limiting, and CORS headers. 
+● Core Services (Containerized PHP 8.2 / Apache / Slim or Vanilla PHP micro-apps): 
+1. auth-service: User management, MFA/TOTP, RBAC, session management, and login 
+audit logs. 
+2. inventory-service: Asset tracking, smart warehouse occupancy grid, and stock 
+transfers. 
+3. procurement-service: Purchase orders, supplier scorecards, sourcing pipelines, and 
+PDF generation. 
+4. logistics-service: Document tracking, EAF compliance, and mobile scan feed 
+processing. 
+● Real-Time Sync: Dedicated WebSocket microservice (Ratchet PHP) handling live stream 
+updates between warehouse mobile scanners and the desktop command center without 
+page refreshes. 
+● Database Layer: Managed MariaDB instances partitioned logicaly per service (or sharing 
+a secure managed cluster with strict database user isolation). 
+● Version Control & CI/CD: Git & GitHub integrated directly with hostforgeplatform.cloud 
+using Docker Compose multi-container deployments or individual container orchestration. 
+2. UI/UX Layout Preservation & Brand Integration Plan 
+Based on your reference screenshot and specific layout constraints, the user interface retains 
+the exact structural anatomy and official brand identity: 
+● Brand Logo & Header: Prominently displays the Great Solomon Supply Chain Services 
+Inc. logo badge at the top of the sidebar navigation and in the top-left corner of the 
+canvas header, establishing immediate visual consistency. 
+● Sidebar Toggle & Collapsible Navigation: 
+○ The header features a dedicated Sidebar Toggle Button positioned on the far left 
+side, a lowing managers to effortlessly expand or colapse the sidebar. 
+○ The sidebar features a toggle mechanism alowing it to expand (revealing ful module 
+text labels alongside icons) or co lapse into a slim icon-only bar. 
+○ When colapsed, all module and navigation icons remain fully visible and clickable, 
+ensuring uninterrupted navigation. 
+○ The Dashboard functions as a direct top-level link without any sub-menus, sitting 
+directly above the exact 6 core modules. 
+● Top Bar & Profile Dropdown: Clean white canvas header containing breadcrumbs, 
+notification be ls, and the profile avatar shortcut (F). 
+○ Profile Dropdown Menu Expansion: Clicking the profile avatar opens an extended 
+menu containing: 
+■ My Profile & Preferences (Personal details, theme toggles, notification 
+preferences) 
+■ Security & MFA Settings (TOTP authenticator setup, password reset) 
+■ Active Sessions (View and terminate active browser or mobile sessions) 
+■ System Settings Shortcut (Quick jump to global configurations) 
+■ Help & Documentation (User guides, API token manager) 
+■ Log Out (Secure session termination) 
+○ System Settings Module Architecture: Core administrative views such as User 
+Management, Login History, and global audit logs are housed securely inside the 
+centralized System Settings / Administration Hub accessible to authorized 
+administrators, keeping them cleanly separated from routine daily operational 
+workflows. 
+● Theme & Typography: Clean, modern Sans-serif fonts, soft box shadows (shadow-sm), 
+rounded containers (rounded-xl), and signature indigo primary buttons (bg-indigo-600 
+hover:bg-indigo-700). 
+3. Core Modules & Microservice Mapping 
+A. The 6 Core Modules Breakdown 
+1. Smart Warehousing System (SWS): Managed by inventory-service. Real-time occupancy 
+grid mapping zones, rows, and shelves (colored Red/Yelow/Green based on capacity 
+limits), plus QR code physical bin tracking. 
+2. Inventory Management System (IMS): Managed by inventory-service. Tracks individual 
+IT hardware assets (Laptops, Monitors, Peripherals), valuation, and status (Deployed, In 
+Warehouse, In Maintenance). 
+3. Procurement & Sourcing Management (PSM): Managed by procurement-service. 
+Requisitions, supplier quotes, and sourcing pipelines. 
+4. Supplier/Vendor Management (SVM): Managed by procurement-service. Performance 
+scorecards tracking On-Time Delivery Rate and Device Defect Rate. 
+5. Purchase Order Management (POM): Managed by procurement-service. PO Lifecycle 
+Pipeline (Draft  Pending Approval  Sent to Vendor  Shipped  Received). 
+Automatica ly triggers QR PDF generation upon receiving. 
+6. Document Tracking & Logistics Record System (DTRS): Managed by logistics-service. 
+Equipment Accountability Form (EAF) compliance tracking, digital signatures, courier 
+receipts, and invoice verification. 
+(Note: The Dashboard operates as the unified command center link above these 6 core 
+modules). 
+B. Microservices Database Schema Boundaries 
+● Auth & User DB (auth_db): users, api_tokens, roles, permissions, login_history. 
+● Inventory & Warehouse DB (inventory_db): warehouse_shelves, assets, 
+asset_transactions. 
+● Procurement & Vendor DB (procurement_db): vendors, purchase_orders, 
+purchase_order_items. 
+● Logistics DB (logistics_db): document_logs, audit_logs. 
+4. Easy REST API & Gateway Integration Layer (/api/v1/) 
+Al requests route through the API Gateway, exposing clean JSON endpoints: 
+● POST /api/v1/auth/login — Handled by auth-service (MFA/TOTP validation, token issuance). 
+● GET /api/v1/assets/{qr_code} — Handled by inventory-service. 
+● POST /api/v1/assets/scan — Handled by inventory-service & broadcasted via WebSocket. 
+● GET /api/v1/pos/pending & PUT /api/v1/pos/{id}/status — Handled by procurement-service. 
+5. Security Enhancements: RBAC & Inactivity Timeout 
+● Role-Based Access Control (RBAC): Enforced at the API Gateway level based on JWT 
+claims and user roles (Admin, Manager, WarehouseStaff). 
+● Automated 30-Minute Inactivity Timeout: Client-side activity monitoring with a warning 
+modal at 27 minutes, backed by server-side session/token invalidation across 
+microservices. 
+6. Dashboard Features & Component Breakdown 
+�
+�
+1. The Main Desktop Web Dashboard (Management View) 
+● Top Row: Total Inventory Value, Asset Deployment Mix, Active Purchase Orders, 
+Compliance Alerts. 
+● Middle Row: PO Lifecycle Pipeline, Smart Warehouse Occupancy Grid, Vendor 
+Performance Scorecard. 
+● Bottom Row: Real-Time Mobile Scan Feed (WebSocket), Document Tracking Logistics 
+Record, Mobile Link Portal Widget. 
+�
+�
+2. The Mobile Web Scanner Dashboard (Warehouse View) 
+● Top Section: Active Camera Viewport with crosshairs and WebSocket connection status 
+dot. 
+● Middle Section: Quick Action Modes (
+Inventory Intake,
+Asset Transfer,
+Contractor Check-Out). 
+● Bottom Section: Recent Session Log with quick undo buttons. 
+7. Deployment and Infrastructure Strategy via 
+hostforgeplatform.cloud 
+● Containerized Microservices Deployment: Deployed on hostforgeplatform.cloud using 
+Docker Compose or multi-container configurations linked via an internal Docker bridge 
+network. 
+● Managed Database Integration: Securely connected to managed MariaDB instances 
+with environment-based credential injection. 
+● Custom Domain & SSL Management: Configured on hostforgeplatform.cloud with 
+automated Let's SSL certificates for secure WebRTC camera access. 
+● Monitoring & Observability: Real-time log aggregation and performance tracking across 
+al microservice containers via the hostforgeplatform.cloud dashboard. 

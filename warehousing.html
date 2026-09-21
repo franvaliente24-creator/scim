@@ -3,11 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Great Solomon | Command Center</title>
+    <title>Great Solomon | Smart Warehousing</title>
     <link rel="stylesheet" href="styles.css?v=2">
   </head>
   <body>
-    <!-- Main Application Container -->
     <div id="app">
       <!-- Sidebar Navigation -->
       <aside id="sidebar">
@@ -16,8 +15,8 @@
           <span class="label">Great Solomon<small>Supply Chain Services</small></span>
         </div>
         <nav>
-          <a class="active">▦ <span>Dashboard</span></a>
-          <a href="warehousing.html">⌘ <span>Smart Warehousing</span></a>
+          <a href="index.html">▦ <span>Dashboard</span></a>
+          <a class="active">⌘ <span>Smart Warehousing</span></a>
           <a href="inventory.html">▣ <span>Inventory Management</span></a>
           <a href="procurement.html">◫ <span>Procurement & Sourcing</span></a>
           <a href="suppliers.html">♙ <span>Supplier Management</span></a>
@@ -32,7 +31,7 @@
         <header>
           <button id="toggle" class="icon">☰</button>
           <div>
-            <small>Operations /</small> <b>Dashboard</b>
+            <small>Operations /</small> <b>Smart Warehousing</b>
           </div>
           <div class="grow"></div>
           <button class="icon">♧</button>
@@ -51,41 +50,51 @@
         <section class="content">
           <div class="page-title">
             <div>
-              <h1>Operations Command Center</h1>
-              <p>Live overview of inventory, procurement, and compliance.</p>
+              <h1>Smart Warehousing System</h1>
+              <p>Real-time occupancy grid mapping zones, rows, and shelves.</p>
             </div>
             <span class="live">● Live sync active</span>
           </div>
 
-          <div id="stats" class="stats"></div>
-
-          <div class="grid two">
-            <section class="card">
-              <h2>Purchase order pipeline</h2>
-              <div id="pos"></div>
-            </section>
-            <section class="card">
-              <h2>Smart warehouse occupancy</h2>
-              <div id="zones" class="zones"></div>
-              <p class="muted">Green &lt; 60% · Yellow 60–85% · Red &gt; 85%</p>
-            </section>
-          </div>
-
-          <div class="grid two">
-            <section class="card">
-              <h2>Vendor performance</h2>
-              <div id="vendors"></div>
-            </section>
-            <section class="card">
-              <h2>Real-time mobile scan feed</h2>
-              <div id="scans"></div>
-            </section>
+          <div class="stats">
+            <div class="stat">
+              <p>Total Warehouse Capacity</p>
+              <strong id="totalCapacity">0</strong>
+              <small>Across all zones</small>
+            </div>
+            <div class="stat">
+              <p>Current Occupancy</p>
+              <strong id="currentOccupancy">0</strong>
+              <small>Utilization rate</small>
+            </div>
+            <div class="stat">
+              <p>Available Bins</p>
+              <strong id="availableBins">0</strong>
+              <small>Ready for storage</small>
+            </div>
+            <div class="stat">
+              <p>Critical Zones</p>
+              <strong id="criticalZones">0</strong>
+              <small>Need attention</small>
+            </div>
           </div>
 
           <section class="card">
-            <h2>Document tracking & logistics</h2>
-            <div id="docs"></div>
+            <h2>Warehouse Occupancy Grid</h2>
+            <p class="muted">Green &lt; 60% · Yellow 60–85% · Red &gt; 85%</p>
+            <div id="warehouseGrid" class="warehouse-grid"></div>
           </section>
+
+          <div class="grid two">
+            <section class="card">
+              <h2>Zone Details</h2>
+              <div id="zoneDetails"></div>
+            </section>
+            <section class="card">
+              <h2>Recent QR Scans</h2>
+              <div id="recentScans"></div>
+            </section>
+          </div>
         </section>
       </main>
     </div>
@@ -113,6 +122,6 @@
       </div>
     </dialog>
 
-    <script src="dashboard.js"></script>
+    <script src="warehousing.js"></script>
   </body>
 </html>

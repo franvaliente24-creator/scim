@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Great Solomon | Documents & Logistics</title>
+    <link rel="stylesheet" href="styles.css?v=2">
+  </head>
+  <body>
+    <div id="app">
+      <!-- Sidebar Navigation -->
+      <aside id="sidebar">
+        <div class="brand">
+          <span class="mark">GS</span>
+          <span class="label">Great Solomon<small>Supply Chain Services</small></span>
+        </div>
+        <nav>
+          <a href="index.html">▦ <span>Dashboard</span></a>
+          <a href="warehousing.html">⌘ <span>Smart Warehousing</span></a>
+          <a href="inventory.html">▣ <span>Inventory Management</span></a>
+          <a href="procurement.html">◫ <span>Procurement & Sourcing</span></a>
+          <a href="suppliers.html">♙ <span>Supplier Management</span></a>
+          <a href="purchase-orders.html">▤ <span>Purchase Orders</span></a>
+          <a class="active">▧ <span>Documents & Logistics</span></a>
+        </nav>
+        <button id="mobileBtn" class="scan">⌁ Open Mobile Scanner</button>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main>
+        <header>
+          <button id="toggle" class="icon">☰</button>
+          <div>
+            <small>Operations /</small> <b>Documents & Logistics</b>
+          </div>
+          <div class="grow"></div>
+          <button class="icon">♧</button>
+          <button id="profile" class="avatar">FR</button>
+          <div id="profileMenu" hidden class="menu">
+            My Profile & Preferences<br>
+            Security & MFA Settings<br>
+            Active Sessions<br>
+            <button id="usersLink">User Management</button><br>
+            Help & Documentation<br>
+            <hr>
+            <button id="logout">Log out</button>
+          </div>
+        </header>
+
+        <section class="content">
+          <div class="page-title">
+            <div>
+              <h1>Document Tracking & Logistics Record System</h1>
+              <p>Equipment Accountability Form (EAF) compliance tracking, digital signatures, courier receipts, and invoice verification.</p>
+            </div>
+            <span class="live">● Live sync active</span>
+          </div>
+
+          <div class="stats">
+            <div class="stat">
+              <p>Total Documents</p>
+              <strong id="totalDocuments">0</strong>
+              <small>All tracked docs</small>
+            </div>
+            <div class="stat">
+              <p>Pending Verification</p>
+              <strong id="pendingVerification">0</strong>
+              <small>Need attention</small>
+            </div>
+            <div class="stat">
+              <p>EAF Compliance</p>
+              <strong id="eafCompliance">0%</strong>
+              <small>Compliance rate</small>
+            </div>
+            <div class="stat">
+              <p>This Month</p>
+              <strong id="monthlyDocs">0</strong>
+              <small>New documents</small>
+            </div>
+          </div>
+
+          <section class="card">
+            <div class="page-title">
+              <h2>Document Registry</h2>
+              <div>
+                <input id="searchDocuments" type="text" placeholder="Search documents..." style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; width: 200px;">
+                <button id="addDocumentBtn" style="margin-left: 8px;">+ New Document</button>
+              </div>
+            </div>
+            <div id="documentTable" class="data-table-container"></div>
+          </section>
+
+          <div class="grid two">
+            <section class="card">
+              <h2>EAF Compliance Status</h2>
+              <div id="eafStatus"></div>
+            </section>
+            <section class="card">
+              <h2>Recent Document Activity</h2>
+              <div id="recentDocActivity"></div>
+            </section>
+          </div>
+
+          <section class="card">
+            <h2>Courier & Invoice Tracking</h2>
+            <div id="courierTracking"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <!-- Add Document Dialog Modal -->
+    <dialog id="addDocumentModal">
+      <div class="scanner">
+        <button id="closeDocument" class="close">×</button>
+        <h2>New Document</h2>
+        <form id="addDocumentForm">
+          <label>Document Type
+            <select name="document_type" required>
+              <option value="">Select type</option>
+              <option value="EAF">Equipment Accountability Form</option>
+              <option value="Invoice">Invoice</option>
+              <option value="Receipt">Courier Receipt</option>
+              <option value="Contract">Contract</option>
+              <option value="Other">Other</option>
+            </select>
+          </label>
+          <label>Reference Number
+            <input name="reference_no" type="text" placeholder="DOC-2024-001" required>
+          </label>
+          <label>Owner/Department
+            <input name="owner" type="text" required>
+          </label>
+          <label>Description
+            <textarea name="description" rows="2"></textarea>
+          </label>
+          <label>Related PO (Optional)
+            <input name="related_po" type="text" placeholder="PO-2024-001">
+          </label>
+          <label>Due Date
+            <input name="due_date" type="date">
+          </label>
+          <button type="submit">Create Document</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Scanner Dialog Modal -->
+    <dialog id="scanner">
+      <div class="scanner">
+        <button id="closeScan" class="close">×</button>
+        <p class="live">● Scanner connected</p>
+        <div class="viewport">
+          <span>＋</span>
+          <p>Camera preview</p>
+        </div>
+        <h2>Warehouse Scanner</h2>
+        <div class="modes">
+          <button>Inventory Intake</button>
+          <button>Asset Transfer</button>
+          <button>Contractor Check-Out</button>
+        </div>
+        <label>QR code
+          <input id="qr" placeholder="QR-LAP-001">
+        </label>
+        <button id="scanNow">Record scan</button>
+        <p id="scanResult"></p>
+      </div>
+    </dialog>
+
+    <script src="documents.js"></script>
+  </body>
+</html>

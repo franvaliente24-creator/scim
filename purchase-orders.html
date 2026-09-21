@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Great Solomon | Purchase Orders</title>
+    <link rel="stylesheet" href="styles.css?v=2">
+  </head>
+  <body>
+    <div id="app">
+      <!-- Sidebar Navigation -->
+      <aside id="sidebar">
+        <div class="brand">
+          <span class="mark">GS</span>
+          <span class="label">Great Solomon<small>Supply Chain Services</small></span>
+        </div>
+        <nav>
+          <a href="index.html">▦ <span>Dashboard</span></a>
+          <a href="warehousing.html">⌘ <span>Smart Warehousing</span></a>
+          <a href="inventory.html">▣ <span>Inventory Management</span></a>
+          <a href="procurement.html">◫ <span>Procurement & Sourcing</span></a>
+          <a href="suppliers.html">♙ <span>Supplier Management</span></a>
+          <a class="active">▤ <span>Purchase Orders</span></a>
+          <a href="documents.html">▧ <span>Documents & Logistics</span></a>
+        </nav>
+        <button id="mobileBtn" class="scan">⌁ Open Mobile Scanner</button>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main>
+        <header>
+          <button id="toggle" class="icon">☰</button>
+          <div>
+            <small>Operations /</small> <b>Purchase Order Management</b>
+          </div>
+          <div class="grow"></div>
+          <button class="icon">♧</button>
+          <button id="profile" class="avatar">FR</button>
+          <div id="profileMenu" hidden class="menu">
+            My Profile & Preferences<br>
+            Security & MFA Settings<br>
+            Active Sessions<br>
+            <button id="usersLink">User Management</button><br>
+            Help & Documentation<br>
+            <hr>
+            <button id="logout">Log out</button>
+          </div>
+        </header>
+
+        <section class="content">
+          <div class="page-title">
+            <div>
+              <h1>Purchase Order Management</h1>
+              <p>PO Lifecycle Pipeline (Draft → Pending Approval → Sent → Shipped → Received).</p>
+            </div>
+            <span class="live">● Live sync active</span>
+          </div>
+
+          <div class="stats">
+            <div class="stat">
+              <p>Active POs</p>
+              <strong id="activePOs">0</strong>
+              <small>In process</small>
+            </div>
+            <div class="stat">
+              <p>Pending Approval</p>
+              <strong id="pendingApproval">0</strong>
+              <small>Awaiting review</small>
+            </div>
+            <div class="stat">
+              <p>This Month Total</p>
+              <strong id="monthlyTotal">₱0</strong>
+              <small>Order value</small>
+            </div>
+            <div class="stat">
+              <p>Received This Month</p>
+              <strong id="receivedCount">0</strong>
+              <small>Completed orders</small>
+            </div>
+          </div>
+
+          <section class="card">
+            <div class="page-title">
+              <h2>Purchase Orders</h2>
+              <div>
+                <input id="searchPOs" type="text" placeholder="Search POs..." style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; width: 200px;">
+                <button id="addPOBtn" style="margin-left: 8px;">+ New PO</button>
+              </div>
+            </div>
+            <div id="poTable" class="data-table-container"></div>
+          </section>
+
+          <section class="card">
+            <h2>PO Lifecycle Pipeline</h2>
+            <div id="poPipeline" class="po-pipeline"></div>
+          </section>
+
+          <div class="grid two">
+            <section class="card">
+              <h2>Recent Activity</h2>
+              <div id="recentActivity"></div>
+            </section>
+            <section class="card">
+              <h2>Vendor Summary</h2>
+              <div id="vendorSummary"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Add PO Dialog Modal -->
+    <dialog id="addPOModal">
+      <div class="scanner">
+        <button id="closePO" class="close">×</button>
+        <h2>New Purchase Order</h2>
+        <form id="addPOForm">
+          <label>PO Number
+            <input name="po_number" type="text" placeholder="PO-2024-001" required>
+          </label>
+          <label>Vendor
+            <select name="vendor_id" required>
+              <option value="">Select vendor</option>
+              <option value="1">Tech Solutions Inc.</option>
+              <option value="2">Office Supplies Co.</option>
+              <option value="3">Equipment Hub</option>
+            </select>
+          </label>
+          <label>Expected Delivery Date
+            <input name="expected_delivery" type="date" required>
+          </label>
+          <label>Items
+            <textarea name="items" rows="3" placeholder="Item descriptions and quantities" required></textarea>
+          </label>
+          <label>Total Amount (₱)
+            <input name="total" type="number" required>
+          </label>
+          <label>Notes
+            <textarea name="notes" rows="2"></textarea>
+          </label>
+          <button type="submit">Create PO</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Update PO Status Modal -->
+    <dialog id="updateStatusModal">
+      <div class="scanner">
+        <button id="closeStatus" class="close">×</button>
+        <h2>Update PO Status</h2>
+        <form id="updateStatusForm">
+          <input type="hidden" name="po_id" id="poIdInput">
+          <label>Current Status
+            <input type="text" id="currentStatus" disabled>
+          </label>
+          <label>New Status
+            <select name="status" required>
+              <option value="Draft">Draft</option>
+              <option value="Pending Approval">Pending Approval</option>
+              <option value="Sent to Vendor">Sent to Vendor</option>
+              <option value="Shipped">Shipped</option>
+              <option value="Received">Received</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+          </label>
+          <label>Notes
+            <textarea name="notes" rows="2"></textarea>
+          </label>
+          <button type="submit">Update Status</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Scanner Dialog Modal -->
+    <dialog id="scanner">
+      <div class="scanner">
+        <button id="closeScan" class="close">×</button>
+        <p class="live">● Scanner connected</p>
+        <div class="viewport">
+          <span>＋</span>
+          <p>Camera preview</p>
+        </div>
+        <h2>Warehouse Scanner</h2>
+        <div class="modes">
+          <button>Inventory Intake</button>
+          <button>Asset Transfer</button>
+          <button>Contractor Check-Out</button>
+        </div>
+        <label>QR code
+          <input id="qr" placeholder="QR-LAP-001">
+        </label>
+        <button id="scanNow">Record scan</button>
+        <p id="scanResult"></p>
+      </div>
+    </dialog>
+
+    <script src="purchase-orders.js"></script>
+  </body>
+</html>

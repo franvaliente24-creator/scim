@@ -1,0 +1,188 @@
+// ==========================================
+// SMART WAREHOUSING SYSTEM PAGE LOGIC
+// ==========================================
+
+const $ = (selector) => document.querySelector(selector);
+
+const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
+
+// ==========================================
+// WAREHOUSE DATA LOADING
+// ==========================================
+async function loadWarehouseData() {
+  try {
+    const response = await api('warehouse/zones');
+    const zones = response.zones || response;
+
+    // Calculate stats
+    const totalCapacity = zones.reduce((sum, z) => sum + z.capacity, 0);
+    const currentOccupancy = zones.reduce((sum, z) => sum + z.occupied, 0);
+    const availableBins = totalCapacity - currentOccupancy;
+    const criticalZones = zones.filter(z => (z.occupied / z.capacity) > 0.85).length;
+    const utilizationRate = totalCapacity > 0 ? Math.round((currentOccupancy / totalCapacity) * 100) : 0;
+
+    // Update stats
+    $('#totalCapacity').textContent = totalCapacity;
+    $('#currentOccupancy').textContent = `${utilizationRate}%`;
+    $('#availableBins').textContent = availableBins;
+    $('#criticalZones').textContent = criticalZones;
+
+    // Render warehouse grid
+    renderWarehouseGrid(zones);
+
+    // Render zone details
+    renderZoneDetails(zones);
+
+    // Load recent scans
+    loadRecentScans();
+  } catch (error) {
+    console.error('Error loading warehouse data:', error);
+  }
+}
+
+function renderWarehouseGrid(zones) {
+  const gridHTML = zones.map(zone => {
+    const occupancyPercent = Math.round((zone.occupied / zone.capacity) * 100);
+    const alertClass = occupancyPercent > 85 ? 'danger' : occupancyPercent >= 60 ? 'warn' : '';
+    
+    return `
+      <div class="warehouse-zone ${alertClass}" data-zone="${zone.zone}">
+        <div class="zone-header">
+          <b>Zone ${zone.zone}</b>
+          <span>${zone.occupied}/${zone.capacity}</span>
+        </div>
+        <div class="zone-bar">
+          <div class="zone-fill" style="width: ${occupancyPercent}%"></div>
+        </div>
+        <div class="zone-rows">
+          ${renderZoneRows(zone.rows || [])}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  $('#warehouseGrid').innerHTML = gridHTML;
+}
+
+function renderZoneRows(rows) {
+  if (!rows || rows.length === 0) {
+    return '<div class="zone-rows-placeholder">No row data available</div>';
+  }
+
+  return rows.map(row => {
+    const rowOccupancy = Math.round((row.occupied / row.capacity) * 100);
+    const rowClass = rowOccupancy > 85 ? 'danger' : rowOccupancy >= 60 ? 'warn' : '';
+    
+    return `
+      <div class="warehouse-row ${rowClass}">
+        <span>Row ${row.row}</span>
+        <span>${row.occupied}/${row.capacity}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderZoneDetails(zones) {
+  const detailsHTML = zones.map(zone => {
+    const occupancyPercent = Math.round((zone.occupied / zone.capacity) * 100);
+    const alertClass = occupancyPercent > 85 ? 'danger' : occupancyPercent >= 60 ? 'warn' : '';
+    
+    return `
+      <div class="row">
+        <div>
+          <b>Zone ${zone.zone}</b><br>
+          <small>Capacity: ${zone.capacity} bins · Occupied: ${zone.occupied}</small>
+        </div>
+        <div class="zone-status ${alertClass}">
+          ${occupancyPercent}%
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  $('#zoneDetails').innerHTML = detailsHTML;
+}
+
+async function loadRecentScans() {
+  try {
+    const response = await api('warehouse/scans');
+    const scans = response.scans || response;
+
+    const scansHTML = scans.map(scan => `
+      <div class="row">
+        <div>
+          <b>${scan.action}</b><br>
+          <small>${scan.qr_code} · Zone ${scan.zone || 'N/A'}</small>
+        </div>
+        <small>${new Date(scan.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+      </div>
+    `).join('');
+
+    $('#recentScans').innerHTML = scansHTML;
+  } catch (error) {
+    console.error('Error loading recent scans:', error);
+  }
+}
+
+// ==========================================
+// EVENT LISTENERS & INTERACTION
+// ==========================================
+
+// Navigation & Sidebar
+$('#toggle').onclick = () => {
+  if (window.innerWidth < 850) {
+    $('#sidebar').classList.toggle('open');
+  } else {
+    $('#sidebar').classList.toggle('collapsed');
+  }
+};
+
+$('#profile').onclick = () => {
+  $('#profileMenu').hidden = !$('#profileMenu').hidden;
+};
+
+$('#usersLink').onclick = () => {
+  window.location.href = 'users.html';
+};
+
+$('#logout').onclick = () => {
+  window.location.href = 'login.html';
+};
+
+// Scanner Modal Controls
+$('#mobileBtn').onclick = () => $('#scanner').showModal();
+$('#closeScan').onclick = () => $('#scanner').close();
+
+let currentAction = 'Inventory Intake';
+
+document.querySelectorAll('.modes button').forEach((btn) => {
+  btn.onclick = () => {
+    document.querySelectorAll('.modes button').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentAction = btn.textContent;
+  };
+});
+
+$('#scanNow').onclick = async () => {
+  const response = await fetch('/api/v1/assets/scan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      qr_code: $('#qr').value,
+      action: currentAction,
+    }),
+  });
+
+  const data = await response.json();
+
+  $('#scanResult').textContent = response.ok
+    ? `${data.asset.name} recorded for ${currentAction}.`
+    : data.error;
+
+  if (response.ok) {
+    loadWarehouseData();
+  }
+};
+
+// Load warehouse data on page load
+loadWarehouseData();
