@@ -149,6 +149,8 @@ $('#profile').onclick = () => {
   $('#profileMenu').hidden = !$('#profileMenu').hidden;
 };
 
+$('#usersLink').onclick = () => { window.location.href = 'users.html'; };
+
 $('#logout').onclick = () => {
   fetch('/api/v1/auth/logout', { method: 'POST' }).finally(() => {
     window.location.replace('login.html');
