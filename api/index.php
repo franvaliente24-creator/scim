@@ -1,44 +1,28 @@
 <?php
 declare(strict_types=1);
-header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: https://scim.greatsolomonmpservices.com');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-header('Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS');
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
-
-function respond(mixed $body, int $code = 200): never { http_response_code($code); echo json_encode($body); exit; }
-function db(): PDO {
-  static $connection;
-  if ($connection) return $connection;
-  $configFile = dirname(__DIR__) . '/config.php';
-  $c = file_exists($configFile) ? require $configFile : [
-    'host'=>getenv('DB_HOST') ?: '', 'database'=>getenv('DB_NAME') ?: '',
-    'username'=>getenv('DB_USER') ?: '', 'password'=>getenv('DB_PASS') ?: ''
-  ];
-  if (!$c['host'] || !$c['database'] || !$c['username']) respond(['error'=>'Server configuration is incomplete. Add database variables.'], 503);
-  try { $connection = new PDO("mysql:host={$c['host']};dbname={$c['database']};charset=utf8mb4", $c['username'], $c['password'], [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]); }
-  catch (PDOException) { respond(['error'=>'Database connection failed.'], 503); }
-  return $connection;
-}
-function input(): array { return json_decode(file_get_contents('php://input'), true) ?: []; }
-$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$method = $_SERVER['REQUEST_METHOD'];
-
-if ($method==='POST' && $path==='/api/v1/auth/login') {
-  $x=input();
-  if (($x['email']??'')==='admin@greatsolomon.test' && ($x['password']??'')==='Welcome123!') respond(['token'=>'demo-admin-token','user'=>['name'=>'Felix Ramos','role'=>'Admin','initials'=>'FR'],'expiresIn'=>1800]);
-  respond(['error'=>'Invalid email or password'],401);
-}
-if ($method==='GET' && $path==='/api/v1/dashboard') {
-  $d=db(); $stats=$d->query("SELECT COALESCE(SUM(value),0) value, SUM(status='Deployed') deployed, COUNT(*) total FROM assets")->fetch(PDO::FETCH_ASSOC);
-  $zones=$d->query('SELECT zone,capacity,occupied,ROUND(occupied/capacity*100) pct FROM warehouse_shelves ORDER BY zone')->fetchAll(PDO::FETCH_ASSOC);
-  $scans=$d->query("SELECT t.action,t.created_at,a.name,a.qr_code FROM asset_transactions t JOIN assets a ON a.id=t.asset_id ORDER BY t.created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
-  respond(compact('stats','zones','scans'));
-}
-if ($method==='GET' && preg_match('#^/api/v1/assets/([^/]+)$#',$path,$m)) { $s=db()->prepare('SELECT * FROM assets WHERE qr_code=?');$s->execute([$m[1]]);$asset=$s->fetch(PDO::FETCH_ASSOC);respond($asset?:['error'=>'Asset not found'],$asset?200:404); }
-if ($method==='POST' && $path==='/api/v1/assets/scan') { $x=input();$s=db()->prepare('SELECT id,name,status FROM assets WHERE qr_code=?');$s->execute([$x['qr_code']??'']);$asset=$s->fetch(PDO::FETCH_ASSOC);if(!$asset)respond(['error'=>'Unknown QR code'],404);$action=$x['action']??'Inventory Intake';db()->prepare('INSERT INTO asset_transactions(asset_id,action,created_at) VALUES(?,?,NOW())')->execute([$asset['id'],$action]);respond(['ok'=>true,'asset'=>$asset,'action'=>$action]); }
-if ($method==='GET' && $path==='/api/v1/pos/pending') respond(db()->query('SELECT * FROM purchase_orders ORDER BY updated_at DESC')->fetchAll(PDO::FETCH_ASSOC));
-if ($method==='PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#',$path,$m)) { $x=input();db()->prepare('UPDATE purchase_orders SET status=?,updated_at=NOW() WHERE id=?')->execute([$x['status']??'Draft',$m[1]]);respond(['ok'=>true]); }
-if ($method==='GET' && $path==='/api/v1/vendors') respond(db()->query('SELECT * FROM vendors ORDER BY on_time_rate DESC')->fetchAll(PDO::FETCH_ASSOC));
-if ($method==='GET' && $path==='/api/v1/documents') respond(db()->query('SELECT * FROM document_logs ORDER BY due_date')->fetchAll(PDO::FETCH_ASSOC));
-respond(['error'=>'Route not found'],404);
+session_name('scim_session');
+session_set_cookie_params(['httponly'=>true,'samesite'=>'Lax','secure'=>isset($_SERVER['HTTPS'])]);
+session_start(); header('Content-Type: application/json; charset=utf-8');
+function reply(mixed $data,int $status=200): never {http_response_code($status);echo json_encode($data);exit;}
+function body(): array {return json_decode(file_get_contents('php://input'),true)?:[];}
+function migrate(PDO $d):void {$d->exec("CREATE TABLE IF NOT EXISTS roles (id INT AUTO_INCREMENT PRIMARY KEY,name VARCHAR(40) UNIQUE NOT NULL)");$d->exec("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY,full_name VARCHAR(120) NOT NULL,email VARCHAR(160) UNIQUE NOT NULL,password_hash VARCHAR(255) NOT NULL,role VARCHAR(40) NOT NULL DEFAULT 'WarehouseStaff',is_active TINYINT(1) NOT NULL DEFAULT 1,created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)");$d->exec("CREATE TABLE IF NOT EXISTS login_history (id INT AUTO_INCREMENT PRIMARY KEY,user_id INT NULL,email VARCHAR(160) NOT NULL,success TINYINT(1) NOT NULL,ip_address VARCHAR(64),created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)");$d->exec("INSERT IGNORE INTO roles(name) VALUES ('Admin'),('Manager'),('WarehouseStaff')");if(!(int)$d->query('SELECT COUNT(*) FROM users')->fetchColumn()){$q=$d->prepare('INSERT INTO users(full_name,email,password_hash,role) VALUES(?,?,?,?)');$q->execute(['System Administrator','admin@greatsolomon.test',password_hash('Welcome123!',PASSWORD_DEFAULT),'Admin']);}}
+function db():PDO {static $d;if($d)return $d;$h=getenv('DB_HOST')?:'';$n=getenv('DB_NAME')?:'';$u=getenv('DB_USER')?:'';$p=getenv('DB_PASS')?:'';if(!$h||!$n||!$u)reply(['error'=>'Database configuration is incomplete.'],503);try{$d=new PDO("mysql:host=$h;dbname=$n;charset=utf8mb4",$u,$p,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);}catch(PDOException){reply(['error'=>'Database connection failed.'],503);}migrate($d);return $d;}
+function currentUser():?array{return $_SESSION['user']??null;}
+function auth(array $roles=[]):array{$u=currentUser();if(!$u)reply(['error'=>'Authentication required.'],401);if($roles&&!in_array($u['role'],$roles,true))reply(['error'=>'Insufficient permission.'],403);return $u;}
+function audit(PDO $d,string $email,bool $ok,?int $id=null):void{$q=$d->prepare('INSERT INTO login_history(user_id,email,success,ip_address) VALUES(?,?,?,?)');$q->execute([$id,$email,$ok?1:0,$_SERVER['REMOTE_ADDR']??null]);}
+$path=parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH);$method=$_SERVER['REQUEST_METHOD'];if($method==='OPTIONS')reply([],204);
+if($method==='POST'&&$path==='/api/v1/auth/login'){$x=body();$email=strtolower(trim($x['email']??''));$q=db()->prepare('SELECT * FROM users WHERE email=? LIMIT 1');$q->execute([$email]);$u=$q->fetch(PDO::FETCH_ASSOC);if(!$u||!$u['is_active']||!password_verify($x['password']??'',$u['password_hash'])){audit(db(),$email,false);reply(['error'=>'Invalid email or password.'],401);}session_regenerate_id(true);$_SESSION['user']=['id'=>(int)$u['id'],'name'=>$u['full_name'],'email'=>$u['email'],'role'=>$u['role'],'initials'=>strtoupper(substr($u['full_name'],0,1))];audit(db(),$email,true,(int)$u['id']);reply(['user'=>currentUser()]);}
+if($method==='POST'&&$path==='/api/v1/auth/logout'){session_destroy();reply(['ok'=>true]);}
+if($method==='GET'&&$path==='/api/v1/auth/me')reply(['user'=>currentUser()]);
+if($method==='GET'&&$path==='/api/v1/dashboard'){auth();$d=db();$stats=$d->query("SELECT COALESCE(SUM(value),0) value,SUM(status='Deployed') deployed,COUNT(*) total FROM assets")->fetch(PDO::FETCH_ASSOC);$zones=$d->query('SELECT zone,capacity,occupied,ROUND(occupied/capacity*100) pct FROM warehouse_shelves ORDER BY zone')->fetchAll(PDO::FETCH_ASSOC);$scans=$d->query("SELECT t.action,t.created_at,a.name,a.qr_code FROM asset_transactions t JOIN assets a ON a.id=t.asset_id ORDER BY t.created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);reply(compact('stats','zones','scans'));}
+if($method==='GET'&&$path==='/api/v1/assets'){auth();reply(db()->query('SELECT * FROM assets ORDER BY name')->fetchAll(PDO::FETCH_ASSOC));}
+if($method==='POST'&&$path==='/api/v1/assets'){auth(['Admin','Manager']);$x=body();$q=db()->prepare('INSERT INTO assets(qr_code,name,category,value,status,location) VALUES(?,?,?,?,?,?)');$q->execute([$x['qr_code'],$x['name'],$x['category'],$x['value'],$x['status']??'In Warehouse',$x['location']]);reply(['id'=>db()->lastInsertId()],201);}
+if($method==='GET'&&preg_match('#^/api/v1/assets/([^/]+)$#',$path,$m)){auth();$q=db()->prepare('SELECT * FROM assets WHERE qr_code=?');$q->execute([$m[1]]);$a=$q->fetch(PDO::FETCH_ASSOC);reply($a?:['error'=>'Asset not found'],$a?200:404);}
+if($method==='POST'&&$path==='/api/v1/assets/scan'){auth();$x=body();$q=db()->prepare('SELECT id,name,status FROM assets WHERE qr_code=?');$q->execute([$x['qr_code']??'']);$a=$q->fetch(PDO::FETCH_ASSOC);if(!$a)reply(['error'=>'Unknown QR code.'],404);$action=$x['action']??'Inventory Intake';db()->prepare('INSERT INTO asset_transactions(asset_id,action,created_at) VALUES(?,?,NOW())')->execute([$a['id'],$action]);reply(['ok'=>true,'asset'=>$a,'action'=>$action]);}
+if($method==='GET'&&$path==='/api/v1/pos/pending'){auth();reply(db()->query('SELECT * FROM purchase_orders ORDER BY updated_at DESC')->fetchAll(PDO::FETCH_ASSOC));}
+if($method==='PUT'&&preg_match('#^/api/v1/pos/(\d+)/status$#',$path,$m)){auth(['Admin','Manager']);$x=body();db()->prepare('UPDATE purchase_orders SET status=?,updated_at=NOW() WHERE id=?')->execute([$x['status']??'Draft',$m[1]]);reply(['ok'=>true]);}
+if($method==='GET'&&$path==='/api/v1/vendors'){auth();reply(db()->query('SELECT * FROM vendors ORDER BY on_time_rate DESC')->fetchAll(PDO::FETCH_ASSOC));}
+if($method==='GET'&&$path==='/api/v1/documents'){auth();reply(db()->query('SELECT * FROM document_logs ORDER BY due_date')->fetchAll(PDO::FETCH_ASSOC));}
+if($method==='GET'&&$path==='/api/v1/users'){auth(['Admin']);reply(db()->query('SELECT id,full_name,email,role,is_active,created_at FROM users ORDER BY full_name')->fetchAll(PDO::FETCH_ASSOC));}
+if($method==='POST'&&$path==='/api/v1/users'){auth(['Admin']);$x=body();$q=db()->prepare('INSERT INTO users(full_name,email,password_hash,role) VALUES(?,?,?,?)');$q->execute([$x['full_name'],strtolower($x['email']),password_hash($x['password'],PASSWORD_DEFAULT),$x['role']??'WarehouseStaff']);reply(['id'=>db()->lastInsertId()],201);}
+reply(['error'=>'Route not found.'],404);

@@ -6,6 +6,17 @@ const $ = (selector) => document.querySelector(selector);
 
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 
+async function requireSession() {
+  const response = await fetch('/api/v1/auth/me');
+  const data = await response.json();
+  if (!data.user) {
+    window.location.replace('login.html');
+    return false;
+  }
+  document.querySelector('#profile').textContent = data.user.initials;
+  return true;
+}
+
 const money = (amount) =>
   new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -139,8 +150,9 @@ $('#profile').onclick = () => {
 };
 
 $('#logout').onclick = () => {
-  // Redirect to login page
-  window.location.href = 'login.html';
+  fetch('/api/v1/auth/logout', { method: 'POST' }).finally(() => {
+    window.location.replace('login.html');
+  });
 };
 
 // Scanner Modal Controls
@@ -176,5 +188,5 @@ $('#scanNow').onclick = async () => {
   if (response.ok) load();
 };
 
-// Load dashboard data on page load
-load();
+// Load dashboard data only after a valid server-side session is confirmed.
+requireSession().then((signedIn) => signedIn && load());

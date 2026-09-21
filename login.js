@@ -1,25 +1,4 @@
-// ==========================================
-// LOGIN PAGE LOGIC
-// ==========================================
-
-const $ = (selector) => document.querySelector(selector);
-
-// Authentication
-$('#loginForm').onsubmit = async (e) => {
-  e.preventDefault();
-  const formData = new FormData(e.target);
-
-  const response = await fetch('/api/v1/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.fromEntries(formData)),
-  });
-
-  if (!response.ok) {
-    alert('Sign-in failed.');
-    return;
-  }
-
-  // Redirect to dashboard on successful login
-  window.location.href = 'index.html';
-};
+const form=document.querySelector('#loginForm'),error=document.querySelector('#loginError'),password=document.querySelector('#password');
+document.querySelector('#togglePassword').onclick=()=>{password.type=password.type==='password'?'text':'password';};
+document.querySelector('#forgotPassword').onclick=(e)=>{e.preventDefault();error.textContent='Please contact your system administrator to reset your password.';};
+form.onsubmit=async(e)=>{e.preventDefault();error.textContent='';const button=form.querySelector('[type=submit]');button.disabled=true;button.textContent='Signing in...';try{const r=await fetch('/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(form)))});const data=await r.json();if(!r.ok)throw new Error(data.error||'Unable to sign in.');window.location.href='index.html';}catch(err){error.textContent=err.message;button.disabled=false;button.textContent='Sign In';}};
