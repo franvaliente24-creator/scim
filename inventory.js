@@ -11,7 +11,7 @@ const money = (amount) =>
     style: 'currency',
     currency: 'PHP',
     maximumFractionDigits: 0,
-  }).format(amount);
+  }).format(Number(amount) || 0);
 
 // ==========================================
 // INVENTORY DATA LOADING
@@ -24,7 +24,7 @@ async function loadInventoryData() {
 
     // Calculate stats
     const totalAssets = assets.length;
-    const totalValue = assets.reduce((sum, asset) => sum + (asset.value || 0), 0);
+    const totalValue = assets.reduce((sum, asset) => sum + Number(asset.value || 0), 0);
     const deployedAssets = assets.filter(asset => asset.status === 'Deployed').length;
     const maintenanceAssets = assets.filter(asset => asset.status === 'In Maintenance').length;
 
@@ -103,7 +103,7 @@ function renderAssetCategories(assets) {
       categories[category] = { count: 0, value: 0 };
     }
     categories[category].count++;
-    categories[category].value += asset.value || 0;
+    categories[category].value += Number(asset.value || 0);
   });
 
   const categoriesHTML = Object.entries(categories).map(([category, data]) => `
