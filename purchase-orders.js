@@ -19,7 +19,8 @@ const money = (amount) =>
 async function loadPOData() {
   try {
     const response = await api('pos');
-    const purchaseOrders = response.pos || response;
+    const data = response.pos || response;
+    const purchaseOrders = Array.isArray(data) ? data : [];
 
     // Calculate stats
     const activePOs = purchaseOrders.filter(po => po.status !== 'Received' && po.status !== 'Cancelled').length;
@@ -79,11 +80,11 @@ function renderPOTable(purchaseOrders) {
         ${purchaseOrders.map(po => `
           <tr>
             <td><span class="tag">${po.po_number}</span></td>
-            <td><b>${po.vendor}</b></td>
+            <td><b>${po.vendor_name || po.vendor}</b></td>
             <td>${money(po.total)}</td>
             <td><span class="tag ${getPOStatusClass(po.status)}">${po.status}</span></td>
             <td>${new Date(po.created_at).toLocaleDateString()}</td>
-            <td>${new Date(po.expected_delivery).toLocaleDateString()}</td>
+            <td>${po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString() : 'N/A'}</td>
             <td>
               <button class="action-btn" onclick="viewPO('${po.id}')">View</button>
               <button class="action-btn" onclick="updatePOStatus('${po.id}', '${po.status}')">Update</button>

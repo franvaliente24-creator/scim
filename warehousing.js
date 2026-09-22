@@ -12,11 +12,12 @@ const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 async function loadWarehouseData() {
   try {
     const response = await api('warehouse/zones');
-    const zones = response.zones || response;
+    const data = response.zones || response;
+    const zones = Array.isArray(data) ? data : [];
 
     // Calculate stats
-    const totalCapacity = zones.reduce((sum, z) => sum + z.capacity, 0);
-    const currentOccupancy = zones.reduce((sum, z) => sum + z.occupied, 0);
+    const totalCapacity = zones.reduce((sum, z) => sum + (z.capacity || 0), 0);
+    const currentOccupancy = zones.reduce((sum, z) => sum + (z.occupied || 0), 0);
     const availableBins = totalCapacity - currentOccupancy;
     const criticalZones = zones.filter(z => (z.occupied / z.capacity) > 0.85).length;
     const utilizationRate = totalCapacity > 0 ? Math.round((currentOccupancy / totalCapacity) * 100) : 0;

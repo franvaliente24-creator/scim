@@ -30,19 +30,22 @@ const money = (amount) =>
 async function load() {
   const [dash, pos, vendors, docs] = await Promise.all([
     api('dashboard'),
-    api('pos/pending'),
-    api('vendors'),
+    api('pos'),
+    api('suppliers'),
     api('documents'),
   ]);
 
   const stats = dash.stats;
+  const purchaseOrders = Array.isArray(pos.pos) ? pos.pos : [];
+  const vendorList = Array.isArray(vendors.suppliers) ? vendors.suppliers : [];
+  const documentList = Array.isArray(docs.documents) ? docs.documents : [];
 
   // Render Stats
   $('#stats').innerHTML = [
     ['Total inventory value', money(stats.value), `Across ${stats.total} tracked assets`],
     ['Asset deployment mix', `${stats.deployed} deployed`, `${Math.round((stats.deployed / stats.total) * 100)}% of inventory`],
-    ['Active purchase orders', pos.filter((x) => x.status !== 'Received').length, 'In the approval pipeline'],
-    ['Compliance alerts', docs.filter((x) => x.status !== 'Verified').length, 'Items need attention'],
+    ['Active purchase orders', purchaseOrders.filter((x) => x.status !== 'Received').length, 'In the approval pipeline'],
+    ['Compliance alerts', documentList.filter((x) => x.status !== 'Verified').length, 'Items need attention'],
   ]
     .map(
       ([title, value, subtitle]) => `
@@ -72,13 +75,13 @@ async function load() {
     .join('');
 
   // Render Purchase Orders
-  $('#pos').innerHTML = pos
+  $('#pos').innerHTML = purchaseOrders
     .map(
       (p) => `
         <div class="row">
           <div>
             <b>${p.po_number}</b><br>
-            <small>${p.vendor} · ${money(p.total)}</small>
+            <small>${p.vendor_name || p.vendor} · ${money(p.total)}</small>
           </div>
           <span class="tag">${p.status}</span>
         </div>
@@ -87,7 +90,7 @@ async function load() {
     .join('');
 
   // Render Vendors
-  $('#vendors').innerHTML = vendors
+  $('#vendors').innerHTML = vendorList
     .map(
       (v) => `
         <div class="row">
@@ -117,7 +120,7 @@ async function load() {
     .join('');
 
   // Render Documents
-  $('#docs').innerHTML = docs
+  $('#docs').innerHTML = documentList
     .map(
       (d) => `
         <div class="row">

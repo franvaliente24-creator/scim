@@ -12,7 +12,8 @@ const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 async function loadDocumentData() {
   try {
     const response = await api('documents');
-    const documents = response.documents || response;
+    const data = response.documents || response;
+    const documents = Array.isArray(data) ? data : [];
 
     // Calculate stats
     const totalDocuments = documents.length;
@@ -150,13 +151,14 @@ function renderEAFStatus(documents) {
 async function loadRecentActivity() {
   try {
     const response = await api('documents/activity');
-    const activities = response.activities || response;
+    const data = response.activities || response;
+    const activities = Array.isArray(data) ? data : [];
 
     const activityHTML = activities.map(activity => `
       <div class="row">
         <div>
           <b>${activity.action}</b><br>
-          <small>${activity.document_type} · ${activity.reference_no}</small>
+          <small>${activity.reference_no}</small>
         </div>
         <small>${new Date(activity.created_at).toLocaleString()}</small>
       </div>

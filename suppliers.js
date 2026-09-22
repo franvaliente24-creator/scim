@@ -12,7 +12,8 @@ const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 async function loadSupplierData() {
   try {
     const response = await api('suppliers');
-    const suppliers = response.suppliers || response;
+    const data = response.suppliers || response;
+    const suppliers = Array.isArray(data) ? data : [];
 
     // Calculate stats
     const totalSuppliers = suppliers.length;

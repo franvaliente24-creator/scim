@@ -19,7 +19,8 @@ const money = (amount) =>
 async function loadProcurementData() {
   try {
     const response = await api('procurement/requisitions');
-    const requisitions = response.requisitions || response;
+    const data = response.requisitions || response;
+    const requisitions = Array.isArray(data) ? data : [];
 
     // Calculate stats
     const activeRequisitions = requisitions.filter(req => req.status !== 'Completed' && req.status !== 'Cancelled').length;
@@ -153,7 +154,8 @@ function renderSourcingPipeline(requisitions) {
 async function loadRecentQuotes() {
   try {
     const response = await api('procurement/quotes');
-    const quotes = response.quotes || response;
+    const data = response.quotes || response;
+    const quotes = Array.isArray(data) ? data : [];
 
     const quotesHTML = quotes.map(quote => `
       <div class="row">

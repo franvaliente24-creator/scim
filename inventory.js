@@ -19,7 +19,8 @@ const money = (amount) =>
 async function loadInventoryData() {
   try {
     const response = await api('inventory/assets');
-    const assets = response.assets || response;
+    const data = response.assets || response;
+    const assets = Array.isArray(data) ? data : [];
 
     // Calculate stats
     const totalAssets = assets.length;
@@ -121,12 +122,13 @@ function renderAssetCategories(assets) {
 async function loadRecentTransactions() {
   try {
     const response = await api('inventory/transactions');
-    const transactions = response.transactions || response;
+    const data = response.transactions || response;
+    const transactions = Array.isArray(data) ? data : [];
 
     const transactionsHTML = transactions.map(transaction => `
       <div class="row">
         <div>
-          <b>${transaction.type}</b><br>
+          <b>${transaction.action}</b><br>
           <small>${transaction.qr_code} · ${transaction.asset_name}</small>
         </div>
         <small>${new Date(transaction.created_at).toLocaleString()}</small>
