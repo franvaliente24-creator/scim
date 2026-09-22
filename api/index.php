@@ -252,10 +252,12 @@ function db(): PDO {
     static $d;
     if ($d) return $d;
     
-    $h = getenv('DB_HOST') ?: '';
-    $n = getenv('DB_NAME') ?: '';
-    $u = getenv('DB_USER') ?: '';
-    $p = getenv('DB_PASS') ?: '';
+    $h = getenv('DB_HOST') ?: 'mariadb-5tyoddp0.internal';
+    $port = getenv('DB_PORT') ?: '35425';
+    $n = getenv('DB_NAME') ?: getenv('DB_DATABASE') ?: 'hf_db_5tyoddp0';
+    $u = getenv('DB_USER') ?: getenv('DB_USERNAME') ?: 'hf_mt2jba5hlb';
+    $p = getenv('DB_PASS') ?: getenv('DB_PASSWORD') ?: 'dxbfdDz8k0tcetXthuRFegIiGfzCiz7C';
+    
     
     if (!$h || !$n || !$u) {
         reply(['error' => 'Database configuration is incomplete.'], 503);
