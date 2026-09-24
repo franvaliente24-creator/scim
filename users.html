@@ -1,82 +1,251 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>User Management | Great Solomon</title>
-    <link rel="stylesheet" href="styles.css?v=3">
-    <link rel="stylesheet" href="admin.css?v=1">
-  </head>
-  <body>
-    <main class="admin-page">
-      <header class="admin-header">
-        <div>
-          <a href="index.html">← Command Center</a>
-          <h1>User Management</h1>
-          <p>Create accounts and assign access roles.</p>
-        </div>
-        <button id="logout" class="text-button">Log out</button>
-      </header>
-      
-      <section class="admin-grid">
-        <section class="admin-card">
-          <h2>Create user</h2>
-          <form id="userForm">
-            <label>Full name
-              <input name="full_name" required placeholder="e.g. Maria Santos">
-            </label>
-            <label>Work email
-              <input name="email" type="email" required placeholder="name@company.com">
-            </label>
-            <label>Temporary password
-              <input name="password" type="password" minlength="8" required placeholder="At least 8 characters">
-            </label>
-            <label>Role
-              <select name="role">
-                <option value="WarehouseStaff">Warehouse Staff</option>
-                <option value="Manager">Manager</option>
-                <option value="Admin">Admin</option>
-              </select>
-            </label>
-            <p id="formMessage" class="form-message" role="alert"></p>
-            <button class="primary" type="submit">Create account</button>
-          </form>
-        </section>
-        
-        <section class="admin-card">
-          <h2>Accounts</h2>
-          <div id="users" class="users-list">
-            <p class="muted">Loading users...</p>
-          </div>
-        </section>
-      </section>
-      
-      <section class="admin-card">
-        <h2>Login History</h2>
-        <div id="loginHistory">
-          <p class="muted">Loading login history...</p>
-        </div>
-      </section>
-      </section>
-      
-      <section class="admin-card roles">
-        <h2>Role access</h2>
-        <div>
-          <b>Admin</b>
-          <span>Users, audit, system settings, and all operations.</span>
-        </div>
-        <div>
-          <b>Manager</b>
-          <span>Assets, purchase orders, vendors, and documents.</span>
-        </div>
-        <div>
-          <b>Warehouse Staff</b>
-          <span>Asset lookup, intake, transfers, and QR scanning.</span>
-        </div>
-      </section>
-    </main>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Management | Great Solomon SCIM</title>
     
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css?v=3">
+</head>
+<body class="bg-background text-on-background font-body h-screen flex flex-row overflow-hidden">
+    
+    <!-- Mobile Backdrop overlay -->
+    <div id="sidebar-backdrop" class="fixed top-16 bottom-0 left-0 right-0 md:inset-0 bg-gray-900/50 backdrop-blur-md z-40 hidden md:hidden transition-opacity duration-300 opacity-0"></div>
+    
+    <!-- Left Sidebar -->
+    <aside id="app-sidebar" class="dashboard-sidebar fixed md:static top-16 bottom-0 md:inset-y-0 left-0 z-50 bg-white flex flex-col h-[calc(100vh-4rem)] md:h-full shrink-0 shadow-xl md:shadow-none transition-all duration-300 ease-in-out overflow-hidden w-72 border-r border-slate-200 -translate-x-full md:translate-x-0 opacity-100">
+        <div class="px-5 pt-6 pb-5 border-b border-slate-200">
+            <div class="sidebar-brand-card rounded-[2rem] p-6 flex flex-col items-center text-center gap-3">
+                <span class="sidebar-brand-icon inline-flex items-center justify-center w-14 h-14 rounded-[1.75rem] bg-slate-100 text-primary text-2xl shadow-sm">
+                    <span class="material-symbols-outlined">inventory_2</span>
+                </span>
+                <p id="sidebar-brand-title" class="text-sm font-semibold text-slate-950 truncate">Supply Chain</p>
+                <p id="sidebar-brand-category" class="text-xs text-slate-500 mt-1 truncate">Inventory Management</p>
+            </div>
+        </div>
+        <nav class="flex-1 overflow-y-auto px-5 py-6 space-y-3">
+            <a id="sidebar-dashboard-link" class="sidebar-main-link" href="index.html">
+                <span class="sidebar-main-link-icon material-symbols-outlined">dashboard</span>
+                <span class="font-label font-medium text-sm">Dashboard</span>
+            </a>
+            <div id="sidebar-subsystem-nav-panel" class="sidebar-subsystem-nav-panel">
+                <nav id="sidebar-subsystem-modules-nav" class="sidebar-subsystem-modules">
+                    <a class="sidebar-subsystem-link" href="warehousing.html">
+                        <span class="material-symbols-outlined">warehouse</span>
+                        <span>Smart Warehousing</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="inventory.html">
+                        <span class="material-symbols-outlined">inventory</span>
+                        <span>Inventory Management</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="procurement.html">
+                        <span class="material-symbols-outlined">shopping_cart</span>
+                        <span>Procurement & Sourcing</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="suppliers.html">
+                        <span class="material-symbols-outlined">business</span>
+                        <span>Supplier Management</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="purchase-orders.html">
+                        <span class="material-symbols-outlined">receipt_long</span>
+                        <span>Purchase Orders</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="documents.html">
+                        <span class="material-symbols-outlined">description</span>
+                        <span>Documents & Logistics</span>
+                    </a>
+                </nav>
+            </div>
+        </nav>
+    </aside>
+    
+    <!-- Main Content Wrapper -->
+    <div class="flex-1 flex flex-col h-full overflow-hidden relative">
+        <!-- TopNavBar -->
+        <header class="bg-surface/80 backdrop-blur-md shadow-sm border-b border-outline-variant/30 flex justify-between items-center h-16 px-6 w-full z-30 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm shrink-0">
+                    GS
+                </div>
+                <span class="text-outline-variant font-light select-none">|</span>
+                <button id="desktop-sidebar-toggle" type="button" class="flex items-center justify-center p-2 rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low focus:outline-none transition border border-outline-variant/30 shrink-0 min-w-[2.5rem] min-h-[2.5rem]" title="Toggle Sidebar">
+                    <span class="material-symbols-outlined text-xl" id="sidebar-toggle-icon">menu_open</span>
+                </button>
+            </div>
+            
+            <div class="relative flex items-center">
+                <button id="profile-dropdown-toggle" type="button" class="flex items-center gap-3 p-1.5 rounded-full hover:bg-surface-container-low transition-colors focus:outline-none border border-transparent hover:border-outline-variant/30 cursor-pointer" aria-expanded="false" title="Account Menu">
+                    <div class="w-9 h-9 rounded-full bg-primary-container/30 border border-primary/20 flex items-center justify-center text-primary font-bold text-sm shadow-2xs shrink-0">
+                        AU
+                    </div>
+                    <div class="hidden md:flex flex-col text-left mr-1">
+                        <span class="font-label font-semibold text-sm text-on-surface leading-tight">Admin User</span>
+                        <span class="text-xs text-on-surface-variant font-light">Administrator</span>
+                    </div>
+                    <span class="material-symbols-outlined text-on-surface-variant text-sm hidden sm:inline-block">expand_more</span>
+                </button>
+                
+                <div id="profile-dropdown-menu" class="absolute right-0 top-14 w-60 bg-surface rounded-2xl shadow-xl border border-outline-variant/30 py-2 z-50 transition-all duration-200 hidden opacity-0 scale-95 origin-top-right">
+                    <div class="px-4 py-3 border-b border-outline-variant/20 md:hidden">
+                        <p class="text-sm font-semibold text-on-surface">Admin User</p>
+                        <p class="text-xs text-on-surface-variant truncate">admin@example.com</p>
+                    </div>
+                    <div class="px-4 py-2 hidden md:block">
+                        <p class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">Account</p>
+                    </div>
+                    <a href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors">
+                        <span class="material-symbols-outlined text-lg text-on-surface-variant">person</span>
+                        <span class="font-medium">My Profile</span>
+                    </a>
+                    <a href="mfa-setup.html" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors">
+                        <span class="material-symbols-outlined text-lg text-on-surface-variant">security</span>
+                        <span class="font-medium">Security & MFA Settings</span>
+                    </a>
+                    <a href="users.html" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors">
+                        <span class="material-symbols-outlined text-lg text-on-surface-variant">manage_accounts</span>
+                        <span class="font-medium">User Management</span>
+                    </a>
+                    <a href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors">
+                        <span class="material-symbols-outlined text-lg text-on-surface-variant">help</span>
+                        <span class="font-medium">Help & Documentation</span>
+                    </a>
+                    <div class="my-1 border-t border-outline-variant/20"></div>
+                    <button id="logout" class="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors font-medium cursor-pointer w-full text-left">
+                        <span class="material-symbols-outlined text-lg">logout</span>
+                        <span>Log Out</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Main Scrollable Area -->
+        <main class="flex-1 overflow-y-auto bg-surface-container-lowest p-6 md:p-8">
+            <div class="max-w-7xl mx-auto space-y-8">
+                <div class="flex flex-col gap-6">
+                    <!-- Enterprise Dynamic Breadcrumb Standard Bar -->
+                    <div class="bg-surface-container-lowest rounded-xl sm:rounded-2xl border border-outline-variant/60 shadow-sm p-4 sm:px-6 sm:py-4.5 flex flex-col md:flex-row md:items-center justify-between gap-4 w-full max-w-full">
+                        <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+                            <div class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary/10 text-primary text-xs sm:text-sm font-bold border border-primary/20 shadow-2xs">
+                                <span class="material-symbols-outlined text-[20px] fill">manage_accounts</span>
+                                <span>User Management</span>
+                                <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="Live Synchronized View"></span>
+                            </div>
+                        </nav>
+                    </div>
+                    
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full">
+                        <div>
+                            <h1 class="text-3xl font-headline font-bold text-on-surface">User Management</h1>
+                            <p class="text-on-surface-variant text-sm mt-2">Create accounts and assign access roles.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- User Creation and List Grid -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Create User Form -->
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                        <div class="px-6 py-4 border-b border-outline-variant/30">
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">Create User</h2>
+                        </div>
+                        <div class="p-6">
+                            <form id="userForm" class="space-y-4">
+                                <div class="form-group">
+                                    <label>Full name</label>
+                                    <input name="full_name" required placeholder="e.g. Maria Santos">
+                                </div>
+                                <div class="form-group">
+                                    <label>Work email</label>
+                                    <input name="email" type="email" required placeholder="name@company.com">
+                                </div>
+                                <div class="form-group">
+                                    <label>Temporary password</label>
+                                    <input name="password" type="password" minlength="8" required placeholder="At least 8 characters">
+                                </div>
+                                <div class="form-group">
+                                    <label>Role</label>
+                                    <select name="role">
+                                        <option value="WarehouseStaff">Warehouse Staff</option>
+                                        <option value="Manager">Manager</option>
+                                        <option value="Admin">Admin</option>
+                                    </select>
+                                </div>
+                                <p id="formMessage" class="form-message" role="alert"></p>
+                                <button class="btn-primary w-full" type="submit">Create account</button>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <!-- Users List -->
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                        <div class="px-6 py-4 border-b border-outline-variant/30">
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">Accounts</h2>
+                        </div>
+                        <div id="users" class="p-6">
+                            <p class="text-on-surface-variant text-sm">Loading users...</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Login History -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Login History</h2>
+                    </div>
+                    <div id="loginHistory" class="p-6">
+                        <p class="text-on-surface-variant text-sm">Loading login history...</p>
+                    </div>
+                </div>
+                
+                <!-- Role Access Information -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Role Access Permissions</h2>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                                <span class="material-symbols-outlined text-primary">admin_panel_settings</span>
+                            </div>
+                            <div>
+                                <b class="text-on-surface">Admin</b>
+                                <p class="text-on-surface-variant text-sm mt-1">Users, audit, system settings, and all operations.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
+                                <span class="material-symbols-outlined text-secondary">business_center</span>
+                            </div>
+                            <div>
+                                <b class="text-on-surface">Manager</b>
+                                <p class="text-on-surface-variant text-sm mt-1">Assets, purchase orders, vendors, and documents.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center shrink-0">
+                                <span class="material-symbols-outlined text-success">warehouse</span>
+                            </div>
+                            <div>
+                                <b class="text-on-surface">Warehouse Staff</b>
+                                <p class="text-on-surface-variant text-sm mt-1">Asset lookup, intake, transfers, and QR scanning.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="layout.js"></script>
     <script src="users.js"></script>
     <script src="inactivity.js"></script>
-  </body>
+</body>
 </html>

@@ -13,7 +13,12 @@ async function requireSession() {
     window.location.replace('login.html');
     return false;
   }
-  document.querySelector('#profile').textContent = data.user.initials;
+  // Update profile circle with user initials
+  const profileCircle = document.querySelector('.w-9.h-9.rounded-full');
+  if (profileCircle && data.user.full_name) {
+    const initials = data.user.full_name.split(' ').map(n => n[0]).join('').toUpperCase();
+    profileCircle.textContent = initials;
+  }
   return true;
 }
 
@@ -49,10 +54,10 @@ async function load() {
   ]
     .map(
       ([title, value, subtitle]) => `
-        <div class="stat">
-          <p>${title}</p>
-          <strong>${value}</strong>
-          <small>${subtitle}</small>
+        <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+          <p class="text-on-surface-variant text-sm mb-2">${title}</p>
+          <strong class="text-2xl font-headline font-bold text-on-surface">${value}</strong>
+          <small class="text-on-surface-variant text-xs">${subtitle}</small>
         </div>
       `
     )
@@ -63,7 +68,7 @@ async function load() {
     .map((z) => {
       const alertClass = z.pct > 85 ? 'danger' : z.pct >= 60 ? 'warn' : '';
       return `
-        <div class="zone">
+        <div class="zone ${alertClass}">
           <b>Zone ${z.zone}</b>
           <span>${z.occupied}/${z.capacity} bins</span>
           <div class="bar ${alertClass}">
@@ -73,6 +78,26 @@ async function load() {
       `;
     })
     .join('');
+
+  // Render Deployment
+  $('#deployment').innerHTML = `
+    <div class="space-y-4">
+      <div class="flex justify-between items-center">
+        <span class="text-sm text-on-surface-variant">Deployed</span>
+        <span class="font-semibold text-on-surface">${stats.deployed} (${Math.round((stats.deployed / stats.total) * 100)}%)</span>
+      </div>
+      <div class="w-full bg-surface-container rounded-full h-2">
+        <div class="bg-primary h-2 rounded-full" style="width: ${Math.round((stats.deployed / stats.total) * 100)}%"></div>
+      </div>
+      <div class="flex justify-between items-center">
+        <span class="text-sm text-on-surface-variant">In Warehouse</span>
+        <span class="font-semibold text-on-surface">${stats.total - stats.deployed} (${Math.round(((stats.total - stats.deployed) / stats.total) * 100)}%)</span>
+      </div>
+      <div class="w-full bg-surface-container rounded-full h-2">
+        <div class="bg-secondary h-2 rounded-full" style="width: ${Math.round(((stats.total - stats.deployed) / stats.total) * 100)}%"></div>
+      </div>
+    </div>
+  `;
 
   // Render Purchase Orders
   $('#pos').innerHTML = purchaseOrders

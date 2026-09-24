@@ -1,47 +1,60 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sign in | Great Solomon</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In | Great Solomon SCIM</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="styles.css?v=3">
-    <link rel="stylesheet" href="auth.css?v=1">
-  </head>
-  <body class="login-page">
+    <link rel="stylesheet" href="auth.css?v=2">
+</head>
+<body class="login-page">
     <main class="auth-card">
-      <div class="crown" aria-hidden="true">♛</div>
-      <h1>Sign In</h1>
-      <p class="auth-subtitle">Great Solomon Manpower Services Inc.</p>
-      
-      <form id="loginForm" novalidate>
-        <label>Email
-          <span class="field">
-            <span>✉</span>
-            <input name="email" type="email" placeholder="you@company.com" autocomplete="email" required>
-          </span>
-        </label>
-        
-        <label>Password
-          <span class="field">
-            <span>♙</span>
-            <input id="password" name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required>
-            <button type="button" id="togglePassword" class="show-password" aria-label="Show password">◉</button>
-          </span>
-        </label>
-        
-        <div class="auth-options">
-          <label class="remember">
-            <input type="checkbox" name="remember"> Remember me
-          </label>
-          <a href="#" id="forgotPassword">Forgot password?</a>
+        <div class="crown" aria-hidden="true">
+            <span class="material-symbols-outlined">shield</span>
         </div>
+        <h1>Sign In</h1>
+        <p class="auth-subtitle">Great Solomon Supply Chain Management</p>
         
-        <p id="loginError" class="login-error" role="alert"></p>
-        
-        <button class="signin-button" type="submit">Sign In</button>
-      </form>
+        <form id="loginForm" novalidate>
+            <label>Email
+                <span class="field">
+                    <span class="material-symbols-outlined">email</span>
+                    <input name="email" type="email" placeholder="you@company.com" autocomplete="email" required>
+                </span>
+            </label>
+            
+            <label>Password
+                <span class="field">
+                    <span class="material-symbols-outlined">lock</span>
+                    <input id="password" name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required>
+                    <button type="button" id="togglePassword" class="show-password" aria-label="Show password">
+                        <span class="material-symbols-outlined">visibility</span>
+                    </button>
+                </span>
+            </label>
+            
+            <div class="auth-options">
+                <label class="remember">
+                    <input type="checkbox" name="remember"> Remember me
+                </label>
+                <a href="#" id="forgotPassword">Forgot password?</a>
+            </div>
+            
+            <p id="loginError" class="login-error" role="alert"></p>
+            
+            <button class="signin-button" type="submit">Sign In</button>
+        </form>
     </main>
     
     <script src="login.js"></script>
-  </body>
+</body>
 </html>
