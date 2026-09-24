@@ -563,5 +563,14 @@ window.generateQRPDF = async (poId) => {
   }
 };
 
+
 // Load PO data on page load
-loadPOData();
+document.addEventListener("DOMContentLoaded", function() {
+    // Initialize permissions
+    if (typeof initializePermissions === "function") {
+        initializePermissions();
+    }
+    
+    // Load PO data
+    loadPOData();
+});

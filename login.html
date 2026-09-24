@@ -18,11 +18,22 @@
 </head>
 <body class="login-page">
     <main class="auth-card">
+        <!-- Company Logo -->
+        <div class="company-logo">
+            <div class="logo-icon">
+                <img src="img/logo.png" alt="Great Solomon Logo" class="w-full h-full object-contain">
+            </div>
+            <div class="logo-text">
+                <span class="logo-name">Great Solomon</span>
+                <span class="logo-tagline">Supply Chain Management</span>
+            </div>
+        </div>
+        
         <div class="crown" aria-hidden="true">
             <span class="material-symbols-outlined">shield</span>
         </div>
         <h1>Sign In</h1>
-        <p class="auth-subtitle">Great Solomon Supply Chain Management</p>
+        <p class="auth-subtitle">Great Solomon Manpower Services, Inc.</p>
         
         <form id="loginForm" novalidate>
             <label>Email
@@ -55,6 +66,8 @@
         </form>
     </main>
     
+    <!-- Permissions System -->
+    <script src="permissions.js"></script>
     <script src="login.js"></script>
 </body>
 </html>

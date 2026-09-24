@@ -3,6 +3,42 @@
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Update sidebar profile with real user data
+  fetch('/api/v1/auth/me')
+    .then(res => res.json())
+    .then(data => {
+      if (data.user) {
+        const user = data.user;
+        
+        const sidebarUserName = document.getElementById('sidebar-user-name');
+        const sidebarUserRole = document.getElementById('sidebar-user-role');
+        
+        if (sidebarUserName && user.full_name) {
+          sidebarUserName.textContent = user.full_name;
+        }
+        
+        if (sidebarUserRole && user.role) {
+          sidebarUserRole.textContent = user.role;
+        }
+        
+        // Update profile dropdown user name displays
+        const profileNames = document.querySelectorAll('.font-label.font-semibold.text-sm.text-on-surface, .text-sm.font-semibold.text-on-surface');
+        profileNames.forEach(nameEl => {
+          if (user.full_name) {
+            nameEl.textContent = user.full_name;
+          }
+        });
+        
+        const profileRoles = document.querySelectorAll('.text-xs.text-on-surface-variant.font-light');
+        profileRoles.forEach(roleEl => {
+          if (user.role) {
+            roleEl.textContent = user.role;
+          }
+        });
+      }
+    })
+    .catch(error => console.error('Error loading user data:', error));
+
   // Sidebar Toggle Functionality
   const sidebarToggle = document.getElementById('desktop-sidebar-toggle');
   const sidebar = document.getElementById('app-sidebar');
@@ -32,8 +68,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Desktop sidebar collapse (icon-only mode)
+  function toggleDesktopSidebar() {
+    sidebar.classList.toggle('collapsed');
+    const isCollapsed = sidebar.classList.contains('collapsed');
+    sidebarToggleIcon.textContent = isCollapsed ? 'menu_open' : 'menu';
+  }
+
+  // On desktop, toggle collapsed state instead of mobile behavior
   if (sidebarToggle) {
-    sidebarToggle.addEventListener('click', toggleSidebar);
+    sidebarToggle.addEventListener('click', () => {
+      if (window.innerWidth >= 768) {
+        toggleDesktopSidebar();
+      } else {
+        toggleSidebar();
+      }
+    });
   }
 
   // Close sidebar when clicking backdrop
@@ -120,4 +170,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.addEventListener('resize', handleResize);
   handleResize(); // Initial check
+
+  // Logout functionality
+  const logoutBtn = document.getElementById('logout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      try {
+        await fetch('/api/v1/auth/logout', { method: 'POST' });
+        window.location.href = 'login.html';
+      } catch (error) {
+        console.error('Logout error:', error);
+        window.location.href = 'login.html';
+      }
+    });
+  }
+
+  // Profile dropdown links are handled as regular HTML links (<a href="...">)
+  // No JavaScript needed for navigation links in the dropdown
 });

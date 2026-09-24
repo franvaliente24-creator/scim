@@ -13,6 +13,12 @@ const $ = (selector) => {
 
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 
+// Initialize permissions on page load
+document.addEventListener('DOMContentLoaded', async () => {
+  await initializePermissions();
+  loadWarehouseData();
+});
+
 // ==========================================
 // WAREHOUSE DATA LOADING
 // ==========================================

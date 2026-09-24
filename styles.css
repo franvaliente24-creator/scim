@@ -15,7 +15,141 @@
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* Color Tokens - Material Design 3 Inspired */
+/* ==========================================
+   TAILWIND UTILITY CLASSES FOR CSS VARIABLES
+   ========================================== */
+
+/* Background Colors */
+.bg-background {
+  background-color: var(--background);
+}
+
+.bg-surface {
+  background-color: var(--surface);
+}
+
+.bg-surface-container-low {
+  background-color: var(--surface-container-low);
+}
+
+.bg-surface-container {
+  background-color: var(--surface-container);
+}
+
+.bg-surface-container-highest {
+  background-color: var(--surface-container-highest);
+}
+
+.bg-primary {
+  background-color: var(--primary);
+}
+
+.bg-primary-container {
+  background-color: var(--primary-container);
+}
+
+.bg-primary-container\/30 {
+  background-color: rgba(238, 242, 255, 0.3);
+}
+
+.bg-secondary {
+  background-color: var(--secondary);
+}
+
+.bg-secondary-container {
+  background-color: var(--secondary-container);
+}
+
+.bg-error {
+  background-color: var(--error);
+}
+
+.bg-error-container {
+  background-color: var(--error-container);
+}
+
+/* Text Colors */
+.text-on-background {
+  color: var(--on-background);
+}
+
+.text-on-surface {
+  color: var(--on-surface);
+}
+
+.text-on-surface-variant {
+  color: var(--on-surface-variant);
+}
+
+.text-on-primary {
+  color: var(--on-primary);
+}
+
+.text-on-primary-container {
+  color: var(--on-primary-container);
+}
+
+.text-on-primary-fixed-variant {
+  color: var(--on-primary-container);
+}
+
+.text-on-secondary {
+  color: var(--on-secondary);
+}
+
+.text-on-error {
+  color: var(--on-error);
+}
+
+.text-outline-variant {
+  color: var(--outline-variant);
+}
+
+.text-red-600 {
+  color: #dc2626;
+}
+
+/* Border Colors */
+.border-outline-variant {
+  border-color: var(--outline-variant);
+}
+
+.border-outline-variant\/30 {
+  border-color: rgba(203, 213, 225, 0.3);
+}
+
+.border-primary {
+  border-color: var(--primary);
+}
+
+.border-primary\/20 {
+  border-color: rgba(79, 70, 229, 0.2);
+}
+
+.border-slate-200 {
+  border-color: #e2e8f0;
+}
+
+.border-slate-100 {
+  border-color: #f1f5f9;
+}
+
+/* Utility Classes */
+.shadow-2xs {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.rounded-\[2rem\] {
+  border-radius: 2rem;
+}
+
+.rounded-\[1\.75rem\] {
+  border-radius: 1.75rem;
+}
+
+/* ==========================================
+   COLOR TOKENS - MATERIAL DESIGN 3 INSPIRED
+   ========================================== */
 :root {
   /* Primary Colors */
   --primary: #4f46e5;
@@ -58,6 +192,9 @@
   --warning: #f59e0b;
   --danger: #dc2626;
   --info: #0866ac;
+  
+  /* Additional Utility Colors */
+  --surface-dim: #e2e8f0;
 }
 
 /* ==========================================
@@ -67,6 +204,37 @@
 .dashboard-sidebar {
   background: var(--surface);
   border-right: 1px solid var(--outline-variant);
+}
+
+/* Collapsed sidebar state */
+.dashboard-sidebar.collapsed {
+  width: 80px;
+}
+
+.dashboard-sidebar.collapsed .sidebar-subsystem-link span:last-child,
+.dashboard-sidebar.collapsed .sidebar-main-link span:last-child,
+.dashboard-sidebar.collapsed #sidebar-user-name,
+.dashboard-sidebar.collapsed #sidebar-user-role,
+.dashboard-sidebar.collapsed .company-name,
+.dashboard-sidebar.collapsed .company-tagline {
+  display: none;
+}
+
+.dashboard-sidebar.collapsed .sidebar-main-link,
+.dashboard-sidebar.collapsed .sidebar-subsystem-link {
+  justify-content: center;
+  padding: 12px;
+}
+
+.dashboard-sidebar.collapsed .sidebar-main-link-icon,
+.dashboard-sidebar.collapsed .sidebar-subsystem-link .material-symbols-outlined {
+  font-size: 24px;
+}
+
+.dashboard-sidebar.collapsed .sidebar-user-initials {
+  width: 48px;
+  height: 48px;
+  font-size: 18px;
 }
 
 .sidebar-brand-card {
@@ -130,6 +298,81 @@
 .sidebar-subsystem-link.active {
   background: var(--primary-container);
   color: var(--on-primary-container);
+  font-weight: 500;
+}
+
+/* ==========================================
+   BUTTON COMPONENTS (Template Match)
+   ========================================== */
+
+.dashboard-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.dashboard-action-button:hover {
+  transform: translateY(-1px);
+}
+
+.dashboard-action-button .material-symbols-outlined {
+  font-size: 18px;
+}
+
+/* Close button for modals */
+.close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--on-surface-variant);
+  padding: 8px;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.close:hover {
+  background-color: var(--surface-container-low);
+}
+
+/* Mode buttons for scanner */
+.mode-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid var(--outline-variant);
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.mode-btn:hover {
+  background: var(--surface-container-low);
+}
+
+.mode-btn.active {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+
+/* Scanner status indicator */
+.live {
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -338,6 +581,52 @@ dialog.scanner {
   }
 }
 
+/* ==========================================
+   PROFILE DROPDOWN STYLES
+   ========================================== */
+
+#profile-dropdown-menu {
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background-color: rgba(255, 255, 255, 0.95);
+}
+
+/* ==========================================
+   IMAGE LOADING STYLES
+   ========================================== */
+
+.logo-icon svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.w-9.h-9.rounded-full svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+#sidebar-user-initials svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.user-profile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.company-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .dashboard-sidebar {
   background: var(--surface);
   border-right: 1px solid var(--outline-variant);
@@ -478,6 +767,81 @@ dialog.scanner {
 
 .action-btn:hover {
   background: var(--surface-dim);
+}
+
+/* ==========================================
+   BUTTON COMPONENTS (Template Match)
+   ========================================== */
+
+.dashboard-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.dashboard-action-button:hover {
+  transform: translateY(-1px);
+}
+
+.dashboard-action-button .material-symbols-outlined {
+  font-size: 18px;
+}
+
+/* Close button for modals */
+.close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--on-surface-variant);
+  padding: 8px;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.close:hover {
+  background-color: var(--surface-container-low);
+}
+
+/* Mode buttons for scanner */
+.mode-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid var(--outline-variant);
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.mode-btn:hover {
+  background: var(--surface-container-low);
+}
+
+.mode-btn.active {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+
+/* Scanner status indicator */
+.live {
+  font-size: 14px;
+  font-weight: 500;
 }
 
 /* ==========================================

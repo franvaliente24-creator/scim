@@ -20,6 +20,12 @@ const money = (amount) =>
     maximumFractionDigits: 0,
   }).format(Number(amount) || 0);
 
+// Initialize permissions on page load
+document.addEventListener('DOMContentLoaded', async () => {
+  await initializePermissions();
+  loadInventoryData();
+});
+
 // ==========================================
 // INVENTORY DATA LOADING
 // ==========================================
@@ -306,3 +312,11 @@ window.editAsset = (qrCode) => {
 
 // Load inventory data on page load
 loadInventoryData();
+
+// Add Asset Button
+const addAssetBtn = $('#addAsset');
+if (addAssetBtn) {
+  addAssetBtn.onclick = () => {
+    alert('Add Asset functionality - to be implemented with modal form');
+  };
+}

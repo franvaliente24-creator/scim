@@ -423,5 +423,14 @@ window.signDocument = async (docId) => {
   }
 };
 
+
 // Load document data on page load
-loadDocumentData();
+document.addEventListener("DOMContentLoaded", function() {
+    // Initialize permissions
+    if (typeof initializePermissions === "function") {
+        initializePermissions();
+    }
+    
+    // Load document data
+    loadDocumentData();
+});

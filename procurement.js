@@ -313,5 +313,14 @@ if (scanNow) {
   };
 }
 
+
 // Load procurement data on page load
-loadProcurementData();
+document.addEventListener("DOMContentLoaded", function() {
+    // Initialize permissions
+    if (typeof initializePermissions === "function") {
+        initializePermissions();
+    }
+    
+    // Load procurement data
+    loadProcurementData();
+});

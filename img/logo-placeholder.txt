@@ -1,0 +1,31 @@
+# Image Placeholder Instructions
+
+This folder is for storing the company logo and user profile images.
+
+## Expected Files:
+- logo.png - Company logo (recommended size: 48x48px or 100x100px)
+- profile-default.png - Default user profile image (recommended size: 100x100px)
+
+## Implementation:
+1. Replace the text-based "GS" logo with actual image:
+   - In sidebar HTML, replace: <div class="logo-icon">GS</div>
+   - With: <img src="img/logo.png" alt="Great Solomon Logo" class="logo-icon">
+   
+2. Replace user initials with profile image:
+   - In sidebar HTML, replace: <div class="w-9 h-9 rounded-full ...">AU</div>
+   - With: <img src="img/profile-default.png" alt="User Profile" class="w-9 h-9 rounded-full ...">
+
+## CSS Update Required:
+Add to styles.css:
+.logo-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.user-profile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}

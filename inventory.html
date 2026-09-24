@@ -14,7 +14,12 @@
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="styles.css?v=3">
-</head>
+    
+    <!-- Permissions System -->
+    <script src="permissions.js"></script>
+    <script src="layout.js"></script>
+    <script src="inactivity.js"></script>
+    <script src="inventory.js"></script>
 <body class="bg-background text-on-background font-body h-screen flex flex-row overflow-hidden">
     
     <!-- Mobile Backdrop overlay -->
@@ -22,13 +27,27 @@
     
     <!-- Left Sidebar -->
     <aside id="app-sidebar" class="dashboard-sidebar fixed md:static top-16 bottom-0 md:inset-y-0 left-0 z-50 bg-white flex flex-col h-[calc(100vh-4rem)] md:h-full shrink-0 shadow-xl md:shadow-none transition-all duration-300 ease-in-out overflow-hidden w-72 border-r border-slate-200 -translate-x-full md:translate-x-0 opacity-100">
+        <!-- Company Logo & Profile -->
         <div class="px-5 pt-6 pb-5 border-b border-slate-200">
-            <div class="sidebar-brand-card rounded-[2rem] p-6 flex flex-col items-center text-center gap-3">
-                <span class="sidebar-brand-icon inline-flex items-center justify-center w-14 h-14 rounded-[1.75rem] bg-slate-100 text-primary text-2xl shadow-sm">
-                    <span class="material-symbols-outlined">inventory_2</span>
-                </span>
-                <p id="sidebar-brand-title" class="text-sm font-semibold text-slate-950 truncate">Supply Chain</p>
-                <p id="sidebar-brand-category" class="text-xs text-slate-500 mt-1 truncate">Inventory Management</p>
+            <div class="flex items-center gap-3 mb-4">
+                <!-- Company Logo -->
+                <div class="w-8 h-8 shrink-0 overflow-hidden rounded-lg">
+                    <img src="img/logo.png" alt="Great Solomon Logo" class="w-full h-full object-contain">
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-slate-950 truncate">Great Solomon</p>
+                    <p class="text-xs text-slate-500 truncate">Supply Chain Management</p>
+                </div>
+            </div>
+            <!-- User Profile Mini -->
+            <div class="flex items-center gap-3 p-3 rounded-xl bg-slate-50">
+                <div class="w-9 h-9 shrink-0 overflow-hidden rounded-full">
+                    <img src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-slate-900 truncate" id="sidebar-user-name">Admin User</p>
+                    <p class="text-xs text-slate-500 truncate" id="sidebar-user-role">Administrator</p>
+                </div>
             </div>
         </div>
         <nav class="flex-1 overflow-y-auto px-5 py-6 space-y-3">
@@ -42,7 +61,7 @@
                         <span class="material-symbols-outlined">warehouse</span>
                         <span>Smart Warehousing</span>
                     </a>
-                    <a class="sidebar-subsystem-link" href="inventory.html">
+                    <a class="sidebar-subsystem-link active" href="inventory.html">
                         <span class="material-symbols-outlined">inventory</span>
                         <span>Inventory Management</span>
                     </a>
@@ -72,8 +91,8 @@
         <!-- TopNavBar -->
         <header class="bg-surface/80 backdrop-blur-md shadow-sm border-b border-outline-variant/30 flex justify-between items-center h-16 px-6 w-full z-30 shrink-0">
             <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm shrink-0">
-                    GS
+                <div class="w-8 h-8 shrink-0 overflow-hidden rounded-lg">
+                    <img src="img/logo.png" alt="Great Solomon Logo" class="w-full h-full object-contain">
                 </div>
                 <span class="text-outline-variant font-light select-none">|</span>
                 <button id="desktop-sidebar-toggle" type="button" class="flex items-center justify-center p-2 rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low focus:outline-none transition border border-outline-variant/30 shrink-0 min-w-[2.5rem] min-h-[2.5rem]" title="Toggle Sidebar">
@@ -83,8 +102,8 @@
             
             <div class="relative flex items-center">
                 <button id="profile-dropdown-toggle" type="button" class="flex items-center gap-3 p-1.5 rounded-full hover:bg-surface-container-low transition-colors focus:outline-none border border-transparent hover:border-outline-variant/30 cursor-pointer" aria-expanded="false" title="Account Menu">
-                    <div class="w-9 h-9 rounded-full bg-primary-container/30 border border-primary/20 flex items-center justify-center text-primary font-bold text-sm shadow-2xs shrink-0">
-                        AU
+                    <div class="w-9 h-9 shrink-0 overflow-hidden rounded-full">
+                        <img src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
                     </div>
                     <div class="hidden md:flex flex-col text-left mr-1">
                         <span class="font-label font-semibold text-sm text-on-surface leading-tight">Admin User</span>

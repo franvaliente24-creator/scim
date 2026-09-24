@@ -1,7 +1,14 @@
 // ==========================================
 // 1. UTILITY FUNCTIONS
 // ==========================================
-const $ = (s) => document.querySelector(s);
+const $ = (s) => {
+  const element = document.querySelector(s);
+  if (!element) {
+    console.warn(`Element not found: ${s}`);
+    return null;
+  }
+  return element;
+};
 
 const api = (path, options) => fetch(`/api/v1/${path}`, options);
 
@@ -128,8 +135,11 @@ $('#logout').onclick = () =>
 // ==========================================
 requireAdmin().then((isAuthorized) => {
   if (isAuthorized) {
-    loadUsers();
-    loadLoginHistory();
+    // Initialize permissions
+    initializePermissions().then(() => {
+      loadUsers();
+      loadLoginHistory();
+    });
   }
 });
 

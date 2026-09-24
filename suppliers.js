@@ -280,5 +280,14 @@ if (scanNow) {
   };
 }
 
+
 // Load supplier data on page load
-loadSupplierData();
+document.addEventListener("DOMContentLoaded", function() {
+    // Initialize permissions
+    if (typeof initializePermissions === "function") {
+        initializePermissions();
+    }
+    
+    // Load supplier data
+    loadSupplierData();
+});
