@@ -2,7 +2,14 @@
 // DOCUMENT TRACKING & LOGISTICS PAGE LOGIC
 // ==========================================
 
-const $ = (selector) => document.querySelector(selector);
+const $ = (selector) => {
+  const element = document.querySelector(selector);
+  if (!element) {
+    console.warn(`Element not found: ${selector}`);
+    return null;
+  }
+  return element;
+};
 
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 
@@ -192,26 +199,6 @@ function loadCourierTracking(documents) {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
-// Navigation & Sidebar
-$('#toggle').onclick = () => {
-  if (window.innerWidth < 850) {
-    $('#sidebar').classList.toggle('open');
-  } else {
-    $('#sidebar').classList.toggle('collapsed');
-  }
-};
-
-$('#profile').onclick = () => {
-  $('#profileMenu').hidden = !$('#profileMenu').hidden;
-};
-
-$('#usersLink').onclick = () => {
-  window.location.href = 'users.html';
-};
-
-$('#logout').onclick = () => {
-  window.location.href = 'login.html';
-};
 
 // Add Document Modal
 $('#addDocumentBtn').onclick = () => $('#addDocumentModal').showModal();
@@ -248,15 +235,25 @@ $('#searchDocuments').oninput = (e) => {
 };
 
 // Scanner Modal Controls
-$('#mobileBtn').onclick = () => {
-  $('#scanner').showModal();
-  initializeCamera();
-};
+const mobileBtn = $('#mobileBtn');
+if (mobileBtn) {
+  mobileBtn.onclick = () => {
+    const scanner = $('#scanner');
+    if (scanner) {
+      scanner.showModal();
+      initializeCamera();
+    }
+  };
+}
 
-$('#closeScan').onclick = () => {
-  stopCamera();
-  $('#scanner').close();
-};
+const closeScan = $('#closeScan');
+if (closeScan) {
+  closeScan.onclick = () => {
+    stopCamera();
+    const scanner = $('#scanner');
+    if (scanner) scanner.close();
+  };
+}
 
 let currentAction = 'Inventory Intake';
 let cameraStream = null;
@@ -265,6 +262,8 @@ async function initializeCamera() {
   const video = $('#cameraPreview');
   const fallback = $('#cameraFallback');
   const status = $('#scannerStatus');
+
+  if (!video || !fallback || !status) return;
 
   try {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -301,19 +300,29 @@ function stopCamera() {
     cameraStream.getTracks().forEach(track => track.stop());
     cameraStream = null;
   }
-  $('#cameraPreview').style.display = 'none';
-  $('#cameraFallback').style.display = 'grid';
-  $('#scannerStatus').textContent = '● Camera stopped';
-  $('#scannerStatus').style.color = '#64748b';
+  const video = $('#cameraPreview');
+  const fallback = $('#cameraFallback');
+  const status = $('#scannerStatus');
+  
+  if (video) video.style.display = 'none';
+  if (fallback) fallback.style.display = 'grid';
+  if (status) {
+    status.textContent = '● Camera stopped';
+    status.style.color = '#64748b';
+  }
 }
 
-$('#enableCamera').onclick = () => {
-  initializeCamera();
-};
+const enableCamera = $('#enableCamera');
+if (enableCamera) {
+  enableCamera.onclick = () => {
+    initializeCamera();
+  };
+}
 
-document.querySelectorAll('.mode-btn').forEach((btn) => {
+const modeButtons = document.querySelectorAll('.mode-btn');
+modeButtons.forEach((btn) => {
   btn.onclick = () => {
-    document.querySelectorAll('.mode-btn').forEach((b) => b.classList.remove('active'));
+    modeButtons.forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     currentAction = btn.dataset.mode;
   };
@@ -323,26 +332,36 @@ function startQRDetection() {
   // Placeholder for QR detection
 }
 
-$('#scanNow').onclick = async () => {
-  const response = await fetch('/api/v1/assets/scan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      qr_code: $('#qr').value,
-      action: currentAction,
-    }),
-  });
+const scanNow = $('#scanNow');
+if (scanNow) {
+  scanNow.onclick = async () => {
+    const qrInput = $('#qr');
+    const scanResult = $('#scanResult');
+    
+    if (!qrInput) return;
+    
+    const response = await fetch('/api/v1/assets/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        qr_code: qrInput.value,
+        action: currentAction,
+      }),
+    });
 
-  const data = await response.json();
+    const data = await response.json();
 
-  $('#scanResult').textContent = response.ok
-    ? `${data.asset.name} recorded for ${currentAction}.`
-    : data.error;
+    if (scanResult) {
+      scanResult.textContent = response.ok
+        ? `${data.asset.name} recorded for ${currentAction}.`
+        : data.error;
+    }
 
-  if (response.ok) {
-    loadDocumentData();
-  }
-};
+    if (response.ok) {
+      loadDocumentData();
+    }
+  };
+}
 
 // Document action functions
 window.viewDocument = async (docId) => {

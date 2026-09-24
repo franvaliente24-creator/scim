@@ -2,7 +2,14 @@
 // SMART WAREHOUSING SYSTEM PAGE LOGIC
 // ==========================================
 
-const $ = (selector) => document.querySelector(selector);
+const $ = (selector) => {
+  const element = document.querySelector(selector);
+  if (!element) {
+    console.warn(`Element not found: ${selector}`);
+    return null;
+  }
+  return element;
+};
 
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 
@@ -23,16 +30,20 @@ async function loadWarehouseData() {
     const utilizationRate = totalCapacity > 0 ? Math.round((currentOccupancy / totalCapacity) * 100) : 0;
 
     // Update stats
-    $('#totalCapacity').textContent = totalCapacity;
-    $('#currentOccupancy').textContent = `${utilizationRate}%`;
-    $('#availableBins').textContent = availableBins;
-    $('#criticalZones').textContent = criticalZones;
+    const totalZonesEl = $('#totalZones');
+    if (totalZonesEl) totalZonesEl.textContent = zones.length;
+    
+    const totalCapacityEl = $('#totalCapacity');
+    if (totalCapacityEl) totalCapacityEl.textContent = totalCapacity;
+    
+    const totalOccupiedEl = $('#totalOccupied');
+    if (totalOccupiedEl) totalOccupiedEl.textContent = currentOccupancy;
+    
+    const recentScansEl = $('#recentScans');
+    if (recentScansEl) recentScansEl.textContent = '0'; // Will be updated separately
 
     // Render warehouse grid
     renderWarehouseGrid(zones);
-
-    // Render zone details
-    renderZoneDetails(zones);
 
     // Load recent scans
     loadRecentScans();
@@ -42,6 +53,9 @@ async function loadWarehouseData() {
 }
 
 function renderWarehouseGrid(zones) {
+  const gridEl = $('#warehouseGrid');
+  if (!gridEl) return;
+
   const gridHTML = zones.map(zone => {
     const occupancyPercent = Math.round((zone.occupied / zone.capacity) * 100);
     const alertClass = occupancyPercent > 85 ? 'danger' : occupancyPercent >= 60 ? 'warn' : '';
@@ -62,7 +76,7 @@ function renderWarehouseGrid(zones) {
     `;
   }).join('');
 
-  $('#warehouseGrid').innerHTML = gridHTML;
+  gridEl.innerHTML = gridHTML;
 }
 
 function renderZoneRows(rows) {
@@ -83,31 +97,13 @@ function renderZoneRows(rows) {
   }).join('');
 }
 
-function renderZoneDetails(zones) {
-  const detailsHTML = zones.map(zone => {
-    const occupancyPercent = Math.round((zone.occupied / zone.capacity) * 100);
-    const alertClass = occupancyPercent > 85 ? 'danger' : occupancyPercent >= 60 ? 'warn' : '';
-    
-    return `
-      <div class="row">
-        <div>
-          <b>Zone ${zone.zone}</b><br>
-          <small>Capacity: ${zone.capacity} bins · Occupied: ${zone.occupied}</small>
-        </div>
-        <div class="zone-status ${alertClass}">
-          ${occupancyPercent}%
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  $('#zoneDetails').innerHTML = detailsHTML;
-}
-
 async function loadRecentScans() {
   try {
     const response = await api('warehouse/scans');
     const scans = response.scans || response;
+
+    const recentScansListEl = $('#recentScansList');
+    if (!recentScansListEl) return;
 
     const scansHTML = scans.map(scan => `
       <div class="row">
@@ -119,7 +115,11 @@ async function loadRecentScans() {
       </div>
     `).join('');
 
-    $('#recentScans').innerHTML = scansHTML;
+    recentScansListEl.innerHTML = scansHTML || '<p class="text-on-surface-variant text-sm">No recent scans</p>';
+    
+    // Update the counter
+    const recentScansEl = $('#recentScans');
+    if (recentScansEl) recentScansEl.textContent = scans.length;
   } catch (error) {
     console.error('Error loading recent scans:', error);
   }
@@ -129,37 +129,26 @@ async function loadRecentScans() {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
-// Navigation & Sidebar
-$('#toggle').onclick = () => {
-  if (window.innerWidth < 850) {
-    $('#sidebar').classList.toggle('open');
-  } else {
-    $('#sidebar').classList.toggle('collapsed');
-  }
-};
-
-$('#profile').onclick = () => {
-  $('#profileMenu').hidden = !$('#profileMenu').hidden;
-};
-
-$('#usersLink').onclick = () => {
-  window.location.href = 'users.html';
-};
-
-$('#logout').onclick = () => {
-  window.location.href = 'login.html';
-};
-
 // Scanner Modal Controls
-$('#mobileBtn').onclick = () => {
-  $('#scanner').showModal();
-  initializeCamera();
-};
+const mobileBtn = $('#mobileBtn');
+if (mobileBtn) {
+  mobileBtn.onclick = () => {
+    const scanner = $('#scanner');
+    if (scanner) {
+      scanner.showModal();
+      initializeCamera();
+    }
+  };
+}
 
-$('#closeScan').onclick = () => {
-  stopCamera();
-  $('#scanner').close();
-};
+const closeScan = $('#closeScan');
+if (closeScan) {
+  closeScan.onclick = () => {
+    stopCamera();
+    const scanner = $('#scanner');
+    if (scanner) scanner.close();
+  };
+}
 
 let currentAction = 'Inventory Intake';
 let cameraStream = null;
@@ -169,6 +158,8 @@ async function initializeCamera() {
   const video = $('#cameraPreview');
   const fallback = $('#cameraFallback');
   const status = $('#scannerStatus');
+
+  if (!video || !fallback || !status) return;
 
   try {
     // Check if camera is available
@@ -207,21 +198,31 @@ function stopCamera() {
     cameraStream.getTracks().forEach(track => track.stop());
     cameraStream = null;
   }
-  $('#cameraPreview').style.display = 'none';
-  $('#cameraFallback').style.display = 'grid';
-  $('#scannerStatus').textContent = '● Camera stopped';
-  $('#scannerStatus').style.color = '#64748b';
+  const video = $('#cameraPreview');
+  const fallback = $('#cameraFallback');
+  const status = $('#scannerStatus');
+  
+  if (video) video.style.display = 'none';
+  if (fallback) fallback.style.display = 'grid';
+  if (status) {
+    status.textContent = '● Camera stopped';
+    status.style.color = '#64748b';
+  }
 }
 
 // Enable camera button (for fallback)
-$('#enableCamera').onclick = () => {
-  initializeCamera();
-};
+const enableCamera = $('#enableCamera');
+if (enableCamera) {
+  enableCamera.onclick = () => {
+    initializeCamera();
+  };
+}
 
 // Mode selection
-document.querySelectorAll('.mode-btn').forEach((btn) => {
+const modeButtons = document.querySelectorAll('.mode-btn');
+modeButtons.forEach((btn) => {
   btn.onclick = () => {
-    document.querySelectorAll('.mode-btn').forEach((b) => b.classList.remove('active'));
+    modeButtons.forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     currentAction = btn.dataset.mode;
   };
@@ -232,49 +233,38 @@ function startQRDetection() {
   // This is a placeholder for QR detection
   // In production, integrate a library like jsQR or html5-qrcode
   // For now, users can manually enter QR codes or use the camera as a visual reference
-  
-  // Example implementation with jsQR would be:
-  // const canvas = $('#qrCanvas');
-  // const video = $('#cameraPreview');
-  // const context = canvas.getContext('2d');
-  // 
-  // setInterval(() => {
-  //   if (video.readyState === video.HAVE_ENOUGH_DATA) {
-  //     canvas.height = video.videoHeight;
-  //     canvas.width = video.videoWidth;
-  //     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  //     
-  //     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  //     const code = jsQR(imageData.data, imageData.width, imageData.height);
-  //     
-  //     if (code) {
-  //       $('#qr').value = code.data;
-  //       // Auto-scan could be triggered here
-  //     }
-  //   }
-  // }, 500);
 }
 
-$('#scanNow').onclick = async () => {
-  const response = await fetch('/api/v1/assets/scan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      qr_code: $('#qr').value,
-      action: currentAction,
-    }),
-  });
+const scanNow = $('#scanNow');
+if (scanNow) {
+  scanNow.onclick = async () => {
+    const qrInput = $('#qr');
+    const scanResult = $('#scanResult');
+    
+    if (!qrInput) return;
+    
+    const response = await fetch('/api/v1/assets/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        qr_code: qrInput.value,
+        action: currentAction,
+      }),
+    });
 
-  const data = await response.json();
+    const data = await response.json();
 
-  $('#scanResult').textContent = response.ok
-    ? `${data.asset.name} recorded for ${currentAction}.`
-    : data.error;
+    if (scanResult) {
+      scanResult.textContent = response.ok
+        ? `${data.asset.name} recorded for ${currentAction}.`
+        : data.error;
+    }
 
-  if (response.ok) {
-    loadWarehouseData();
-  }
-};
+    if (response.ok) {
+      loadWarehouseData();
+    }
+  };
+}
 
 // Load warehouse data on page load
 loadWarehouseData();

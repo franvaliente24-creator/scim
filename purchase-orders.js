@@ -2,7 +2,14 @@
 // PURCHASE ORDER MANAGEMENT PAGE LOGIC
 // ==========================================
 
-const $ = (selector) => document.querySelector(selector);
+const $ = (selector) => {
+  const element = document.querySelector(selector);
+  if (!element) {
+    console.warn(`Element not found: ${selector}`);
+    return null;
+  }
+  return element;
+};
 
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 
@@ -178,28 +185,6 @@ function renderPOPipeline(purchaseOrders) {
   $('#poPipeline').innerHTML = pipelineHTML;
 }
 
-async function loadRecentActivity() {
-  try {
-    const response = await api('pos/activity');
-    const data = response.activities || response;
-    const activities = Array.isArray(data) ? data : [];
-
-    const activityHTML = activities.map(activity => `
-      <div class="row">
-        <div>
-          <b>${activity.action}</b><br>
-          <small>${activity.po_number} · ${activity.details}</small>
-        </div>
-        <small>${new Date(activity.created_at).toLocaleString()}</small>
-      </div>
-    `).join('');
-
-    $('#recentActivity').innerHTML = activityHTML;
-  } catch (error) {
-    console.error('Error loading recent activity:', error);
-  }
-}
-
 async function loadPOActivityLog() {
   try {
     const response = await api('pos/activity');
@@ -248,27 +233,6 @@ function loadVendorSummary(purchaseOrders) {
 // ==========================================
 // EVENT LISTENERS & INTERACTION
 // ==========================================
-
-// Navigation & Sidebar
-$('#toggle').onclick = () => {
-  if (window.innerWidth < 850) {
-    $('#sidebar').classList.toggle('open');
-  } else {
-    $('#sidebar').classList.toggle('collapsed');
-  }
-};
-
-$('#profile').onclick = () => {
-  $('#profileMenu').hidden = !$('#profileMenu').hidden;
-};
-
-$('#usersLink').onclick = () => {
-  window.location.href = 'users.html';
-};
-
-$('#logout').onclick = () => {
-  window.location.href = 'login.html';
-};
 
 // Add PO Modal
 $('#addPOBtn').onclick = () => $('#addPOModal').showModal();
@@ -421,6 +385,8 @@ async function initializeCamera() {
   const fallback = $('#cameraFallback');
   const status = $('#scannerStatus');
 
+  if (!video || !fallback || !status) return;
+
   try {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -456,10 +422,16 @@ function stopCamera() {
     cameraStream.getTracks().forEach(track => track.stop());
     cameraStream = null;
   }
-  $('#cameraPreview').style.display = 'none';
-  $('#cameraFallback').style.display = 'grid';
-  $('#scannerStatus').textContent = '● Camera stopped';
-  $('#scannerStatus').style.color = '#64748b';
+  const video = $('#cameraPreview');
+  const fallback = $('#cameraFallback');
+  const status = $('#scannerStatus');
+  
+  if (video) video.style.display = 'none';
+  if (fallback) fallback.style.display = 'grid';
+  if (status) {
+    status.textContent = '● Camera stopped';
+    status.style.color = '#64748b';
+  }
 }
 
 $('#enableCamera').onclick = () => {
