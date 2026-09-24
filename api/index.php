@@ -380,8 +380,18 @@ if ($method === 'GET' && $path === '/api/v1/pos/pending') {
 if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) {
     auth(['Admin', 'Manager']);
     $x = body();
-    db()->prepare('UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?')
+    $d = db();
+    $d->prepare('UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?')
       ->execute([$x['status'] ?? 'Draft', $m[1]]);
+    
+    // Log activity with notes
+    $actionDetails = 'Status changed to ' . ($x['status'] ?? 'Draft');
+    if (!empty($x['notes'])) {
+        $actionDetails .= '. Notes: ' . $x['notes'];
+    }
+    $d->prepare('INSERT INTO po_activity(po_id, action, details) VALUES(?, ?, ?)')
+      ->execute([$m[1], 'Status Updated', $actionDetails]);
+    
     reply(['ok' => true]);
 }
 
@@ -563,18 +573,7 @@ if ($method === 'GET' && preg_match('#^/api/v1/pos/(\d+)$#', $path, $m)) {
     reply($po ?: ['error' => 'PO not found'], $po ? 200 : 404);
 }
 
-if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) {
-    auth(['Admin', 'Manager']);
-    $x = body();
-    $d = db();
-    $d->prepare('UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?')
-      ->execute([$x['status'] ?? 'Draft', $m[1]]);
-      
-    $d->prepare('INSERT INTO po_activity(po_id, action, details) VALUES(?,?,?)')
-      ->execute([$m[1], 'Status Updated', 'Status changed to ' . $x['status']]);
-      
-    reply(['ok' => true]);
-}
+
 
 if ($method === 'POST' && preg_match('#^/api/v1/pos/(\d+)/qr-pdf$#', $path, $m)) {
     auth(['Admin', 'Manager']);

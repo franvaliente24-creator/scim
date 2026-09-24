@@ -57,6 +57,9 @@ async function loadPOData() {
 
     // Load vendor summary
     loadVendorSummary(purchaseOrders);
+
+    // Load PO activity log
+    loadPOActivityLog();
   } catch (error) {
     console.error('Error loading PO data:', error);
   }
@@ -87,8 +90,7 @@ function renderPOTable(purchaseOrders) {
             <td>${po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString() : 'N/A'}</td>
             <td>
               <button class="action-btn" onclick="viewPO('${po.id}')">View</button>
-              <button class="action-btn" onclick="updatePOStatus('${po.id}', '${po.status}')">Update</button>
-              ${po.status === 'Received' ? '<button class="action-btn" onclick="generateQRPDF(\'' + po.id + '\')">QR PDF</button>' : ''}
+              ${getPOActionButtons(po)}
             </td>
           </tr>
         `).join('')}
@@ -97,6 +99,33 @@ function renderPOTable(purchaseOrders) {
   `;
 
   $('#poTable').innerHTML = tableHTML;
+}
+
+function getPOActionButtons(po) {
+  const buttons = [];
+  
+  switch (po.status) {
+    case 'Draft':
+      buttons.push(`<button class="action-btn" onclick="submitForApproval('${po.id}')">Submit</button>`);
+      break;
+    case 'Pending Approval':
+      buttons.push(`<button class="action-btn" onclick="approvePO('${po.id}')">Approve</button>`);
+      buttons.push(`<button class="action-btn" onclick="rejectPO('${po.id}', '${po.po_number}')" style="color: #dc2626;">Reject</button>`);
+      break;
+    case 'Sent to Vendor':
+      buttons.push(`<button class="action-btn" onclick="markShipped('${po.id}', '${po.po_number}')">Mark Shipped</button>`);
+      break;
+    case 'Shipped':
+      buttons.push(`<button class="action-btn" onclick="receivePO('${po.id}', '${po.po_number}')">Receive</button>`);
+      break;
+    case 'Received':
+      buttons.push(`<button class="action-btn" onclick="generateQRPDF('${po.id}')">QR PDF</button>`);
+      break;
+    default:
+      buttons.push(`<button class="action-btn" onclick="updatePOStatus('${po.id}', '${po.status}')">Update</button>`);
+  }
+  
+  return buttons.join('');
 }
 
 function getPOStatusClass(status) {
@@ -152,7 +181,8 @@ function renderPOPipeline(purchaseOrders) {
 async function loadRecentActivity() {
   try {
     const response = await api('pos/activity');
-    const activities = response.activities || response;
+    const data = response.activities || response;
+    const activities = Array.isArray(data) ? data : [];
 
     const activityHTML = activities.map(activity => `
       <div class="row">
@@ -167,6 +197,28 @@ async function loadRecentActivity() {
     $('#recentActivity').innerHTML = activityHTML;
   } catch (error) {
     console.error('Error loading recent activity:', error);
+  }
+}
+
+async function loadPOActivityLog() {
+  try {
+    const response = await api('pos/activity');
+    const data = response.activities || response;
+    const activities = Array.isArray(data) ? data : [];
+
+    const activityLogHTML = activities.map(activity => `
+      <div class="row">
+        <div>
+          <b>${activity.action}</b><br>
+          <small>${activity.po_number} · ${activity.details}</small>
+        </div>
+        <small>${new Date(activity.created_at).toLocaleString()}</small>
+      </div>
+    `).join('');
+
+    $('#poActivityLog').innerHTML = activityLogHTML || '<p class="muted">No activity recorded yet</p>';
+  } catch (error) {
+    console.error('Error loading PO activity log:', error);
   }
 }
 
@@ -263,6 +315,82 @@ $('#updateStatusForm').onsubmit = async (e) => {
   }
 };
 
+// Reject PO Modal
+$('#closeReject').onclick = () => $('#rejectPOModal').close();
+
+$('#rejectPOForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const data = Object.fromEntries(formData);
+
+  const response = await fetch(`/api/v1/pos/${data.po_id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'Cancelled', notes: `Rejected: ${data.reason}` }),
+  });
+
+  if (response.ok) {
+    $('#rejectPOModal').close();
+    e.target.reset();
+    loadPOData();
+  } else {
+    alert('Failed to reject PO');
+  }
+};
+
+// Mark Shipped Modal
+$('#closeShipped').onclick = () => $('#shippedModal').close();
+
+$('#shippedForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const data = Object.fromEntries(formData);
+
+  const notes = `Marked as shipped. Carrier: ${data.carrier || 'N/A'}, Tracking: ${data.tracking_number || 'N/A'}. ${data.notes || ''}`;
+
+  const response = await fetch(`/api/v1/pos/${data.po_id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'Shipped', notes: notes }),
+  });
+
+  if (response.ok) {
+    $('#shippedModal').close();
+    e.target.reset();
+    loadPOData();
+  } else {
+    alert('Failed to mark as shipped');
+  }
+};
+
+// Receive PO Modal
+$('#closeReceive').onclick = () => $('#receiveModal').close();
+
+$('#receiveForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const data = Object.fromEntries(formData);
+
+  const notes = `Items received: ${data.items_received}. Condition: ${data.condition}. ${data.notes || ''}`;
+
+  const response = await fetch(`/api/v1/pos/${data.po_id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'Received', notes: notes }),
+  });
+
+  if (response.ok) {
+    $('#receiveModal').close();
+    e.target.reset();
+    loadPOData();
+    
+    // Automatically generate QR codes
+    generateQRPDF(data.po_id);
+  } else {
+    alert('Failed to receive PO');
+  }
+};
+
 // Search functionality
 $('#searchPOs').oninput = (e) => {
   const searchTerm = e.target.value.toLowerCase();
@@ -314,7 +442,7 @@ window.viewPO = async (poId) => {
   try {
     const response = await api(`pos/${poId}`);
     const po = response.po;
-    alert(`PO Details:\nPO #: ${po.po_number}\nVendor: ${po.vendor}\nStatus: ${po.status}\nTotal: ${money(po.total)}\nCreated: ${new Date(po.created_at).toLocaleDateString()}\nExpected Delivery: ${new Date(po.expected_delivery).toLocaleDateString()}\nItems: ${po.items}`);
+    alert(`PO Details:\nPO #: ${po.po_number}\nVendor: ${po.vendor_name || po.vendor}\nStatus: ${po.status}\nTotal: ${money(po.total)}\nCreated: ${new Date(po.created_at).toLocaleDateString()}\nExpected Delivery: ${new Date(po.expected_delivery).toLocaleDateString()}\nItems: ${po.items}`);
   } catch (error) {
     console.error('Error viewing PO:', error);
   }
@@ -324,6 +452,56 @@ window.updatePOStatus = (poId, currentStatus) => {
   $('#poIdInput').value = poId;
   $('#currentStatus').value = currentStatus;
   $('#updateStatusModal').showModal();
+};
+
+window.submitForApproval = async (poId) => {
+  if (confirm('Submit this PO for approval?')) {
+    const response = await fetch(`/api/v1/pos/${poId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'Pending Approval', notes: 'Submitted for approval' }),
+    });
+
+    if (response.ok) {
+      loadPOData();
+    } else {
+      alert('Failed to submit for approval');
+    }
+  }
+};
+
+window.approvePO = async (poId) => {
+  if (confirm('Approve this purchase order?')) {
+    const response = await fetch(`/api/v1/pos/${poId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'Sent to Vendor', notes: 'Approved and sent to vendor' }),
+    });
+
+    if (response.ok) {
+      loadPOData();
+    } else {
+      alert('Failed to approve PO');
+    }
+  }
+};
+
+window.rejectPO = (poId, poNumber) => {
+  $('#rejectPoIdInput').value = poId;
+  $('#rejectPoNumber').value = poNumber;
+  $('#rejectPOModal').showModal();
+};
+
+window.markShipped = (poId, poNumber) => {
+  $('#shippedPoIdInput').value = poId;
+  $('#shippedPoNumber').value = poNumber;
+  $('#shippedModal').showModal();
+};
+
+window.receivePO = (poId, poNumber) => {
+  $('#receivePoIdInput').value = poId;
+  $('#receivePoNumber').value = poNumber;
+  $('#receiveModal').showModal();
 };
 
 window.generateQRPDF = async (poId) => {

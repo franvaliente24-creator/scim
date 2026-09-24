@@ -95,6 +95,11 @@
             <div id="poPipeline" class="po-pipeline"></div>
           </section>
 
+          <section class="card">
+            <h2>PO Activity Log</h2>
+            <div id="poActivityLog"></div>
+          </section>
+
           <div class="grid two">
             <section class="card">
               <h2>Recent Activity</h2>
@@ -167,6 +172,91 @@
             <textarea name="notes" rows="2"></textarea>
           </label>
           <button type="submit">Update Status</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Reject PO Modal -->
+    <dialog id="rejectPOModal">
+      <div class="scanner">
+        <button id="closeReject" class="close">×</button>
+        <h2>Reject Purchase Order</h2>
+        <form id="rejectPOForm">
+          <input type="hidden" name="po_id" id="rejectPoIdInput">
+          <label>PO Number
+            <input type="text" id="rejectPoNumber" disabled>
+          </label>
+          <label>Rejection Reason
+            <textarea name="reason" rows="3" required placeholder="Please provide a reason for rejection..."></textarea>
+          </label>
+          <button type="submit" style="background: #dc2626;">Reject PO</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Mark Shipped Modal -->
+    <dialog id="shippedModal">
+      <div class="scanner">
+        <button id="closeShipped" class="close">×</button>
+        <h2>Mark as Shipped</h2>
+        <form id="shippedForm">
+          <input type="hidden" name="po_id" id="shippedPoIdInput">
+          <label>PO Number
+            <input type="text" id="shippedPoNumber" disabled>
+          </label>
+          <label>Tracking Number
+            <input type="text" name="tracking_number" placeholder="Enter tracking number if available">
+          </label>
+          <label>Carrier
+            <select name="carrier">
+              <option value="">Select carrier</option>
+              <option value="FedEx">FedEx</option>
+              <option value="UPS">UPS</option>
+              <option value="DHL">DHL</option>
+              <option value="LBC">LBC</option>
+              <option value="Other">Other</option>
+            </select>
+          </label>
+          <label>Estimated Delivery
+            <input type="date" name="estimated_delivery">
+          </label>
+          <label>Notes
+            <textarea name="notes" rows="2"></textarea>
+          </label>
+          <button type="submit">Mark as Shipped</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Receive PO Modal -->
+    <dialog id="receiveModal">
+      <div class="scanner">
+        <button id="closeReceive" class="close">×</button>
+        <h2>Receive Purchase Order</h2>
+        <form id="receiveForm">
+          <input type="hidden" name="po_id" id="receivePoIdInput">
+          <label>PO Number
+            <input type="text" id="receivePoNumber" disabled>
+          </label>
+          <label>Items Received
+            <textarea name="items_received" rows="3" placeholder="List items received and their quantities..."></textarea>
+          </label>
+          <label>Condition
+            <select name="condition">
+              <option value="Good">Good Condition</option>
+              <option value="Some Damage">Some Damage</option>
+              <option value="Damaged">Damaged</option>
+            </select>
+          </label>
+          <label>Notes
+            <textarea name="notes" rows="2"></textarea>
+          </label>
+          <div style="margin: 16px 0; padding: 12px; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
+            <p style="margin: 0; color: #0369a1; font-size: 13px;">
+              <strong>QR Generation:</strong> After receiving, QR codes will be automatically generated for all items in this PO.
+            </p>
+          </div>
+          <button type="submit">Receive & Generate QR Codes</button>
         </form>
       </div>
     </dialog>
