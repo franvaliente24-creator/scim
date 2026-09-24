@@ -201,18 +201,81 @@ $('#searchAssets').oninput = (e) => {
 };
 
 // Scanner Modal Controls
-$('#mobileBtn').onclick = () => $('#scanner').showModal();
-$('#closeScan').onclick = () => $('#scanner').close();
+$('#mobileBtn').onclick = () => {
+  $('#scanner').showModal();
+  initializeCamera();
+};
+
+$('#closeScan').onclick = () => {
+  stopCamera();
+  $('#scanner').close();
+};
 
 let currentAction = 'Inventory Intake';
+let cameraStream = null;
 
-document.querySelectorAll('.modes button').forEach((btn) => {
+// Camera initialization
+async function initializeCamera() {
+  const video = $('#cameraPreview');
+  const fallback = $('#cameraFallback');
+  const status = $('#scannerStatus');
+
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+      
+      cameraStream = stream;
+      video.srcObject = stream;
+      video.style.display = 'block';
+      fallback.style.display = 'none';
+      status.textContent = '● Camera active';
+      status.style.color = '#059669';
+      
+      startQRDetection();
+    } else {
+      throw new Error('Camera API not available');
+    }
+  } catch (error) {
+    console.error('Camera access error:', error);
+    video.style.display = 'none';
+    fallback.style.display = 'grid';
+    status.textContent = '● Camera unavailable';
+    status.style.color = '#dc2626';
+  }
+}
+
+function stopCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+  $('#cameraPreview').style.display = 'none';
+  $('#cameraFallback').style.display = 'grid';
+  $('#scannerStatus').textContent = '● Camera stopped';
+  $('#scannerStatus').style.color = '#64748b';
+}
+
+$('#enableCamera').onclick = () => {
+  initializeCamera();
+};
+
+document.querySelectorAll('.mode-btn').forEach((btn) => {
   btn.onclick = () => {
-    document.querySelectorAll('.modes button').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.mode-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
-    currentAction = btn.textContent;
+    currentAction = btn.dataset.mode;
   };
 });
+
+function startQRDetection() {
+  // Placeholder for QR detection - integrate jsQR library in production
+}
 
 $('#scanNow').onclick = async () => {
   const response = await fetch('/api/v1/assets/scan', {

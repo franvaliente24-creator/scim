@@ -149,16 +149,21 @@
     <dialog id="scanner">
       <div class="scanner">
         <button id="closeScan" class="close">×</button>
-        <p class="live">● Scanner connected</p>
+        <p class="live" id="scannerStatus">● Initializing camera...</p>
         <div class="viewport">
-          <span>＋</span>
-          <p>Camera preview</p>
+          <video id="cameraPreview" autoplay playsinline muted></video>
+          <canvas id="qrCanvas" style="display:none;"></canvas>
+          <div id="cameraFallback" class="camera-fallback">
+            <span>📷</span>
+            <p>Camera access required</p>
+            <button id="enableCamera" class="action-btn">Enable Camera</button>
+          </div>
         </div>
         <h2>Warehouse Scanner</h2>
         <div class="modes">
-          <button>Inventory Intake</button>
-          <button>Asset Transfer</button>
-          <button>Contractor Check-Out</button>
+          <button class="mode-btn active" data-mode="Inventory Intake">Inventory Intake</button>
+          <button class="mode-btn" data-mode="Asset Transfer">Asset Transfer</button>
+          <button class="mode-btn" data-mode="Contractor Check-Out">Contractor Check-Out</button>
         </div>
         <label>QR code
           <input id="qr" placeholder="QR-LAP-001">
@@ -169,5 +174,6 @@
     </dialog>
 
     <script src="documents.js"></script>
+    <script src="inactivity.js"></script>
   </body>
 </html>

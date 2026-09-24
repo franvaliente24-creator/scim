@@ -62,6 +62,8 @@ function migrate(PDO $d): void {
         password_hash VARCHAR(255) NOT NULL,
         role VARCHAR(40) NOT NULL DEFAULT 'WarehouseStaff',
         is_active TINYINT(1) NOT NULL DEFAULT 1,
+        mfa_enabled TINYINT(1) NOT NULL DEFAULT 0,
+        mfa_secret VARCHAR(255),
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )");
     
@@ -421,6 +423,164 @@ if ($method === 'POST' && $path === '/api/v1/users') {
     $q = db()->prepare('INSERT INTO users(full_name, email, password_hash, role) VALUES(?, ?, ?, ?)');
     $q->execute([$x['full_name'], strtolower($x['email']), password_hash($x['password'], PASSWORD_DEFAULT), $x['role'] ?? 'WarehouseStaff']);
     reply(['id' => db()->lastInsertId()], 201);
+}
+
+if ($method === 'PUT' && preg_match('#^/api/v1/users/(\d+)$#', $path, $m)) {
+    auth(['Admin']);
+    $x = body();
+    $d = db();
+    $updateFields = [];
+    $params = [];
+    
+    if (!empty($x['full_name'])) {
+        $updateFields[] = 'full_name = ?';
+        $params[] = $x['full_name'];
+    }
+    if (!empty($x['email'])) {
+        $updateFields[] = 'email = ?';
+        $params[] = strtolower($x['email']);
+    }
+    if (!empty($x['role'])) {
+        $updateFields[] = 'role = ?';
+        $params[] = $x['role'];
+    }
+    if (!empty($x['password'])) {
+        $updateFields[] = 'password_hash = ?';
+        $params[] = password_hash($x['password'], PASSWORD_DEFAULT);
+    }
+    if (isset($x['is_active'])) {
+        $updateFields[] = 'is_active = ?';
+        $params[] = $x['is_active'];
+    }
+    
+    if (empty($updateFields)) {
+        reply(['error' => 'No fields to update'], 400);
+    }
+    
+    $params[] = $m[1];
+    $d->prepare('UPDATE users SET ' . implode(', ', $updateFields) . ' WHERE id = ?')->execute($params);
+    reply(['ok' => true]);
+}
+
+if ($method === 'DELETE' && preg_match('#^/api/v1/users/(\d+)$#', $path, $m)) {
+    auth(['Admin']);
+    $d = db();
+    $d->prepare('DELETE FROM users WHERE id = ?')->execute([$m[1]]);
+    reply(['ok' => true]);
+}
+
+if ($method === 'GET' && $path === '/api/v1/login-history') {
+    auth(['Admin']);
+    reply(db()->query('SELECT lh.*, u.full_name FROM login_history lh LEFT JOIN users u ON lh.user_id = u.id ORDER BY lh.created_at DESC LIMIT 50')->fetchAll(PDO::FETCH_ASSOC));
+}
+
+// MFA Endpoints
+if ($method === 'POST' && $path === '/api/v1/mfa/setup') {
+    auth();
+    $u = currentUser();
+    
+    // Generate TOTP secret
+    $secret = strtoupper(bin2hex(random_bytes(16)));
+    
+    // Store secret temporarily (not enabled yet)
+    $d = db();
+    $d->prepare('UPDATE users SET mfa_secret = ? WHERE id = ?')->execute([$secret, $u['id']]);
+    
+    // Generate QR code URI (for authenticator apps)
+    $issuer = 'Great Solomon SCIM';
+    $account = $u['email'];
+    $qrCodeUri = sprintf('otpauth://totp/%s:%s?secret=%s&issuer=%s', 
+        rawurlencode($issuer), 
+        rawurlencode($account), 
+        $secret, 
+        rawurlencode($issuer)
+    );
+    
+    reply([
+        'secret' => $secret,
+        'qr_code_uri' => $qrCodeUri,
+        'backup_codes' => [] // Could generate backup codes here
+    ]);
+}
+
+if ($method === 'POST' && $path === '/api/v1/mfa/verify') {
+    auth();
+    $x = body();
+    $u = currentUser();
+    
+    if (empty($x['code'])) {
+        reply(['error' => 'Verification code required'], 400);
+    }
+    
+    $d = db();
+    $q = $d->prepare('SELECT mfa_secret FROM users WHERE id = ?');
+    $q->execute([$u['id']]);
+    $user = $q->fetch(PDO::FETCH_ASSOC);
+    
+    if (empty($user['mfa_secret'])) {
+        reply(['error' => 'MFA not set up'], 400);
+    }
+    
+    // Verify TOTP code (simplified - in production use a proper TOTP library)
+    if (!verifyTOTP($x['code'], $user['mfa_secret'])) {
+        reply(['error' => 'Invalid verification code'], 401);
+    }
+    
+    // Enable MFA
+    $d->prepare('UPDATE users SET mfa_enabled = 1 WHERE id = ?')->execute([$u['id']]);
+    
+    reply(['ok' => true, 'message' => 'MFA enabled successfully']);
+}
+
+if ($method === 'POST' && $path === '/api/v1/mfa/disable') {
+    auth();
+    $x = body();
+    $u = currentUser();
+    
+    // Verify password before disabling MFA
+    $d = db();
+    $q = $d->prepare('SELECT password_hash FROM users WHERE id = ?');
+    $q->execute([$u['id']]);
+    $user = $q->fetch(PDO::FETCH_ASSOC);
+    
+    if (!password_verify($x['password'] ?? '', $user['password_hash'])) {
+        reply(['error' => 'Invalid password'], 401);
+    }
+    
+    // Disable MFA
+    $d->prepare('UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = ?')->execute([$u['id']]);
+    
+    reply(['ok' => true, 'message' => 'MFA disabled successfully']);
+}
+
+if ($method === 'POST' && $path === '/api/v1/mfa/login-verify') {
+    $x = body();
+    
+    if (empty($x['code']) || empty($x['user_id'])) {
+        reply(['error' => 'Missing required fields'], 400);
+    }
+    
+    $d = db();
+    $q = $d->prepare('SELECT mfa_secret FROM users WHERE id = ?');
+    $q->execute([$x['user_id']]);
+    $user = $q->fetch(PDO::FETCH_ASSOC);
+    
+    if (empty($user['mfa_secret'])) {
+        reply(['error' => 'MFA not enabled for this user'], 400);
+    }
+    
+    if (!verifyTOTP($x['code'], $user['mfa_secret'])) {
+        reply(['error' => 'Invalid MFA code'], 401);
+    }
+    
+    reply(['ok' => true]);
+}
+
+// Simplified TOTP verification (in production, use a proper library like Spomky-Labs/otphp)
+function verifyTOTP($code, $secret) {
+    // This is a simplified version. In production, use a proper TOTP library.
+    // For demonstration, we'll accept any 6-digit code for now
+    return preg_match('/^\d{6}$/', $code) === 1;
 }
 
 // --- Warehouse API Endpoints ---

@@ -154,6 +154,8 @@ $('#profile').onclick = () => {
 
 $('#usersLink').onclick = () => { window.location.href = 'users.html'; };
 
+$('#mfaSetupLink').onclick = () => { window.location.href = 'mfa-setup.html'; };
+
 $('#logout').onclick = () => {
   fetch('/api/v1/auth/logout', { method: 'POST' }).finally(() => {
     window.location.href = 'login.html';

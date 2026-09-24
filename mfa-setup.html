@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MFA Setup | Great Solomon</title>
+    <link rel="stylesheet" href="styles.css?v=2">
+    <link rel="stylesheet" href="admin.css?v=1">
+  </head>
+  <body>
+    <main class="admin-page">
+      <header class="admin-header">
+        <div>
+          <a href="index.html">← Command Center</a>
+          <h1>Security & MFA Settings</h1>
+          <p>Set up two-factor authentication for enhanced account security.</p>
+        </div>
+        <button id="logout" class="text-button">Log out</button>
+      </header>
+      
+      <section class="admin-grid">
+        <section class="admin-card">
+          <h2>MFA Status</h2>
+          <div id="mfaStatus">
+            <p class="muted">Loading MFA status...</p>
+          </div>
+        </section>
+        
+        <section class="admin-card">
+          <h2>Setup Two-Factor Authentication</h2>
+          <div id="mfaSetup">
+            <p class="muted">Click below to generate your MFA secret and QR code.</p>
+            <button id="generateMFA" class="primary">Generate MFA Secret</button>
+          </div>
+          
+          <div id="mfaQRCode" style="display: none; text-align: center; margin: 20px 0;">
+            <p><strong>Step 1:</strong> Scan this QR code with your authenticator app</p>
+            <div id="qrCodeDisplay" style="margin: 20px 0; padding: 20px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; display: inline-block;">
+              <p class="muted">QR Code will appear here</p>
+            </div>
+            <p class="muted" style="font-size: 12px;">Secret: <code id="secretDisplay">•••••••••</code></p>
+          </div>
+          
+          <div id="mfaVerify" style="display: none;">
+            <p><strong>Step 2:</strong> Enter the 6-digit code from your authenticator app</p>
+            <label>Verification Code
+              <input id="mfaCode" type="text" maxlength="6" placeholder="123456" style="letter-spacing: 4px; font-size: 18px; text-align: center;">
+            </label>
+            <button id="verifyMFA" class="primary">Enable MFA</button>
+            <p id="mfaMessage" class="form-message"></p>
+          </div>
+        </section>
+      </section>
+      
+      <section class="admin-card">
+        <h2>Disable MFA</h2>
+        <p class="muted">Disable two-factor authentication (not recommended).</p>
+        <form id="disableMFAForm">
+          <label>Confirm Password
+            <input name="password" type="password" required placeholder="Enter your password">
+          </label>
+          <button type="submit" style="background: #dc2626;">Disable MFA</button>
+        </form>
+      </section>
+    </main>
+    
+    <script src="mfa-setup.js"></script>
+    <script src="inactivity.js"></script>
+  </body>
+</html>

@@ -48,11 +48,35 @@ async function loadUsers() {
             <b>${u.full_name}</b>
             <small>${u.email}</small>
           </div>
-          <span class="role ${u.role.toLowerCase()}">${u.role}</span>
+          <div>
+            <span class="role ${u.role.toLowerCase()}">${u.role}</span>
+            <button class="text-button" onclick="editUser(${u.id})">Edit</button>
+            <button class="text-button" onclick="deleteUser(${u.id})" style="color: #dc2626;">Delete</button>
+          </div>
         </div>
       `
     )
     .join('');
+}
+
+async function loadLoginHistory() {
+  try {
+    const response = await api('login-history');
+    const history = await response.json();
+    
+    $('#loginHistory').innerHTML = history.map((h) => `
+      <div class="user-row">
+        <div>
+          <b>${h.email}</b>
+          <small>${new Date(h.created_at).toLocaleString()}</small>
+        </div>
+        <span class="role ${h.success ? 'manager' : 'admin'}">${h.success ? 'Success' : 'Failed'}</span>
+      </div>
+    `).join('');
+  } catch (error) {
+    console.error('Error loading login history:', error);
+    $('#loginHistory').innerHTML = '<p class="muted">Unable to load login history</p>';
+  }
 }
 
 
@@ -105,5 +129,64 @@ $('#logout').onclick = () =>
 requireAdmin().then((isAuthorized) => {
   if (isAuthorized) {
     loadUsers();
+    loadLoginHistory();
   }
 });
+
+// Edit User Function
+window.editUser = async (userId) => {
+  const fullName = prompt('Enter new full name:');
+  if (fullName === null) return;
+  
+  const email = prompt('Enter new email:');
+  if (email === null) return;
+  
+  const role = prompt('Enter new role (Admin, Manager, WarehouseStaff):');
+  if (role === null) return;
+  
+  const isActive = confirm('Is this user active?');
+  
+  try {
+    const response = await api(`users/${userId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        full_name: fullName,
+        email: email,
+        role: role,
+        is_active: isActive ? 1 : 0
+      }),
+    });
+
+    if (response.ok) {
+      loadUsers();
+    } else {
+      alert('Failed to update user');
+    }
+  } catch (error) {
+    console.error('Error updating user:', error);
+    alert('Error updating user');
+  }
+};
+
+// Delete User Function
+window.deleteUser = async (userId) => {
+  if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+    return;
+  }
+  
+  try {
+    const response = await api(`users/${userId}`, {
+      method: 'DELETE',
+    });
+
+    if (response.ok) {
+      loadUsers();
+    } else {
+      alert('Failed to delete user');
+    }
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    alert('Error deleting user');
+  }
+};
