@@ -180,19 +180,46 @@ function migrate(PDO $d): void {
         FOREIGN KEY (vendor_id) REFERENCES vendors(id)
     )");
     
-    // Document tables
-    $d->exec("CREATE TABLE IF NOT EXISTS documents (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        document_type VARCHAR(80) NOT NULL,
-        reference_no VARCHAR(40) UNIQUE NOT NULL,
-        owner VARCHAR(100) NOT NULL,
-        description TEXT,
-        related_po VARCHAR(30),
-        due_date DATE,
-        status VARCHAR(40) DEFAULT 'Pending Verification',
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )");
+    // Document tables - Handle existing document_logs table
+    // Add missing columns to document_logs if they don't exist
+    try {
+        $d->exec("ALTER TABLE document_logs ADD COLUMN description TEXT");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE document_logs ADD COLUMN related_po VARCHAR(30)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE document_logs ADD COLUMN updated_at DATETIME");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    
+    // Check if documents table exists, if not create it and migrate from document_logs
+    $documentsTableExists = $d->query("SHOW TABLES LIKE 'documents'")->fetch();
+    if (!$documentsTableExists) {
+        // Create documents table
+        $d->exec("CREATE TABLE documents (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            document_type VARCHAR(80) NOT NULL,
+            reference_no VARCHAR(40) UNIQUE NOT NULL,
+            owner VARCHAR(100) NOT NULL,
+            description TEXT,
+            related_po VARCHAR(30),
+            due_date DATE,
+            status VARCHAR(40) DEFAULT 'Pending Verification',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )");
+        
+        // Migrate data from document_logs to documents
+        $d->exec("INSERT INTO documents (document_type, reference_no, owner, description, related_po, due_date, status, created_at)
+            SELECT document_type, reference_no, owner, description, related_po, due_date, status, created_at 
+            FROM document_logs");
+    }
     
     $d->exec("CREATE TABLE IF NOT EXISTS document_signatures (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -222,6 +249,15 @@ function migrate(PDO $d): void {
         FOREIGN KEY (document_id) REFERENCES documents(id)
     )");
     
+    // Migrate existing document_activity if it references document_logs
+    try {
+        $d->exec("UPDATE document_activity da 
+            SET document_id = (SELECT id FROM documents WHERE reference_no = (SELECT reference_no FROM document_logs WHERE id = da.document_id))
+            WHERE document_id IN (SELECT id FROM document_logs)");
+    } catch (Exception $e) {
+        // Migration might fail if foreign key constraints prevent it
+    }
+    
     // Insert default roles
     $d->exec("INSERT IGNORE INTO roles(name) VALUES ('Admin'),('Manager'),('WarehouseStaff')");
     
@@ -248,17 +284,29 @@ function migrate(PDO $d): void {
             ('Prime Devices Co.', 'orders@primedevices.com', '+63-2-8765-4321', 'Quezon City, Metro Manila', 'IT Equipment', 91, 2.1, 4.4),
             ('Metro IT Supply', 'info@metroit.com', '+63-2-8234-5678', 'Taguig City, Metro Manila', 'Office Supplies', 87, 3.8, 4.0)");
     }
+    
+    // Add MFA columns to users table if they don't exist (for existing databases)
+    try {
+        $d->exec("ALTER TABLE users ADD COLUMN mfa_enabled TINYINT(1) NOT NULL DEFAULT 0");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE users ADD COLUMN mfa_secret VARCHAR(255)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
 }
 
 function db(): PDO {
     static $d;
     if ($d) return $d;
     
-    $h = getenv('DB_HOST') ?: 'mariadb-5tyoddp0.internal';
-    $port = getenv('DB_PORT') ?: '35425';
+    $h = getenv('DB_HOST') ?: 'localhost';
+    $port = getenv('DB_PORT') ?: '3306';
     $n = getenv('DB_NAME') ?: getenv('DB_DATABASE') ?: 'hf_db_5tyoddp0';
-    $u = getenv('DB_USER') ?: getenv('DB_USERNAME') ?: 'hf_mt2jba5hlb';
-    $p = getenv('DB_PASS') ?: getenv('DB_PASSWORD') ?: 'dxbfdDz8k0tcetXthuRFegIiGfzCiz7C';
+    $u = getenv('DB_USER') ?: getenv('DB_USERNAME') ?: 'root';
+    $p = getenv('DB_PASS') ?: getenv('DB_PASSWORD') ?: '';
     
     
     if (!$h || !$n || !$u) {
@@ -266,7 +314,7 @@ function db(): PDO {
     }
     
     try {
-        $d = new PDO("mysql:host=$h;dbname=$n;charset=utf8mb4", $u, $p, [
+        $d = new PDO("mysql:host=$h;port=$port;dbname=$n;charset=utf8mb4", $u, $p, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
         ]);
     } catch (PDOException) {
@@ -401,14 +449,6 @@ if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) 
 if ($method === 'GET' && $path === '/api/v1/vendors') {
     auth();
     reply(db()->query('SELECT * FROM vendors ORDER BY on_time_rate DESC')->fetchAll(PDO::FETCH_ASSOC));
-}
-
-// --- Documents Endpoints ---
-if ($method === 'GET' && $path === '/api/v1/documents') {
-    auth();
-    $d = db();
-    $documents = $d->query('SELECT * FROM documents ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
-    reply(['documents' => $documents]);
 }
 
 // --- Users Endpoints ---
@@ -759,8 +799,8 @@ if ($method === 'POST' && $path === '/api/v1/documents') {
     auth(['Admin', 'Manager']);
     $x = body();
     $d = db();
-$doc_count = (int)$d->query("SELECT COUNT(*)+1 FROM documents WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
-$ref_number=substr($x['document_type'],0,3).'-'.date('Y').'-'.str_pad((string)$doc_count,3,'0',STR_PAD_LEFT);    
+    $doc_count = (int)$d->query("SELECT COUNT(*)+1 FROM documents WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
+    $ref_number = substr($x['document_type'], 0, 3) . '-' . date('Y') . '-' . str_pad((string)$doc_count, 3, '0', STR_PAD_LEFT);
     $q = $d->prepare('INSERT INTO documents(document_type, reference_no, owner, description, related_po, due_date) VALUES(?,?,?,?,?,?)');
     $q->execute([$x['document_type'], $ref_number, $x['owner'], $x['description'], $x['related_po'], $x['due_date']]);
     $doc_id = $d->lastInsertId();
