@@ -184,6 +184,14 @@ async function loadRecentQuotes() {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
+// Add Requisition Button - redirect to add page
+const addRequisitionBtn = $('#addRequisition');
+if (addRequisitionBtn) {
+  addRequisitionBtn.onclick = () => {
+    window.location.href = 'procurement-add.html';
+  };
+}
+
 // Scanner Modal Controls
 const mobileBtn = $('#mobileBtn');
 if (mobileBtn) {

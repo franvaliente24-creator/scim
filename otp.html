@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2FA Verification | Great Solomon SCIM</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css?v=3">
+    <link rel="stylesheet" href="auth.css?v=2">
+</head>
+<body class="login-page">
+    <main class="auth-card">
+        <!-- Company Logo Only -->
+        <div class="company-logo">
+            <div class="logo-icon">
+                <img src="img/logo.png" alt="Great Solomon Logo" class="w-full h-full object-contain">
+            </div>
+        </div>
+        
+        <h1>2FA Verification</h1>
+        <p class="auth-subtitle">Enter the OTP sent to your email</p>
+        
+        <form id="otpForm" novalidate>
+            <label>One-Time Password
+                <span class="field">
+                    <span class="material-symbols-outlined">key</span>
+                    <input id="otp" name="otp" type="text" placeholder="Enter 6-digit code" maxlength="6" pattern="[0-9]{6}" required autocomplete="one-time-code">
+                </span>
+            </label>
+            
+            <p id="otpError" class="login-error" role="alert"></p>
+            
+            <button class="signin-button" type="submit">Verify</button>
+            
+            <div class="mt-4 text-center">
+                <a href="login.html" class="text-sm text-indigo-600 hover:text-indigo-800">Back to Login</a>
+            </div>
+        </form>
+    </main>
+    
+    <script src="otp.js"></script>
+</body>
+</html>

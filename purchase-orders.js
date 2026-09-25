@@ -234,8 +234,21 @@ function loadVendorSummary(purchaseOrders) {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
-// Add PO Modal
-$('#addPOBtn').onclick = () => $('#addPOModal').showModal();
+// Create PO Button - redirect to add page
+const createPOBtn = $('#createPO');
+if (createPOBtn) {
+  createPOBtn.onclick = () => {
+    window.location.href = 'purchase-orders-add.html';
+  };
+}
+
+// Add PO Button - redirect to add page
+const addPOBtn = $('#addPOBtn');
+if (addPOBtn) {
+  addPOBtn.onclick = () => {
+    window.location.href = 'purchase-orders-add.html';
+  };
+}
 $('#closePO').onclick = () => $('#addPOModal').close();
 
 $('#addPOForm').onsubmit = async (e) => {

@@ -20,10 +20,34 @@ const money = (amount) =>
     maximumFractionDigits: 0,
   }).format(Number(amount) || 0);
 
+// Show loading state
+function showLoading(containerId) {
+  const container = $(containerId);
+  if (container) {
+    container.innerHTML = '<div class="text-center py-8"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div><p class="text-slate-500 mt-2">Loading...</p></div>';
+  }
+}
+
+// Show error state
+function showError(containerId, message) {
+  const container = $(containerId);
+  if (container) {
+    container.innerHTML = `<div class="text-center py-8 text-red-500"><p>${message}</p></div>`;
+  }
+}
+
 // Initialize permissions on page load
 document.addEventListener('DOMContentLoaded', async () => {
-  await initializePermissions();
-  loadInventoryData();
+  // Show loading states
+  showLoading('#assetsContainer');
+  
+  try {
+    await initializePermissions();
+    await loadInventoryData();
+  } catch (error) {
+    console.error('Error initializing page:', error);
+    showError('#assetsContainer', 'Failed to load data. Please refresh the page.');
+  }
 });
 
 // ==========================================
@@ -313,10 +337,10 @@ window.editAsset = (qrCode) => {
 // Load inventory data on page load
 loadInventoryData();
 
-// Add Asset Button
+// Add Asset Button - Redirect to dedicated page
 const addAssetBtn = $('#addAsset');
 if (addAssetBtn) {
   addAssetBtn.onclick = () => {
-    alert('Add Asset functionality - to be implemented with modal form');
+    window.location.href = 'inventory-add.html';
   };
 }

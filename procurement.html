@@ -22,27 +22,10 @@
     
     <!-- Left Sidebar -->
     <aside id="app-sidebar" class="dashboard-sidebar fixed md:static top-16 bottom-0 md:inset-y-0 left-0 z-50 bg-white flex flex-col h-[calc(100vh-4rem)] md:h-full shrink-0 shadow-xl md:shadow-none transition-all duration-300 ease-in-out overflow-hidden w-72 border-r border-slate-200 -translate-x-full md:translate-x-0 opacity-100">
-        <!-- Company Logo & Profile -->
-        <div class="px-5 pt-6 pb-5 border-b border-slate-200">
-            <div class="flex items-center gap-3 mb-4">
-                <!-- Company Logo -->
-                <div class="w-8 h-8 shrink-0 overflow-hidden rounded-lg">
-                    <img src="img/logo.png" alt="Great Solomon Logo" class="w-full h-full object-contain">
-                </div>
-                <div class="flex-1 min-w-0">
-                    <p class="text-sm font-semibold text-slate-950 truncate">Great Solomon</p>
-                    <p class="text-xs text-slate-500 truncate">Supply Chain Management</p>
-                </div>
-            </div>
-            <!-- User Profile Mini -->
-            <div class="flex items-center gap-3 p-3 rounded-xl bg-slate-50">
-                <div class="w-9 h-9 shrink-0 overflow-hidden rounded-full">
-                    <img src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
-                </div>
-                <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-slate-900 truncate" id="sidebar-user-name">Admin User</p>
-                    <p class="text-xs text-slate-500 truncate" id="sidebar-user-role">Administrator</p>
-                </div>
+        <!-- Company Logo -->
+        <div class="px-5 pt-6 pb-5 border-b border-slate-200 flex justify-center">
+            <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg">
+                <img src="img/logo.png" alt="Company Logo" class="w-full h-full object-contain">
             </div>
         </div>
         <nav class="flex-1 overflow-y-auto px-5 py-6 space-y-3">
@@ -101,7 +84,7 @@
                         <img src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
                     </div>
                     <div class="hidden md:flex flex-col text-left mr-1">
-                        <span class="font-label font-semibold text-sm text-on-surface leading-tight">Admin User</span>
+                        <span class="font-label font-semibold text-sm text-on-surface leading-tight">User</span>
                         <span class="text-xs text-on-surface-variant font-light">Administrator</span>
                     </div>
                     <span class="material-symbols-outlined text-on-surface-variant text-sm hidden sm:inline-block">expand_more</span>
@@ -109,7 +92,7 @@
                 
                 <div id="profile-dropdown-menu" class="absolute right-0 top-14 w-60 bg-surface rounded-2xl shadow-xl border border-outline-variant/30 py-2 z-50 transition-all duration-200 hidden opacity-0 scale-95 origin-top-right">
                     <div class="px-4 py-3 border-b border-outline-variant/20 md:hidden">
-                        <p class="text-sm font-semibold text-on-surface">Admin User</p>
+                        <p class="text-sm font-semibold text-on-surface">User</p>
                         <p class="text-xs text-on-surface-variant truncate">admin@example.com</p>
                     </div>
                     <div class="px-4 py-2 hidden md:block">

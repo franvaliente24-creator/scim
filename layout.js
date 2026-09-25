@@ -3,42 +3,6 @@
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Update sidebar profile with real user data
-  fetch('/api/v1/auth/me')
-    .then(res => res.json())
-    .then(data => {
-      if (data.user) {
-        const user = data.user;
-        
-        const sidebarUserName = document.getElementById('sidebar-user-name');
-        const sidebarUserRole = document.getElementById('sidebar-user-role');
-        
-        if (sidebarUserName && user.full_name) {
-          sidebarUserName.textContent = user.full_name;
-        }
-        
-        if (sidebarUserRole && user.role) {
-          sidebarUserRole.textContent = user.role;
-        }
-        
-        // Update profile dropdown user name displays
-        const profileNames = document.querySelectorAll('.font-label.font-semibold.text-sm.text-on-surface, .text-sm.font-semibold.text-on-surface');
-        profileNames.forEach(nameEl => {
-          if (user.full_name) {
-            nameEl.textContent = user.full_name;
-          }
-        });
-        
-        const profileRoles = document.querySelectorAll('.text-xs.text-on-surface-variant.font-light');
-        profileRoles.forEach(roleEl => {
-          if (user.role) {
-            roleEl.textContent = user.role;
-          }
-        });
-      }
-    })
-    .catch(error => console.error('Error loading user data:', error));
-
   // Sidebar Toggle Functionality
   const sidebarToggle = document.getElementById('desktop-sidebar-toggle');
   const sidebar = document.getElementById('app-sidebar');

@@ -43,6 +43,15 @@ form.onsubmit = async (e) => {
       throw new Error(data.error || 'Unable to sign in.');
     }
 
+    // Check if 2FA is required
+    if (data.requires_2fa) {
+      // Store the session token and redirect to OTP verification
+      localStorage.setItem('temp_session_token', data.temp_token);
+      window.location.href = 'otp.html';
+      return;
+    }
+
+    // No 2FA required, proceed to dashboard
     window.location.href = 'index.html';
   } catch (err) {
     error.textContent = err.message;

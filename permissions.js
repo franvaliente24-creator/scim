@@ -167,34 +167,49 @@ function showElementsByPermission(permission, elementSelectors) {
 
 // Apply RBAC to current page
 function applyRBAC() {
+  // Always run for all roles to ensure proper hiding
+  
   // Hide user management for non-admins
-  hideElementsByPermission('USER_VIEW', ['#usersLink', '.user-management-section']);
-  
-  // Hide system settings for non-admins
-  hideElementsByPermission('SYSTEM_SETTINGS', ['.system-settings-section']);
-  
-  // Hide procurement for warehouse staff
-  hideElementsByPermission('PROCUREMENT_VIEW', ['#procurementLink']);
-  
-  // Hide supplier management for warehouse staff
-  hideElementsByPermission('SUPPLIER_VIEW', ['#suppliersLink']);
-  
-  // Hide document management for warehouse staff
-  hideElementsByPermission('DOCUMENT_VIEW', ['#documentsLink']);
-  
-  // Hide add/edit/delete buttons based on permissions
-  hideElementsByPermission('WAREHOUSE_ADD_ZONE', ['#addZoneBtn']);
-  hideElementsByPermission('INVENTORY_ADD_ASSET', ['#addAssetBtn']);
-  hideElementsByPermission('SUPPLIER_ADD', ['#addSupplierBtn']);
-  hideElementsByPermission('PROCUREMENT_CREATE_REQ', ['#addRequisitionBtn']);
-  hideElementsByPermission('PO_CREATE', ['#addPOBtn', '.po-create-section']);
-  hideElementsByPermission('PO_APPROVE', ['.po-approve-section']);
-  hideElementsByPermission('PO_REJECT', ['.po-reject-section']);
-  
-  // Hide user management link in dropdown for non-admins
   if (!hasPermission('USER_VIEW')) {
     const userManagementLinks = document.querySelectorAll('a[href="users.html"]');
     userManagementLinks.forEach(link => {
+      link.style.display = 'none';
+    });
+    
+    const userManagementSections = document.querySelectorAll('.user-management-section');
+    userManagementSections.forEach(section => {
+      section.style.display = 'none';
+    });
+  }
+  
+  // Hide system settings for non-admins
+  if (!hasPermission('SYSTEM_SETTINGS')) {
+    const systemSettingsSections = document.querySelectorAll('.system-settings-section');
+    systemSettingsSections.forEach(section => {
+      section.style.display = 'none';
+    });
+  }
+  
+  // Hide procurement for warehouse staff
+  if (!hasPermission('PROCUREMENT_VIEW')) {
+    const procurementLinks = document.querySelectorAll('#procurementLink');
+    procurementLinks.forEach(link => {
+      link.style.display = 'none';
+    });
+  }
+  
+  // Hide supplier management for warehouse staff
+  if (!hasPermission('SUPPLIER_VIEW')) {
+    const supplierLinks = document.querySelectorAll('#suppliersLink');
+    supplierLinks.forEach(link => {
+      link.style.display = 'none';
+    });
+  }
+  
+  // Hide document management for warehouse staff
+  if (!hasPermission('DOCUMENT_VIEW')) {
+    const documentLinks = document.querySelectorAll('#documentsLink');
+    documentLinks.forEach(link => {
       link.style.display = 'none';
     });
   }
@@ -207,24 +222,81 @@ function applyRBAC() {
     });
   }
   
+  // Hide add/edit/delete buttons based on permissions
+  if (!hasPermission('WAREHOUSE_ADD_ZONE')) {
+    const addZoneBtns = document.querySelectorAll('#addZone');
+    addZoneBtns.forEach(btn => btn.style.display = 'none');
+  }
+
+  if (!hasPermission('INVENTORY_ADD_ASSET')) {
+    const addAssetBtns = document.querySelectorAll('#addAssetBtn');
+    addAssetBtns.forEach(btn => btn.style.display = 'none');
+  }
+
+  if (!hasPermission('SUPPLIER_ADD')) {
+    const addSupplierBtns = document.querySelectorAll('#addSupplier');
+    addSupplierBtns.forEach(btn => btn.style.display = 'none');
+  }
+
+  if (!hasPermission('PROCUREMENT_CREATE_REQ')) {
+    const addRequisitionBtns = document.querySelectorAll('#addRequisition');
+    addRequisitionBtns.forEach(btn => btn.style.display = 'none');
+  }
+
+  if (!hasPermission('PO_CREATE')) {
+    const addPOBtns = document.querySelectorAll('#createPO, #addPOBtn');
+    addPOBtns.forEach(btn => btn.style.display = 'none');
+
+    const poCreateSections = document.querySelectorAll('.po-create-section');
+    poCreateSections.forEach(section => section.style.display = 'none');
+  }
+
+  if (!hasPermission('DOCUMENT_CREATE')) {
+    const addDocumentBtns = document.querySelectorAll('#addDocument, #addDocumentBtn');
+    addDocumentBtns.forEach(btn => btn.style.display = 'none');
+  }
+  
+  if (!hasPermission('PO_APPROVE')) {
+    const poApproveSections = document.querySelectorAll('.po-approve-section');
+    poApproveSections.forEach(section => section.style.display = 'none');
+  }
+  
+  if (!hasPermission('PO_REJECT')) {
+    const poRejectSections = document.querySelectorAll('.po-reject-section');
+    poRejectSections.forEach(section => section.style.display = 'none');
+  }
+  
   // Show warehouse staff specific elements
-  if (currentUserRole === 'Warehouse Staff') {
-    showElementsByPermission('WAREHOUSE_SCAN', ['#mobileBtn']);
-    showElementsByPermission('PO_RECEIVE', ['.po-receive-section']);
-    showElementsByPermission('PO_QR_GENERATE', ['.po-qr-section']);
+  if (hasPermission('WAREHOUSE_SCAN')) {
+    const mobileBtns = document.querySelectorAll('#mobileBtn');
+    mobileBtns.forEach(btn => btn.style.display = '');
+  }
+  
+  if (hasPermission('PO_RECEIVE')) {
+    const poReceiveSections = document.querySelectorAll('.po-receive-section');
+    poReceiveSections.forEach(section => section.style.display = '');
+  }
+  
+  if (hasPermission('PO_QR_GENERATE')) {
+    const poQRSections = document.querySelectorAll('.po-qr-section');
+    poQRSections.forEach(section => section.style.display = '');
   }
   
   // Show manager specific elements
-  if (currentUserRole === 'Manager') {
-    showElementsByPermission('PROCUREMENT_APPROVE_REQ', ['.procurement-approve-section']);
-    showElementsByPermission('PO_APPROVE', ['.po-approve-section']);
-    showElementsByPermission('PO_REJECT', ['.po-reject-section']);
+  if (hasPermission('PROCUREMENT_APPROVE_REQ')) {
+    const procurementApproveSections = document.querySelectorAll('.procurement-approve-section');
+    procurementApproveSections.forEach(section => section.style.display = '');
   }
   
   // Show admin specific elements
-  if (currentUserRole === 'Admin') {
-    showElementsByPermission('USER_CHANGE_ROLE', ['.user-role-section']);
-    showElementsByPermission('SYSTEM_SETTINGS', ['.system-settings-section']);
+  if (hasPermission('USER_CHANGE_ROLE')) {
+    const userRoleSections = document.querySelectorAll('.user-role-section');
+    userRoleSections.forEach(section => section.style.display = '');
+  }
+  
+  if (hasPermission('SYSTEM_SETTINGS')) {
+    const systemSettingsSections = document.querySelectorAll('.system-settings-section');
+    systemSettingsSections.forEach(section => section.style.display = '');
   }
 }
 

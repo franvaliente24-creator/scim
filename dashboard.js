@@ -27,36 +27,6 @@ async function requireSession() {
     return false;
   }
   
-  // Update profile displays with real user data
-  const user = data.user;
-  
-  // Update sidebar profile
-  const sidebarUserName = document.getElementById('sidebar-user-name');
-  const sidebarUserRole = document.getElementById('sidebar-user-role');
-  
-  if (sidebarUserName && user.full_name) {
-    sidebarUserName.textContent = user.full_name;
-  }
-  
-  if (sidebarUserRole && user.role) {
-    sidebarUserRole.textContent = user.role;
-  }
-  
-  // Update profile dropdown displays
-  const profileNames = document.querySelectorAll('.font-label.font-semibold.text-sm.text-on-surface, .text-sm.font-semibold.text-on-surface');
-  profileNames.forEach(nameEl => {
-    if (user.full_name) {
-      nameEl.textContent = user.full_name;
-    }
-  });
-  
-  const profileRoles = document.querySelectorAll('.text-xs.text-on-surface-variant.font-light');
-  profileRoles.forEach(roleEl => {
-    if (user.role) {
-      roleEl.textContent = user.role;
-    }
-  });
-  
   return true;
 }
 

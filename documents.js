@@ -199,9 +199,23 @@ function loadCourierTracking(documents) {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
+// Add Document Button - redirect to add page
+const addDocumentBtn = $('#addDocument');
+if (addDocumentBtn) {
+  addDocumentBtn.onclick = () => {
+    window.location.href = 'documents-add.html';
+  };
+}
 
-// Add Document Modal
-$('#addDocumentBtn').onclick = () => $('#addDocumentModal').showModal();
+// Add Document Modal Button - redirect to add page
+const addDocumentBtnModal = $('#addDocumentBtn');
+if (addDocumentBtnModal) {
+  addDocumentBtnModal.onclick = () => {
+    window.location.href = 'documents-add.html';
+  };
+}
+
+// Close Document Modal
 $('#closeDocument').onclick = () => $('#addDocumentModal').close();
 
 $('#addDocumentForm').onsubmit = async (e) => {

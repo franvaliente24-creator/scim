@@ -151,6 +151,14 @@ function renderAttentionSuppliers(suppliers) {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
+// Add Supplier Button - redirect to add page
+const addSupplierBtn = $('#addSupplier');
+if (addSupplierBtn) {
+  addSupplierBtn.onclick = () => {
+    window.location.href = 'suppliers-add.html';
+  };
+}
+
 // Scanner Modal Controls
 const mobileBtn = $('#mobileBtn');
 if (mobileBtn) {

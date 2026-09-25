@@ -135,6 +135,14 @@ async function loadRecentScans() {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
+// Add Zone Button - redirect to add page
+const addZoneBtn = $('#addZone');
+if (addZoneBtn) {
+  addZoneBtn.onclick = () => {
+    window.location.href = 'warehousing-add.html';
+  };
+}
+
 // Scanner Modal Controls
 const mobileBtn = $('#mobileBtn');
 if (mobileBtn) {
