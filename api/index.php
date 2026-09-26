@@ -296,6 +296,251 @@ function migrate(PDO $d): void {
     } catch (Exception $e) {
         // Column might already exist
     }
+    
+    // Integration tables
+    $d->exec("CREATE TABLE IF NOT EXISTS system_integrations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        system_name VARCHAR(80) NOT NULL,
+        system_type VARCHAR(40) NOT NULL,
+        api_endpoint VARCHAR(255),
+        api_key VARCHAR(255) NOT NULL,
+        api_secret VARCHAR(255) NOT NULL,
+        status VARCHAR(40) DEFAULT 'Active',
+        contact_email VARCHAR(160),
+        last_sync DATETIME,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )");
+    
+    $d->exec("CREATE TABLE IF NOT EXISTS external_references (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        scim_entity_type VARCHAR(40) NOT NULL,
+        scim_entity_id INT NOT NULL,
+        external_system VARCHAR(80) NOT NULL,
+        external_reference_id VARCHAR(100) NOT NULL,
+        reference_type VARCHAR(40) NOT NULL,
+        sync_status VARCHAR(40) DEFAULT 'Synced',
+        last_synced DATETIME,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_external_ref (external_system, external_reference_id)
+    )");
+    
+    $d->exec("CREATE TABLE IF NOT EXISTS equipment_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        request_number VARCHAR(30) UNIQUE NOT NULL,
+        external_request_id VARCHAR(100),
+        requesting_system VARCHAR(80) NOT NULL,
+        employee_name VARCHAR(120) NOT NULL,
+        employee_id VARCHAR(100),
+        department VARCHAR(60),
+        equipment_needed TEXT NOT NULL,
+        needed_by DATE,
+        business_justification TEXT,
+        cost_center VARCHAR(40),
+        priority VARCHAR(20) DEFAULT 'Medium',
+        status VARCHAR(40) DEFAULT 'Pending',
+        estimated_cost DECIMAL(12,2),
+        actual_cost DECIMAL(12,2),
+        rejection_reason TEXT,
+        requested_date DATETIME,
+        approved_by INT,
+        approved_date DATETIME,
+        fulfilled_date DATETIME,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (approved_by) REFERENCES users(id)
+    )");
+    
+    $d->exec("CREATE TABLE IF NOT EXISTS equipment_request_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        request_id INT NOT NULL,
+        category VARCHAR(60) NOT NULL,
+        specifications TEXT,
+        quantity INT NOT NULL,
+        priority VARCHAR(20) DEFAULT 'Medium',
+        assigned_asset_id INT,
+        assigned_qr_code VARCHAR(50),
+        unit_cost DECIMAL(12,2),
+        total_cost DECIMAL(12,2),
+        fulfillment_status VARCHAR(40) DEFAULT 'Pending',
+        fulfilled_date DATETIME,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (request_id) REFERENCES equipment_requests(id) ON DELETE CASCADE,
+        FOREIGN KEY (assigned_asset_id) REFERENCES assets(id)
+    )");
+    
+    $d->exec("CREATE TABLE IF NOT EXISTS equipment_request_activity (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        request_id INT NOT NULL,
+        action VARCHAR(100) NOT NULL,
+        details TEXT,
+        performed_by VARCHAR(120),
+        performed_by_system VARCHAR(80),
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (request_id) REFERENCES equipment_requests(id) ON DELETE CASCADE
+    )");
+    
+    $d->exec("CREATE TABLE IF NOT EXISTS webhooks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        webhook_id VARCHAR(30) UNIQUE NOT NULL,
+        system_integration_id INT,
+        event_types TEXT NOT NULL,
+        target_url VARCHAR(255) NOT NULL,
+        webhook_secret VARCHAR(255) NOT NULL,
+        active TINYINT(1) DEFAULT 1,
+        retry_policy VARCHAR(40) DEFAULT 'exponential',
+        max_retries INT DEFAULT 3,
+        last_triggered DATETIME,
+        success_count INT DEFAULT 0,
+        failure_count INT DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (system_integration_id) REFERENCES system_integrations(id)
+    )");
+    
+    $d->exec("CREATE TABLE IF NOT EXISTS webhook_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        webhook_id INT NOT NULL,
+        event_id VARCHAR(50),
+        event_type VARCHAR(80) NOT NULL,
+        payload TEXT NOT NULL,
+        response_code INT,
+        response_body TEXT,
+        delivery_status VARCHAR(40) DEFAULT 'Pending',
+        attempt_number INT DEFAULT 1,
+        next_retry_at DATETIME,
+        sent_at DATETIME,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (webhook_id) REFERENCES webhooks(id)
+    )");
+    
+    $d->exec("CREATE TABLE IF NOT EXISTS integration_audit_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        system_integration_id INT,
+        external_system VARCHAR(80),
+        action VARCHAR(100) NOT NULL,
+        entity_type VARCHAR(40),
+        entity_id INT,
+        request_data TEXT,
+        response_data TEXT,
+        status VARCHAR(40) NOT NULL,
+        error_message TEXT,
+        ip_address VARCHAR(64),
+        user_agent VARCHAR(255),
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (system_integration_id) REFERENCES system_integrations(id)
+    )");
+    
+    $d->exec("CREATE TABLE IF NOT EXISTS integration_config (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        config_key VARCHAR(80) UNIQUE NOT NULL,
+        config_value TEXT,
+        config_type VARCHAR(40) DEFAULT 'string',
+        description TEXT,
+        is_encrypted TINYINT(1) DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )");
+    
+    // Add integration columns to existing tables
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN assigned_to_system VARCHAR(80)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN external_employee_id VARCHAR(100)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN external_employee_name VARCHAR(120)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN assignment_date DATE");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN assignment_notes TEXT");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN cost_center VARCHAR(40)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    
+    try {
+        $d->exec("ALTER TABLE purchase_orders ADD COLUMN budget_code VARCHAR(40)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE purchase_orders ADD COLUMN budget_status VARCHAR(40)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE purchase_orders ADD COLUMN budget_approved_by VARCHAR(120)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE purchase_orders ADD COLUMN budget_approved_date DATETIME");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE purchase_orders ADD COLUMN external_po_reference VARCHAR(100)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    try {
+        $d->exec("ALTER TABLE purchase_orders ADD COLUMN requesting_system VARCHAR(80)");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    
+    // Insert default integration configuration
+    $d->exec("INSERT IGNORE INTO integration_config (config_key, config_value, config_type, description) VALUES
+        ('integration.enabled', 'true', 'boolean', 'Enable/disable all integrations'),
+        ('webhook.retry.max_attempts', '3', 'integer', 'Maximum webhook retry attempts'),
+        ('webhook.retry.backoff_seconds', '60', 'integer', 'Initial backoff for webhook retries'),
+        ('api.rate_limit.requests_per_minute', '100', 'integer', 'Standard rate limit per minute'),
+        ('api.rate_limit.burst_requests', '200', 'integer', 'Burst rate limit per minute'),
+        ('equipment_request.auto_approve_threshold', '50000', 'decimal', 'Auto-approve threshold for equipment requests'),
+        ('sync.batch_size', '1000', 'integer', 'Batch size for data synchronization'),
+        ('export.retention_days', '30', 'integer', 'Retention period for export files')");
+    
+    // Create stored procedures for integration
+    $d->exec("DROP PROCEDURE IF EXISTS log_equipment_request_activity");
+    $d->exec("CREATE PROCEDURE log_equipment_request_activity(
+        IN p_request_id INT,
+        IN p_action VARCHAR(100),
+        IN p_details TEXT,
+        IN p_performed_by VARCHAR(120),
+        IN p_performed_by_system VARCHAR(80)
+    )
+    BEGIN
+        INSERT INTO equipment_request_activity (request_id, action, details, performed_by, performed_by_system)
+        VALUES (p_request_id, p_action, p_details, p_performed_by, p_performed_by_system);
+    END");
+    
+    $d->exec("DROP PROCEDURE IF EXISTS generate_equipment_request_number");
+    $d->exec("CREATE PROCEDURE generate_equipment_request_number(OUT p_request_number VARCHAR(30))
+    BEGIN
+        DECLARE v_count INT;
+        SELECT COUNT(*) + 1 INTO v_count 
+        FROM equipment_requests 
+        WHERE YEAR(created_at) = YEAR(NOW());
+        
+        SET p_request_number = CONCAT('SCIM-REQ-', YEAR(NOW()), '-', LPAD(v_count, 3, '0'));
+    END");
 }
 
 function db(): PDO {
@@ -787,6 +1032,141 @@ if ($method === 'GET' && $path === '/api/v1/pos/activity') {
     reply(['activities' => $activity]);
 }
 
+// --- Equipment Requests API Endpoints ---
+if ($method === 'GET' && $path === '/api/v1/equipment-requests') {
+    auth(['Admin', 'Manager']);
+    $d = db();
+    $requests = $d->query('SELECT er.*, si.system_name, si.system_type 
+                           FROM equipment_requests er 
+                           LEFT JOIN system_integrations si ON er.requesting_system = si.system_name 
+                           ORDER BY er.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
+    reply(['requests' => $requests]);
+}
+
+if ($method === 'GET' && preg_match('#^/api/v1/equipment-requests/([^/]+)$#', $path, $m)) {
+    auth(['Admin', 'Manager']);
+    $d = db();
+    $q = $d->prepare('SELECT er.*, si.system_name, si.system_type 
+                      FROM equipment_requests er 
+                      LEFT JOIN system_integrations si ON er.requesting_system = si.system_name 
+                      WHERE er.request_number = ?');
+    $q->execute([$m[1]]);
+    $request = $q->fetch(PDO::FETCH_ASSOC);
+    reply($request ?: ['error' => 'Equipment request not found'], $request ? 200 : 404);
+}
+
+if ($method === 'PUT' && preg_match('#^/api/v1/equipment-requests/([^/]+)/status$#', $path, $m)) {
+    auth(['Admin', 'Manager']);
+    $x = body();
+    $d = db();
+    $u = auth();
+    
+    $updateFields = ['status = ?'];
+    $params = [$x['status'] ?? 'Pending'];
+    
+    if (!empty($x['rejection_reason'])) {
+        $updateFields[] = 'rejection_reason = ?';
+        $params[] = $x['rejection_reason'];
+    }
+    
+    if (!empty($x['notes'])) {
+        $updateFields[] = 'notes = ?';
+        $params[] = $x['notes'];
+    }
+    
+    if ($x['status'] === 'Approved') {
+        $updateFields[] = 'approved_by = ?';
+        $updateFields[] = 'approved_date = NOW()';
+        $params[] = $u['id'];
+    }
+    
+    if ($x['status'] === 'Fulfilled') {
+        $updateFields[] = 'fulfilled_date = NOW()';
+    }
+    
+    $params[] = $m[1];
+    
+    $d->prepare('UPDATE equipment_requests SET ' . implode(', ', $updateFields) . ' WHERE request_number = ?')
+      ->execute($params);
+    
+    // Get request ID for activity logging
+    $requestIdQuery = $d->prepare('SELECT id FROM equipment_requests WHERE request_number = ?');
+    $requestIdQuery->execute([$m[1]]);
+    $requestId = $requestIdQuery->fetchColumn();
+    
+    // Log activity
+    $d->prepare('CALL log_equipment_request_activity(?, ?, ?, ?, ?)')
+      ->execute([$requestId, 'Status Updated', 'Status changed to ' . ($x['status'] ?? 'Pending'), $u['name'], null]);
+    
+    reply(['ok' => true]);
+}
+
+if ($method === 'POST' && preg_match('#^/api/v1/equipment-requests/([^/]+)/fulfill$#', $path, $m)) {
+    auth(['Admin', 'Manager']);
+    $x = body();
+    $d = db();
+    $u = auth();
+    
+    // Get request ID
+    $requestIdQuery = $d->prepare('SELECT id FROM equipment_requests WHERE request_number = ?');
+    $requestIdQuery->execute([$m[1]]);
+    $requestId = $requestIdQuery->fetchColumn();
+    
+    if (!$requestId) {
+        reply(['error' => 'Equipment request not found'], 404);
+    }
+    
+    // Process assignments
+    if (!empty($x['assignments'])) {
+        foreach ($x['assignments'] as $assignment) {
+            // Validate QR code
+            $qrQuery = $d->prepare('SELECT id, name FROM assets WHERE qr_code = ?');
+            $qrQuery->execute([$assignment['qr_code']]);
+            $asset = $qrQuery->fetch(PDO::FETCH_ASSOC);
+            
+            if ($asset) {
+                // Update asset status
+                $d->prepare('UPDATE assets SET status = "Deployed" WHERE id = ?')
+                  ->execute([$asset['id']]);
+                
+                // Create request item
+                $d->prepare('INSERT INTO equipment_request_items (request_id, category, specifications, quantity, assigned_asset_id, assigned_qr_code, fulfillment_status, fulfilled_date) 
+                             VALUES (?, ?, ?, ?, ?, ?, "Fulfilled", NOW())')
+                  ->execute([$requestId, 'Equipment', 'Auto-assigned', 1, $asset['id'], $assignment['qr_code']]);
+            }
+        }
+    }
+    
+    // Update request status
+    $d->prepare('UPDATE equipment_requests SET status = "Fulfilling", updated_at = NOW() WHERE id = ?')
+      ->execute([$requestId]);
+    
+    // Log activity
+    $d->prepare('CALL log_equipment_request_activity(?, ?, ?, ?, ?)')
+      ->execute([$requestId, 'Fulfillment Started', $x['notes'] ?? 'Equipment assignment started', $u['name'], null]);
+    
+    reply(['ok' => true]);
+}
+
+if ($method === 'GET' && preg_match('#^/api/v1/equipment-requests/([^/]+)/activity$#', $path, $m)) {
+    auth(['Admin', 'Manager']);
+    $d = db();
+    
+    $requestIdQuery = $d->prepare('SELECT id FROM equipment_requests WHERE request_number = ?');
+    $requestIdQuery->execute([$m[1]]);
+    $requestId = $requestIdQuery->fetchColumn();
+    
+    if (!$requestId) {
+        reply(['error' => 'Equipment request not found'], 404);
+    }
+    
+    $q = $d->prepare('SELECT * FROM equipment_request_activity WHERE request_id = ? ORDER BY created_at DESC');
+    $q->execute([$requestId]);
+    $activities = $q->fetchAll(PDO::FETCH_ASSOC);
+    
+    reply(['activities' => $activities]);
+}
+
 // --- Documents API Endpoints ---
 if ($method === 'GET' && $path === '/api/v1/documents') {
     auth();
@@ -853,6 +1233,467 @@ if ($method === 'GET' && $path === '/api/v1/documents/activity') {
     $d = db();
     $activity = $d->query("SELECT da.*, d.reference_no FROM document_activity da JOIN documents d ON da.document_id=d.id ORDER BY da.created_at DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
     reply(['activities' => $activity]);
+}
+
+// ==========================================
+// INTEGRATION API ENDPOINTS
+// ==========================================
+
+// Helper function for integration authentication
+function integrationAuth(): array {
+    $apiKey = $_SERVER['HTTP_X_API_KEY'] ?? '';
+    $apiSignature = $_SERVER['HTTP_X_API_SIGNATURE'] ?? '';
+    $systemId = $_SERVER['HTTP_X_SYSTEM_ID'] ?? '';
+    $timestamp = $_SERVER['HTTP_X_TIMESTAMP'] ?? '';
+    
+    if (empty($apiKey) || empty($apiSignature) || empty($systemId)) {
+        reply(['error' => 'Missing authentication headers'], 401);
+    }
+    
+    $d = db();
+    $q = $d->prepare('SELECT * FROM system_integrations WHERE api_key = ? AND status = "Active"');
+    $q->execute([$apiKey]);
+    $integration = $q->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$integration) {
+        reply(['error' => 'Invalid API key or inactive integration'], 401);
+    }
+    
+    // Verify signature (simplified - in production use proper HMAC verification)
+    $payload = $_SERVER['REQUEST_METHOD'] . $_SERVER['REQUEST_URI'] . file_get_contents('php://input') . $timestamp;
+    $expectedSignature = hash_hmac('sha256', $payload, $integration['api_secret']);
+    if (!hash_equals($expectedSignature, $apiSignature)) {
+        reply(['error' => 'Invalid signature'], 401);
+    }
+    
+    // Log the API call
+    $logQuery = $d->prepare('INSERT INTO integration_audit_log (system_integration_id, external_system, action, entity_type, request_data, status, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    $logQuery->execute([
+        $integration['id'],
+        $systemId,
+        $_SERVER['REQUEST_METHOD'] . ' ' . $_SERVER['REQUEST_URI'],
+        'api_call',
+        json_encode(['body' => body(), 'headers' => getallheaders()]),
+        'Success',
+        $_SERVER['REMOTE_ADDR'] ?? null,
+        $_SERVER['HTTP_USER_AGENT'] ?? null
+    ]);
+    
+    return $integration;
+}
+
+// --- Equipment Request Endpoints ---
+
+if ($method === 'POST' && $path === '/api/v1/integration/equipment-requests') {
+    $integration = integrationAuth();
+    $x = body();
+    $d = db();
+    
+    // Generate request number
+    $d->prepare('CALL generate_equipment_request_number(@request_number)');
+    $requestNumber = $d->query('SELECT @request_number')->fetchColumn();
+    
+    // Calculate estimated cost (simplified)
+    $equipmentNeeded = json_decode($x['equipment_needed'] ?? '[]', true);
+    $estimatedCost = 0;
+    foreach ($equipmentNeeded as $item) {
+        $estimatedCost += ($item['quantity'] ?? 1) * 50000; // Default estimate
+    }
+    
+    $q = $d->prepare('INSERT INTO equipment_requests (request_number, external_request_id, requesting_system, employee_name, employee_id, department, equipment_needed, needed_by, business_justification, cost_center, priority, status, requested_date, estimated_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)');
+    $q->execute([
+        $requestNumber,
+        $x['external_request_id'] ?? null,
+        $integration['system_name'],
+        $x['employee_name'],
+        $x['employee_id'] ?? null,
+        $x['department'] ?? null,
+        $x['equipment_needed'] ?? '[]',
+        $x['needed_by'] ?? null,
+        $x['business_justification'] ?? null,
+        $x['cost_center'] ?? null,
+        $x['priority'] ?? 'Medium',
+        'Pending',
+        $estimatedCost
+    ]);
+    
+    $requestId = $d->lastInsertId();
+    
+    // Log activity
+    $d->prepare('CALL log_equipment_request_activity(?, ?, ?, ?, ?)')
+      ->execute([$requestId, 'Created', 'Equipment request created via integration', null, $integration['system_name']]);
+    
+    reply([
+        'success' => true,
+        'request_number' => $requestNumber,
+        'status' => 'Pending',
+        'estimated_cost' => $estimatedCost,
+        'created_at' => date('c')
+    ], 201);
+}
+
+if ($method === 'GET' && preg_match('#^/api/v1/integration/equipment-requests/([^/]+)$#', $path, $m)) {
+    $integration = integrationAuth();
+    $d = db();
+    
+    $q = $d->prepare('SELECT er.*, 
+        (SELECT GROUP_CONCAT(CONCAT(eri.category, " x", eri.quantity, " - ", eri.fulfillment_status)) 
+         FROM equipment_request_items eri WHERE eri.request_id = er.id) as items_summary
+        FROM equipment_requests er WHERE er.request_number = ?');
+    $q->execute([$m[1]]);
+    $request = $q->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$request) {
+        reply(['error' => 'Equipment request not found'], 404);
+    }
+    
+    // Get assigned assets if fulfilled
+    $assignedAssets = [];
+    if ($request['status'] === 'Fulfilled') {
+        $assetQuery = $d->prepare('SELECT eri.assigned_qr_code, a.name, a.category, eri.fulfilled_date 
+                                   FROM equipment_request_items eri 
+                                   LEFT JOIN assets a ON eri.assigned_asset_id = a.id 
+                                   WHERE eri.request_id = ?');
+        $assetQuery->execute([$request['id']]);
+        $assignedAssets = $assetQuery->fetchAll(PDO::FETCH_ASSOC);
+    }
+    
+    reply([
+        'request_number' => $request['request_number'],
+        'external_request_id' => $request['external_request_id'],
+        'status' => $request['status'],
+        'employee_name' => $request['employee_name'],
+        'employee_id' => $request['employee_id'],
+        'department' => $request['department'],
+        'items_summary' => $request['items_summary'],
+        'assigned_assets' => $assignedAssets,
+        'estimated_cost' => $request['estimated_cost'],
+        'actual_cost' => $request['actual_cost'],
+        'requested_date' => $request['requested_date'],
+        'fulfilled_date' => $request['fulfilled_date']
+    ]);
+}
+
+if ($method === 'PUT' && preg_match('#^/api/v1/integration/equipment-requests/([^/]+)/status$#', $path, $m)) {
+    $integration = integrationAuth();
+    $x = body();
+    $d = db();
+    
+    $q = $d->prepare('UPDATE equipment_requests SET status = ?, updated_at = NOW() WHERE request_number = ?');
+    $q->execute([$x['status'] ?? 'Pending', $m[1]]);
+    
+    if ($x['status'] === 'Rejected' && !empty($x['rejection_reason'])) {
+        $d->prepare('UPDATE equipment_requests SET rejection_reason = ? WHERE request_number = ?')
+          ->execute([$x['rejection_reason'], $m[1]]);
+    }
+    
+    reply(['ok' => true]);
+}
+
+// --- Asset Integration Endpoints ---
+
+if ($method === 'GET' && preg_match('#^/api/v1/integration/assets/([^/]+)$#', $path, $m)) {
+    $integration = integrationAuth();
+    $d = db();
+    
+    $q = $d->prepare('SELECT a.*, 
+        (SELECT CONCAT_WS(" ", external_system, external_employee_id) FROM external_references 
+         WHERE scim_entity_type = "asset" AND scim_entity_id = a.id LIMIT 1) as assignment_info
+        FROM assets a WHERE a.qr_code = ?');
+    $q->execute([$m[1]]);
+    $asset = $q->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$asset) {
+        reply(['error' => 'Asset not found'], 404);
+    }
+    
+    // Parse assignment info
+    $assignment = null;
+    if ($asset['assignment_info']) {
+        $assignment = [
+            'system' => $asset['assigned_to_system'],
+            'employee_id' => $asset['external_employee_id'],
+            'employee_name' => $asset['external_employee_name']
+        ];
+    }
+    
+    reply([
+        'qr_code' => $asset['qr_code'],
+        'name' => $asset['name'],
+        'category' => $asset['category'],
+        'value' => $asset['value'],
+        'status' => $asset['status'],
+        'location' => $asset['location'],
+        'assigned_to' => $assignment,
+        'assignment_date' => $asset['assignment_date'],
+        'assignment_notes' => $asset['assignment_notes']
+    ]);
+}
+
+if ($method === 'POST' && preg_match('#^/api/v1/integration/assets/([^/]+)/assign$#', $path, $m)) {
+    $integration = integrationAuth();
+    $x = body();
+    $d = db();
+    
+    // Update asset assignment
+    $q = $d->prepare('UPDATE assets SET 
+        assigned_to_system = ?, 
+        external_employee_id = ?, 
+        external_employee_name = ?, 
+        assignment_date = ?, 
+        assignment_notes = ?,
+        status = "Deployed"
+        WHERE qr_code = ?');
+    $q->execute([
+        $x['external_system'] ?? $integration['system_name'],
+        $x['employee_id'] ?? null,
+        $x['employee_name'] ?? null,
+        $x['assignment_date'] ?? date('Y-m-d'),
+        $x['notes'] ?? null,
+        $m[1]
+    ]);
+    
+    // Get asset ID
+    $assetIdQuery = $d->prepare('SELECT id FROM assets WHERE qr_code = ?');
+    $assetIdQuery->execute([$m[1]]);
+    $assetId = $assetIdQuery->fetchColumn();
+    
+    // Create external reference
+    if ($assetId && !empty($x['employee_id'])) {
+        $d->prepare('INSERT INTO external_references (scim_entity_type, scim_entity_id, external_system, external_reference_id, reference_type, sync_status) 
+                     VALUES (?, ?, ?, ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE sync_status = "Synced", last_synced = NOW()')
+          ->execute(['asset', $assetId, $x['external_system'] ?? $integration['system_name'], $x['employee_id'], 'assignment', 'Synced']);
+    }
+    
+    // Log transaction
+    $d->prepare('INSERT INTO asset_transactions (asset_id, action, zone, created_at) VALUES (?, ?, ?, NOW())')
+      ->execute([$assetId, 'External Assignment', null]);
+    
+    reply(['ok' => true, 'message' => 'Asset assigned successfully']);
+}
+
+// --- Purchase Order Integration Endpoints ---
+
+if ($method === 'GET' && preg_match('#^/api/v1/integration/purchase-orders/([^/]+)$#', $path, $m)) {
+    $integration = integrationAuth();
+    $d = db();
+    
+    $q = $d->prepare('SELECT po.*, v.name as vendor_name, 
+        (SELECT GROUP_CONCAT(CONCAT(poi.item_name, " x", poi.quantity, " @ ", poi.unit_price)) 
+         FROM purchase_order_items poi WHERE poi.po_id = po.id) as items_summary
+        FROM purchase_orders po 
+        LEFT JOIN vendors v ON po.vendor_id = v.id 
+        WHERE po.po_number = ?');
+    $q->execute([$m[1]]);
+    $po = $q->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$po) {
+        reply(['error' => 'Purchase order not found'], 404);
+    }
+    
+    reply([
+        'po_number' => $po['po_number'],
+        'vendor' => $po['vendor_name'],
+        'status' => $po['status'],
+        'total' => $po['total'],
+        'expected_delivery' => $po['expected_delivery'],
+        'items_summary' => $po['items_summary'],
+        'budget_code' => $po['budget_code'],
+        'budget_status' => $po['budget_status'],
+        'created_at' => $po['created_at']
+    ]);
+}
+
+if ($method === 'PUT' && preg_match('#^/api/v1/integration/purchase-orders/([^/]+)/budget-status$#', $path, $m)) {
+    $integration = integrationAuth();
+    $x = body();
+    $d = db();
+    
+    $q = $d->prepare('UPDATE purchase_orders SET 
+        budget_status = ?, 
+        budget_approved_by = ?, 
+        budget_approved_date = ?,
+        updated_at = NOW() 
+        WHERE po_number = ?');
+    $q->execute([
+        $x['budget_status'] ?? 'Pending',
+        $x['approved_by'] ?? null,
+        $x['approval_date'] ?? null,
+        $m[1]
+    ]);
+    
+    reply(['ok' => true]);
+}
+
+// --- Data Export Endpoints ---
+
+if ($method === 'GET' && $path === '/api/v1/integration/export/inventory') {
+    $integration = integrationAuth();
+    $d = db();
+    
+    $format = $_GET['format'] ?? 'json';
+    $since = $_GET['since'] ?? null;
+    $category = $_GET['category'] ?? null;
+    
+    $query = 'SELECT * FROM assets WHERE 1=1';
+    $params = [];
+    
+    if ($since) {
+        $query .= ' AND created_at >= ?';
+        $params[] = $since;
+    }
+    
+    if ($category) {
+        $query .= ' AND category = ?';
+        $params[] = $category;
+    }
+    
+    $q = $d->prepare($query);
+    $q->execute($params);
+    $assets = $q->fetchAll(PDO::FETCH_ASSOC);
+    
+    if ($format === 'csv') {
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="inventory_export.csv"');
+        
+        $output = fopen('php://output', 'w');
+        if (!empty($assets)) {
+            fputcsv($output, array_keys($assets[0]));
+            foreach ($assets as $asset) {
+                fputcsv($output, $asset);
+            }
+        }
+        fclose($output);
+        exit;
+    }
+    
+    reply([
+        'export_date' => date('c'),
+        'total_assets' => count($assets),
+        'assets' => $assets
+    ]);
+}
+
+if ($method === 'GET' && $path === '/api/v1/integration/export/audit-trail') {
+    $integration = integrationAuth();
+    $d = db();
+    
+    $fromDate = $_GET['from_date'] ?? date('Y-m-d', strtotime('-30 days'));
+    $toDate = $_GET['to_date'] ?? date('Y-m-d');
+    $entityType = $_GET['entity_type'] ?? null;
+    
+    $query = 'SELECT * FROM integration_audit_log WHERE created_at BETWEEN ? AND ?';
+    $params = [$fromDate, $toDate];
+    
+    if ($entityType) {
+        $query .= ' AND entity_type = ?';
+        $params[] = $entityType;
+    }
+    
+    $query .= ' ORDER BY created_at DESC LIMIT 1000';
+    
+    $q = $d->prepare($query);
+    $q->execute($params);
+    $auditLogs = $q->fetchAll(PDO::FETCH_ASSOC);
+    
+    reply([
+        'export_date' => date('c'),
+        'from_date' => $fromDate,
+        'to_date' => $toDate,
+        'total_records' => count($auditLogs),
+        'audit_logs' => $auditLogs
+    ]);
+}
+
+// --- Webhook Management Endpoints ---
+
+if ($method === 'POST' && $path === '/api/v1/integration/webhooks') {
+    $integration = integrationAuth();
+    $x = body();
+    $d = db();
+    
+    $webhookId = 'WH-' . strtoupper(substr(uniqid(), -8));
+    $webhookSecret = bin2hex(random_bytes(32));
+    
+    $q = $d->prepare('INSERT INTO webhooks (webhook_id, system_integration_id, event_types, target_url, webhook_secret, active) VALUES (?, ?, ?, ?, ?, 1)');
+    $q->execute([
+        $webhookId,
+        $integration['id'],
+        json_encode($x['event_types'] ?? []),
+        $x['target_url'],
+        $webhookSecret
+    ]);
+    
+    reply([
+        'webhook_id' => $webhookId,
+        'status' => 'active',
+        'event_types' => $x['event_types'] ?? [],
+        'webhook_secret' => $webhookSecret,
+        'message' => 'Store this secret securely for signature verification'
+    ], 201);
+}
+
+if ($method === 'GET' && $path === '/api/v1/integration/webhooks') {
+    $integration = integrationAuth();
+    $d = db();
+    
+    $q = $d->prepare('SELECT webhook_id, event_types, target_url, active, success_count, failure_count, last_triggered FROM webhooks WHERE system_integration_id = ?');
+    $q->execute([$integration['id']]);
+    $webhooks = $q->fetchAll(PDO::FETCH_ASSOC);
+    
+    reply(['webhooks' => $webhooks]);
+}
+
+if ($method === 'DELETE' && preg_match('#^/api/v1/integration/webhooks/([^/]+)$#', $path, $m)) {
+    $integration = integrationAuth();
+    $d = db();
+    
+    $q = $d->prepare('UPDATE webhooks SET active = 0 WHERE webhook_id = ? AND system_integration_id = ?');
+    $q->execute([$m[1], $integration['id']]);
+    
+    reply(['ok' => true, 'message' => 'Webhook deactivated']);
+}
+
+// --- System Integration Endpoints ---
+
+if ($method === 'GET' && $path === '/api/v1/integration/health') {
+    // Health check endpoint (no auth required for monitoring)
+    $d = db();
+    $status = 'healthy';
+    
+    try {
+        $d->query('SELECT 1')->fetch();
+    } catch (Exception $e) {
+        $status = 'unhealthy';
+    }
+    
+    reply([
+        'status' => $status,
+        'timestamp' => date('c'),
+        'version' => '1.0.0',
+        'integration_enabled' => true
+    ]);
+}
+
+if ($method === 'GET' && $path === '/api/v1/integration/config') {
+    $integration = integrationAuth();
+    $d = db();
+    
+    $q = $d->prepare('SELECT config_key, config_value, config_type, description FROM integration_config');
+    $q->execute();
+    $configs = $q->fetchAll(PDO::FETCH_ASSOC);
+    
+    $configArray = [];
+    foreach ($configs as $config) {
+        $configArray[$config['config_key']] = [
+            'value' => $config['config_value'],
+            'type' => $config['config_type'],
+            'description' => $config['description']
+        ];
+    }
+    
+    reply(['configs' => $configArray]);
 }
 
 // Fallback Route
