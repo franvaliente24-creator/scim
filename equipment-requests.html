@@ -1,461 +1,339 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Equipment Requests - SCIM</title>
-    <link rel="stylesheet" href="styles.css">
-    <style>
-        .request-card {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .request-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        
-        .request-number {
-            font-size: 1.2em;
-            font-weight: bold;
-            color: #4f46e5;
-        }
-        
-        .status-badge {
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.85em;
-            font-weight: 600;
-        }
-        
-        .status-pending { background: #fef3c7; color: #92400e; }
-        .status-approved { background: #d1fae5; color: #065f46; }
-        .status-rejected { background: #fee2e2; color: #991b1b; }
-        .status-fulfilling { background: #dbeafe; color: #1e40af; }
-        .status-fulfilled { background: #d1fae5; color: #065f46; }
-        
-        .priority-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.75em;
-            font-weight: 600;
-        }
-        
-        .priority-high { background: #fee2e2; color: #991b1b; }
-        .priority-medium { background: #fef3c7; color: #92400e; }
-        .priority-low { background: #d1fae5; color: #065f46; }
-        
-        .request-details {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-        
-        .detail-item {
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .detail-label {
-            font-size: 0.85em;
-            color: #6b7280;
-            margin-bottom: 4px;
-        }
-        
-        .detail-value {
-            font-weight: 500;
-            color: #1f2937;
-        }
-        
-        .equipment-items {
-            background: #f9fafb;
-            border-radius: 6px;
-            padding: 15px;
-            margin-bottom: 15px;
-        }
-        
-        .equipment-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid #e5e7eb;
-        }
-        
-        .equipment-item:last-child {
-            border-bottom: none;
-        }
-        
-        .action-buttons {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-        }
-        
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        
-        .btn-primary {
-            background: #4f46e5;
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            background: #4338ca;
-        }
-        
-        .btn-success {
-            background: #10b981;
-            color: white;
-        }
-        
-        .btn-success:hover {
-            background: #059669;
-        }
-        
-        .btn-danger {
-            background: #ef4444;
-            color: white;
-        }
-        
-        .btn-danger:hover {
-            background: #dc2626;
-        }
-        
-        .btn-secondary {
-            background: #6b7280;
-            color: white;
-        }
-        
-        .btn-secondary:hover {
-            background: #4b5563;
-        }
-        
-        .filter-bar {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        
-        .filter-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-        
-        .filter-group label {
-            font-size: 0.85em;
-            color: #6b7280;
-        }
-        
-        .filter-group select,
-        .filter-group input {
-            padding: 8px 12px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            font-size: 0.9em;
-        }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-        
-        .modal.active {
-            display: flex;
-        }
-        
-        .modal-content {
-            background: white;
-            border-radius: 8px;
-            padding: 30px;
-            max-width: 500px;
-            width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        
-        .modal-title {
-            font-size: 1.25em;
-            font-weight: bold;
-        }
-        
-        .close-btn {
-            background: none;
-            border: none;
-            font-size: 1.5em;
-            cursor: pointer;
-            color: #6b7280;
-        }
-        
-        .form-group {
-            margin-bottom: 15px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-            color: #374151;
-        }
-        
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            font-size: 0.95em;
-        }
-        
-        .form-group textarea {
-            resize: vertical;
-            min-height: 80px;
-        }
-        
-        .stats-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .stat-value {
-            font-size: 2em;
-            font-weight: bold;
-            color: #4f46e5;
-        }
-        
-        .stat-label {
-            color: #6b7280;
-            font-size: 0.9em;
-        }
-        
-        .system-badge {
-            display: inline-block;
-            padding: 4px 8px;
-            background: #e0e7ff;
-            color: #4338ca;
-            border-radius: 4px;
-            font-size: 0.75em;
-            font-weight: 600;
-        }
-        
-        .activity-timeline {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f9fafb;
-            border-radius: 6px;
-        }
-        
-        .activity-item {
-            display: flex;
-            gap: 15px;
-            padding: 10px 0;
-            border-bottom: 1px solid #e5e7eb;
-        }
-        
-        .activity-item:last-child {
-            border-bottom: none;
-        }
-        
-        .activity-time {
-            font-size: 0.85em;
-            color: #6b7280;
-            min-width: 150px;
-        }
-        
-        .activity-action {
-            font-weight: 500;
-            color: #1f2937;
-        }
-        
-        .activity-details {
-            color: #6b7280;
-            font-size: 0.9em;
-        }
-    </style>
+    <title>Equipment Requests | Great Solomon SCIM</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css?v=3">
+    
+    <!-- Permissions System -->
+    <script src="permissions.js"></script>
+    <script src="layout.js"></script>
+    <script src="inactivity.js"></script>
+    <script src="equipment-requests.js"></script>
 </head>
-<body>
-    <div class="container">
-        <header>
-            <h1>Equipment Requests</h1>
-            <p>Cross-system equipment request management</p>
+<body class="bg-background text-on-background font-body h-screen flex flex-row overflow-hidden">
+    
+    <!-- Mobile Backdrop overlay -->
+    <div id="sidebar-backdrop" class="fixed top-16 bottom-0 left-0 right-0 md:inset-0 bg-gray-900/50 backdrop-blur-md z-40 hidden md:hidden transition-opacity duration-300 opacity-0"></div>
+    
+    <!-- Left Sidebar -->
+    <aside id="app-sidebar" class="dashboard-sidebar fixed md:static top-16 bottom-0 md:inset-y-0 left-0 z-50 bg-white flex flex-col h-[calc(100vh-4rem)] md:h-full shrink-0 shadow-xl md:shadow-none transition-all duration-300 ease-in-out overflow-hidden w-72 border-r border-slate-200 -translate-x-full md:translate-x-0 opacity-100">
+        <!-- Company Logo -->
+        <div class="px-5 pt-6 pb-5 border-b border-slate-200 flex justify-center">
+            <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg">
+                <img src="img/logo.png" alt="Company Logo" class="w-full h-full object-contain">
+            </div>
+        </div>
+        <nav class="flex-1 overflow-y-auto px-5 py-6 space-y-3">
+            <a id="sidebar-dashboard-link" class="sidebar-main-link" href="index.html">
+                <span class="sidebar-main-link-icon material-symbols-outlined">dashboard</span>
+                <span class="font-label font-medium text-sm">Dashboard</span>
+            </a>
+            <div id="sidebar-subsystem-nav-panel" class="sidebar-subsystem-nav-panel">
+                <nav id="sidebar-subsystem-modules-nav" class="sidebar-subsystem-modules">
+                    <a class="sidebar-subsystem-link" href="warehousing.html">
+                        <span class="material-symbols-outlined">warehouse</span>
+                        <span>Smart Warehousing</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="inventory.html">
+                        <span class="material-symbols-outlined">inventory</span>
+                        <span>Inventory Management</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="procurement.html">
+                        <span class="material-symbols-outlined">shopping_cart</span>
+                        <span>Procurement & Sourcing</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="suppliers.html">
+                        <span class="material-symbols-outlined">business</span>
+                        <span>Supplier Management</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="purchase-orders.html">
+                        <span class="material-symbols-outlined">receipt_long</span>
+                        <span>Purchase Orders</span>
+                    </a>
+                    <a class="sidebar-subsystem-link" href="documents.html">
+                        <span class="material-symbols-outlined">description</span>
+                        <span>Documents & Logistics</span>
+                    </a>
+                    <a class="sidebar-subsystem-link active" href="equipment-requests.html">
+                        <span class="material-symbols-outlined">request_quote</span>
+                        <span>Equipment Requests</span>
+                    </a>
+                </nav>
+            </div> 
+        </nav>
+    </aside>
+    
+    <!-- Main Content Wrapper -->
+    <div class="flex-1 flex flex-col h-full overflow-hidden relative">
+        <!-- TopNavBar -->
+        <header class="bg-surface/80 backdrop-blur-md shadow-sm border-b border-outline-variant/30 flex justify-between items-center h-16 px-6 w-full z-30 shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 shrink-0 overflow-hidden rounded-lg">
+                    <img src="img/logo.png" alt="Great Solomon Logo" class="w-full h-full object-contain">
+                </div>
+                <span class="text-outline-variant font-light select-none">|</span>
+                <button id="desktop-sidebar-toggle" type="button" class="flex items-center justify-center p-2 rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low focus:outline-none transition border border-outline-variant/30 shrink-0 min-w-[2.5rem] min-h-[2.5rem]" title="Toggle Sidebar">
+                    <span class="material-symbols-outlined text-xl" id="sidebar-toggle-icon">menu_open</span>
+                </button>
+            </div>
+            
+            <div class="relative flex items-center">
+                <button id="profile-dropdown-toggle" type="button" class="flex items-center gap-3 p-1.5 rounded-full hover:bg-surface-container-low transition-colors focus:outline-none border border-transparent hover:border-outline-variant/30 cursor-pointer" aria-expanded="false" title="Account Menu">
+                    <div class="w-9 h-9 shrink-0 overflow-hidden rounded-full">
+                        <img src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
+                    </div>
+                    <div class="hidden md:flex flex-col text-left mr-1">
+                        <span class="font-label font-semibold text-sm text-on-surface leading-tight">User</span>
+                        <span class="text-xs text-on-surface-variant font-light">Administrator</span>
+                    </div>
+                    <span class="material-symbols-outlined text-on-surface-variant text-sm hidden sm:inline-block">expand_more</span>
+                </button>
+                
+                <div id="profile-dropdown-menu" class="absolute right-0 top-14 w-60 bg-surface rounded-2xl shadow-xl border border-outline-variant/30 py-2 z-50 transition-all duration-200 hidden opacity-0 scale-95 origin-top-right">
+                    <div class="px-4 py-3 border-b border-outline-variant/20 md:hidden">
+                        <p class="text-sm font-semibold text-on-surface">User</p>
+                        <p class="text-xs text-on-surface-variant truncate">admin@example.com</p>
+                    </div>
+                    <div class="px-4 py-2 hidden md:block">
+                        <p class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">Account</p>
+                    </div>
+                    <a href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors">
+                        <span class="material-symbols-outlined text-lg text-on-surface-variant">person</span>
+                        <span class="font-medium">My Profile</span>
+                    </a>
+                    <a href="mfa-setup.html" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors">
+                        <span class="material-symbols-outlined text-lg text-on-surface-variant">security</span>
+                        <span class="font-medium">Security & MFA Settings</span>
+                    </a>
+                    <a href="users.html" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors">
+                        <span class="material-symbols-outlined text-lg text-on-surface-variant">manage_accounts</span>
+                        <span class="font-medium">User Management</span>
+                    </a>
+                    <a href="#" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors">
+                        <span class="material-symbols-outlined text-lg text-on-surface-variant">help</span>
+                        <span class="font-medium">Help & Documentation</span>
+                    </a>
+                    <div class="my-1 border-t border-outline-variant/20"></div>
+                    <button id="logout" class="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors font-medium cursor-pointer w-full text-left">
+                        <span class="material-symbols-outlined text-lg">logout</span>
+                        <span>Log Out</span>
+                    </button>
+                </div>
+            </div>
         </header>
         
-        <div class="stats-cards">
-            <div class="stat-card">
-                <div class="stat-value" id="total-requests">0</div>
-                <div class="stat-label">Total Requests</div>
+        <!-- Main Scrollable Area -->
+        <main class="flex-1 overflow-y-auto bg-surface-container-lowest p-6 md:p-8">
+            <div class="max-w-7xl mx-auto space-y-8">
+                <div class="flex flex-col gap-6">
+                    <!-- Enterprise Dynamic Breadcrumb Standard Bar -->
+                    <div class="bg-surface-container-lowest rounded-xl sm:rounded-2xl border border-outline-variant/60 shadow-sm p-4 sm:px-6 sm:py-4.5 flex flex-col md:flex-row md:items-center justify-between gap-4 w-full max-w-full">
+                        <nav aria-label="Breadcrumb" class="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+                            <div class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary/10 text-primary text-xs sm:text-sm font-bold border border-primary/20 shadow-2xs">
+                                <span class="material-symbols-outlined text-[20px] fill">request_quote</span>
+                                <span>Equipment Requests</span>
+                                <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" title="Live Synchronized View"></span>
+                            </div>
+                        </nav>
+                    </div>
+                    
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full">
+                        <div>
+                            <h1 class="text-3xl font-headline font-bold text-on-surface">Equipment Requests</h1>
+                            <p class="text-on-surface-variant text-sm mt-2">Cross-system equipment request management and fulfillment.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Stats Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                        <p class="text-on-surface-variant text-sm mb-2">Total Requests</p>
+                        <strong class="text-2xl font-headline font-bold text-on-surface" id="total-requests">0</strong>
+                        <small class="text-on-surface-variant text-xs">All equipment requests</small>
+                    </div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                        <p class="text-on-surface-variant text-sm mb-2">Pending</p>
+                        <strong class="text-2xl font-headline font-bold text-on-surface" id="pending-requests">0</strong>
+                        <small class="text-on-surface-variant text-xs">Awaiting approval</small>
+                    </div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                        <p class="text-on-surface-variant text-sm mb-2">Approved</p>
+                        <strong class="text-2xl font-headline font-bold text-on-surface" id="approved-requests">0</strong>
+                        <small class="text-on-surface-variant text-xs">Ready for fulfillment</small>
+                    </div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                        <p class="text-on-surface-variant text-sm mb-2">Fulfilled</p>
+                        <strong class="text-2xl font-headline font-bold text-on-surface" id="fulfilled-requests">0</strong>
+                        <small class="text-on-surface-variant text-xs">Completed requests</small>
+                    </div>
+                </div>
+                
+                <!-- Filter Bar -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Filter Requests</h2>
+                    </div>
+                    <div class="p-6 flex flex-wrap gap-4">
+                        <div class="flex flex-col gap-2 min-w-[150px]">
+                            <label class="text-sm font-medium text-on-surface-variant">Status</label>
+                            <select id="filter-status" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                                <option value="">All Statuses</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Approved">Approved</option>
+                                <option value="Rejected">Rejected</option>
+                                <option value="Fulfilling">Fulfilling</option>
+                                <option value="Fulfilled">Fulfilled</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-col gap-2 min-w-[150px]">
+                            <label class="text-sm font-medium text-on-surface-variant">Priority</label>
+                            <select id="filter-priority" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                                <option value="">All Priorities</option>
+                                <option value="High">High</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Low">Low</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-col gap-2 min-w-[150px]">
+                            <label class="text-sm font-medium text-on-surface-variant">System</label>
+                            <select id="filter-system" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                                <option value="">All Systems</option>
+                                <option value="HR">HR System</option>
+                                <option value="CRM">CRM System</option>
+                                <option value="Finance">Finance System</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-col gap-2 min-w-[200px] flex-1">
+                            <label class="text-sm font-medium text-on-surface-variant">Search</label>
+                            <input type="text" id="search-input" placeholder="Search by employee or request #" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                        </div>
+                        <div class="flex items-end gap-2">
+                            <button onclick="applyFilters()" class="btn-primary dashboard-action-button">
+                                <span class="material-symbols-outlined">filter_list</span>
+                                Apply Filters
+                            </button>
+                            <button onclick="resetFilters()" class="btn-secondary dashboard-action-button">
+                                <span class="material-symbols-outlined">refresh</span>
+                                Reset
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Equipment Requests Container -->
+                <div id="requests-container" class="space-y-4">
+                    <!-- Equipment requests will be loaded here -->
+                </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-value" id="pending-requests">0</div>
-                <div class="stat-label">Pending</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="approved-requests">0</div>
-                <div class="stat-label">Approved</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="fulfilled-requests">0</div>
-                <div class="stat-label">Fulfilled</div>
-            </div>
-        </div>
-        
-        <div class="filter-bar">
-            <div class="filter-group">
-                <label>Status</label>
-                <select id="filter-status">
-                    <option value="">All Statuses</option>
-                    <option value="Pending">Pending</option>
-                    <option value="Approved">Approved</option>
-                    <option value="Rejected">Rejected</option>
-                    <option value="Fulfilling">Fulfilling</option>
-                    <option value="Fulfilled">Fulfilled</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>Priority</label>
-                <select id="filter-priority">
-                    <option value="">All Priorities</option>
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>System</label>
-                <select id="filter-system">
-                    <option value="">All Systems</option>
-                    <option value="HR">HR System</option>
-                    <option value="CRM">CRM System</option>
-                    <option value="Finance">Finance System</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>Search</label>
-                <input type="text" id="search-input" placeholder="Search by employee or request #">
-            </div>
-            <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
-            <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
-        </div>
-        
-        <div id="requests-container">
-            <!-- Equipment requests will be loaded here -->
-        </div>
+        </main>
     </div>
     
     <!-- Approval Modal -->
-    <div class="modal" id="approval-modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">Approve Equipment Request</h3>
-                <button class="close-btn" onclick="closeModal('approval-modal')">&times;</button>
+    <div id="approval-modal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto">
+            <div class="p-6 border-b border-outline-variant/30 flex justify-between items-center">
+                <h3 class="text-xl font-headline font-bold text-on-surface">Approve Equipment Request</h3>
+                <button onclick="closeModal('approval-modal')" class="text-on-surface-variant hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
             </div>
-            <div class="form-group">
-                <label>Request Number</label>
-                <input type="text" id="approval-request-number" readonly>
-            </div>
-            <div class="form-group">
-                <label>Approval Notes</label>
-                <textarea id="approval-notes" placeholder="Add any notes for this approval..."></textarea>
-            </div>
-            <div class="action-buttons">
-                <button class="btn btn-success" onclick="confirmApproval()">Approve</button>
-                <button class="btn btn-secondary" onclick="closeModal('approval-modal')">Cancel</button>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-on-surface mb-2">Request Number</label>
+                    <input type="text" id="approval-request-number" readonly class="w-full px-4 py-2 border border-outline-variant rounded-lg bg-surface-container-low text-on-surface-variant">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-on-surface mb-2">Approval Notes</label>
+                    <textarea id="approval-notes" placeholder="Add any notes for this approval..." class="w-full px-4 py-2 border border-outline-variant rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y min-h-[80px]"></textarea>
+                </div>
+                <div class="flex gap-3 justify-end pt-4">
+                    <button onclick="confirmApproval()" class="btn-primary dashboard-action-button">
+                        <span class="material-symbols-outlined">check_circle</span>
+                        Approve
+                    </button>
+                    <button onclick="closeModal('approval-modal')" class="btn-secondary dashboard-action-button">
+                        Cancel
+                    </button>
+                </div>
             </div>
         </div>
     </div>
     
     <!-- Rejection Modal -->
-    <div class="modal" id="rejection-modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">Reject Equipment Request</h3>
-                <button class="close-btn" onclick="closeModal('rejection-modal')">&times;</button>
+    <div id="rejection-modal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto">
+            <div class="p-6 border-b border-outline-variant/30 flex justify-between items-center">
+                <h3 class="text-xl font-headline font-bold text-on-surface">Reject Equipment Request</h3>
+                <button onclick="closeModal('rejection-modal')" class="text-on-surface-variant hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
             </div>
-            <div class="form-group">
-                <label>Request Number</label>
-                <input type="text" id="rejection-request-number" readonly>
-            </div>
-            <div class="form-group">
-                <label>Rejection Reason <span style="color: red;">*</span></label>
-                <textarea id="rejection-reason" placeholder="Please provide a reason for rejection..." required></textarea>
-            </div>
-            <div class="action-buttons">
-                <button class="btn btn-danger" onclick="confirmRejection()">Reject</button>
-                <button class="btn btn-secondary" onclick="closeModal('rejection-modal')">Cancel</button>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-on-surface mb-2">Request Number</label>
+                    <input type="text" id="rejection-request-number" readonly class="w-full px-4 py-2 border border-outline-variant rounded-lg bg-surface-container-low text-on-surface-variant">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-on-surface mb-2">Rejection Reason <span class="text-red-600">*</span></label>
+                    <textarea id="rejection-reason" placeholder="Please provide a reason for rejection..." required class="w-full px-4 py-2 border border-outline-variant rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y min-h-[80px]"></textarea>
+                </div>
+                <div class="flex gap-3 justify-end pt-4">
+                    <button onclick="confirmRejection()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2">
+                        <span class="material-symbols-outlined">cancel</span>
+                        Reject
+                    </button>
+                    <button onclick="closeModal('rejection-modal')" class="btn-secondary dashboard-action-button">
+                        Cancel
+                    </button>
+                </div>
             </div>
         </div>
     </div>
     
     <!-- Fulfillment Modal -->
-    <div class="modal" id="fulfillment-modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">Fulfill Equipment Request</h3>
-                <button class="close-btn" onclick="closeModal('fulfillment-modal')">&times;</button>
+    <div id="fulfillment-modal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div class="p-6 border-b border-outline-variant/30 flex justify-between items-center">
+                <h3 class="text-xl font-headline font-bold text-on-surface">Fulfill Equipment Request</h3>
+                <button onclick="closeModal('fulfillment-modal')" class="text-on-surface-variant hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
             </div>
-            <div class="form-group">
-                <label>Request Number</label>
-                <input type="text" id="fulfillment-request-number" readonly>
-            </div>
-            <div id="fulfillment-items">
-                <!-- Equipment items will be loaded here -->
-            </div>
-            <div class="form-group">
-                <label>Fulfillment Notes</label>
-                <textarea id="fulfillment-notes" placeholder="Add any notes for this fulfillment..."></textarea>
-            </div>
-            <div class="action-buttons">
-                <button class="btn btn-success" onclick="confirmFulfillment()">Complete Fulfillment</button>
-                <button class="btn btn-secondary" onclick="closeModal('fulfillment-modal')">Cancel</button>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-on-surface mb-2">Request Number</label>
+                    <input type="text" id="fulfillment-request-number" readonly class="w-full px-4 py-2 border border-outline-variant rounded-lg bg-surface-container-low text-on-surface-variant">
+                </div>
+                <div id="fulfillment-items" class="space-y-3">
+                    <!-- Equipment items will be loaded here -->
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-on-surface mb-2">Fulfillment Notes</label>
+                    <textarea id="fulfillment-notes" placeholder="Add any notes for this fulfillment..." class="w-full px-4 py-2 border border-outline-variant rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-y min-h-[80px]"></textarea>
+                </div>
+                <div class="flex gap-3 justify-end pt-4">
+                    <button onclick="confirmFulfillment()" class="btn-primary dashboard-action-button">
+                        <span class="material-symbols-outlined">check_circle</span>
+                        Complete Fulfillment
+                    </button>
+                    <button onclick="closeModal('fulfillment-modal')" class="btn-secondary dashboard-action-button">
+                        Cancel
+                    </button>
+                </div>
             </div>
         </div>
     </div>
-    
-    <script src="layout.js"></script>
-    <script src="equipment-requests.js"></script>
 </body>
 </html>
