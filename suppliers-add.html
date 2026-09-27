@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Add Supplier | Great Solomon SCIM</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles.css?v=3" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+</head>
+<body class="bg-background text-on-background min-h-screen">
+  <div class="max-w-4xl mx-auto px-6 py-10">
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <p class="text-sm font-medium text-primary">Supplier Management</p>
+        <h1 class="text-3xl font-headline font-bold">Add Supplier</h1>
+      </div>
+      <a href="suppliers.html" class="btn-secondary">Back</a>
+    </div>
+
+    <form id="supplierForm" class="space-y-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <label class="space-y-2 md:col-span-2">
+          <span class="text-sm font-medium text-on-surface">Supplier Name</span>
+          <input name="name" required class="w-full px-4 py-3 border border-outline-variant rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" placeholder="Acme Technology Solutions" />
+        </label>
+
+        <label class="space-y-2">
+          <span class="text-sm font-medium text-on-surface">Category</span>
+          <input name="category" required class="w-full px-4 py-3 border border-outline-variant rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" placeholder="IT Equipment" />
+        </label>
+
+        <label class="space-y-2">
+          <span class="text-sm font-medium text-on-surface">Email</span>
+          <input name="email" type="email" required class="w-full px-4 py-3 border border-outline-variant rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" placeholder="sales@company.com" />
+        </label>
+
+        <label class="space-y-2">
+          <span class="text-sm font-medium text-on-surface">Phone</span>
+          <input name="phone" class="w-full px-4 py-3 border border-outline-variant rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" placeholder="+63 912 345 6789" />
+        </label>
+
+        <label class="space-y-2 md:col-span-2">
+          <span class="text-sm font-medium text-on-surface">Address</span>
+          <textarea name="address" rows="3" class="w-full px-4 py-3 border border-outline-variant rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" placeholder="Supplier address"></textarea>
+        </label>
+      </div>
+
+      <div class="flex justify-end gap-3 pt-4 border-t border-slate-200">
+        <a href="suppliers.html" class="btn-secondary">Cancel</a>
+        <button type="submit" class="btn-primary">Save Supplier</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('supplierForm').addEventListener('submit', async function (event) {
+      event.preventDefault();
+
+      const form = event.currentTarget;
+      const payload = Object.fromEntries(new FormData(form).entries());
+
+      const response = await fetch('/api/v1/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(result.error || 'Failed to create supplier');
+        return;
+      }
+
+      alert('Supplier created successfully');
+      window.location.href = 'suppliers.html';
+    });
+  </script>
+</body>
+</html>

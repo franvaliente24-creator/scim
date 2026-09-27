@@ -198,7 +198,11 @@ if (mobileBtn) {
   mobileBtn.onclick = () => {
     const scanner = $('#scanner');
     if (scanner) {
-      scanner.showModal();
+      if (typeof scanner.showModal === 'function') {
+        scanner.showModal();
+      } else {
+        scanner.setAttribute('open', 'open');
+      }
       initializeCamera();
     }
   };
@@ -209,7 +213,13 @@ if (closeScan) {
   closeScan.onclick = () => {
     stopCamera();
     const scanner = $('#scanner');
-    if (scanner) scanner.close();
+    if (scanner) {
+      if (typeof scanner.close === 'function') {
+        scanner.close();
+      } else {
+        scanner.removeAttribute('open');
+      }
+    }
   };
 }
 
@@ -287,7 +297,39 @@ modeButtons.forEach((btn) => {
 });
 
 function startQRDetection() {
-  // Placeholder for QR detection
+  const video = $('#cameraPreview');
+  const canvas = $('#qrCanvas');
+  const resultEl = $('#scanResult');
+
+  if (!video || !canvas || !cameraStream || !window.jsQR) {
+    return;
+  }
+
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const detect = () => {
+    if (video.readyState === video.HAVE_CURRENT_DATA) {
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = window.jsQR(imageData.data, imageData.width, imageData.height);
+
+      if (code) {
+        const qrInput = $('#qr');
+        if (qrInput) {
+          qrInput.value = code.data;
+        }
+        if (resultEl) {
+          resultEl.textContent = `QR detected: ${code.data}`;
+        }
+        return;
+      }
+    }
+
+    requestAnimationFrame(detect);
+  };
+
+  requestAnimationFrame(detect);
 }
 
 const scanNow = $('#scanNow');
