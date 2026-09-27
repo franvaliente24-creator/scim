@@ -89,14 +89,6 @@ async function loadInventoryData() {
 }
 
 function renderAssetTable(assets) {
-  const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[character]);
-
   const tableHTML = `
     <table class="data-table">
       <thead>
@@ -132,6 +124,16 @@ function renderAssetTable(assets) {
   $('#assetTable').innerHTML = tableHTML;
 }
 
+function escapeHTML(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
+}
+
 document.addEventListener('click', (event) => {
   const button = event.target.closest('[data-asset-action][data-qr-code]');
   if (!button) return;
@@ -139,6 +141,73 @@ document.addEventListener('click', (event) => {
   const { assetAction, qrCode } = button.dataset;
   if (assetAction === 'view') window.viewAsset(qrCode);
   if (assetAction === 'edit') window.editAsset(qrCode);
+});
+
+const assetModal = $('#assetModal');
+const assetForm = $('#assetForm');
+const assetModalTitle = $('#assetModalTitle');
+const assetFormError = $('#assetFormError');
+let editingAssetQr = null;
+
+function showDialog(dialog) {
+  if (!dialog) return;
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else dialog.setAttribute('open', 'open');
+}
+
+function closeDialog(dialog) {
+  if (!dialog) return;
+  if (typeof dialog.close === 'function') dialog.close();
+  else dialog.removeAttribute('open');
+}
+
+function openAssetForm(asset = null) {
+  if (!assetForm || !assetModal) return;
+  editingAssetQr = asset?.qr_code || null;
+  assetModalTitle.textContent = editingAssetQr ? 'Edit Asset' : 'Add Asset';
+  assetForm.elements.qr_code.readOnly = Boolean(editingAssetQr);
+  assetForm.elements.qr_code.value = asset?.qr_code || '';
+  assetForm.elements.name.value = asset?.name || '';
+  assetForm.elements.category.value = asset?.category || '';
+  assetForm.elements.status.value = asset?.status || 'In Warehouse';
+  assetForm.elements.value.value = asset?.value ?? '';
+  assetForm.elements.location.value = asset?.location || '';
+  assetFormError.hidden = true;
+  assetFormError.textContent = '';
+  showDialog(assetModal);
+}
+
+$('#closeAssetModal')?.addEventListener('click', () => closeDialog(assetModal));
+$('#closeViewAsset')?.addEventListener('click', () => closeDialog($('#viewAssetModal')));
+
+assetForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(assetForm).entries());
+  const endpoint = editingAssetQr
+    ? `/api/v1/inventory/assets/${encodeURIComponent(editingAssetQr)}`
+    : '/api/v1/inventory/assets';
+
+  try {
+    const response = await fetch(endpoint, {
+      method: editingAssetQr ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      assetFormError.textContent = result.error || 'Unable to save asset.';
+      assetFormError.hidden = false;
+      return;
+    }
+
+    closeDialog(assetModal);
+    assetForm.reset();
+    await loadInventoryData();
+  } catch (error) {
+    console.error('Error saving asset:', error);
+    assetFormError.textContent = 'Unable to reach the server. Please try again.';
+    assetFormError.hidden = false;
+  }
 });
 
 function getStatusClass(status) {
@@ -390,7 +459,15 @@ window.viewAsset = async (qrCode) => {
       return;
     }
 
-    alert(`Asset Details:\nName: ${asset.name}\nQR: ${asset.qr_code}\nCategory: ${asset.category}\nStatus: ${asset.status}\nValue: ${money(asset.value)}\nLocation: ${asset.location || 'N/A'}`);
+    const details = $('#viewAssetDetails');
+    details.innerHTML = `
+      <div><dt>QR Code</dt><dd>${escapeHTML(asset.qr_code)}</dd></div>
+      <div><dt>Name</dt><dd>${escapeHTML(asset.name)}</dd></div>
+      <div><dt>Category</dt><dd>${escapeHTML(asset.category)}</dd></div>
+      <div><dt>Status</dt><dd>${escapeHTML(asset.status)}</dd></div>
+      <div><dt>Value</dt><dd>${escapeHTML(money(asset.value))}</dd></div>
+      <div><dt>Location</dt><dd>${escapeHTML(asset.location || 'N/A')}</dd></div>`;
+    showDialog($('#viewAssetModal'));
   } catch (error) {
     console.error('Error viewing asset:', error);
     alert('Unable to load asset details.');
@@ -403,16 +480,22 @@ window.editAsset = (qrCode) => {
     return;
   }
 
-  window.location.href = `inventory-edit.html?qr=${encodeURIComponent(qrCode)}`;
+  fetch(`/api/v1/inventory/assets/${encodeURIComponent(qrCode)}`)
+    .then(async (response) => {
+      const payload = await response.json();
+      const asset = payload.asset || payload;
+      if (!response.ok || !asset || asset.error) throw new Error(asset?.error || 'Asset not found');
+      openAssetForm(asset);
+    })
+    .catch((error) => {
+      console.error('Error loading asset for editing:', error);
+      alert(error.message || 'Unable to load asset for editing.');
+    });
 };
 
-// Load inventory data on page load
-loadInventoryData();
-
-// Add Asset Button - Redirect to dedicated page
+// Add Asset Button - open the in-module form
 const addAssetBtn = $('#addAsset');
 if (addAssetBtn) {
-  addAssetBtn.onclick = () => {
-    window.location.href = 'inventory-add.html';
-  };
+  addAssetBtn.addEventListener('click', () => openAssetForm());
 }
+

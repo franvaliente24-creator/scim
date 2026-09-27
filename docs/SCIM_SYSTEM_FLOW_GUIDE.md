@@ -115,13 +115,8 @@ This pattern is used for:
 
 ## Important Functional Notes
 
-### Add pages created
-The following add pages were created to support the missing user actions:
-
-- [procurement-add.html](../procurement-add.html)
-- [suppliers-add.html](../suppliers-add.html)
-- [purchase-orders-add.html](../purchase-orders-add.html)
-- [documents-add.html](../documents-add.html)
+### In-module add forms
+Creation forms open as modal dialogs within the relevant module pages. Procurement, suppliers, purchase orders, and documents use in-page forms rather than navigating to separate add pages. Inventory asset creation and editing also use in-page dialogs.
 
 ### Fixed broken button flow
 The missing add page navigations and scanner placeholder code were corrected. The modules now route to real forms and the mobile scanner uses actual camera-driven QR detection logic.

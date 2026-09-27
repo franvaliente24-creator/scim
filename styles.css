@@ -939,6 +939,47 @@ dialog {
   box-shadow: 0 20px 55px rgba(0,0,0,0.3);
 }
 
+dialog.asset-modal {
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+dialog.asset-modal #assetForm {
+  text-align: left;
+}
+
+dialog.asset-modal input,
+dialog.asset-modal select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px;
+  margin-top: 4px;
+  border: 1px solid var(--outline-variant);
+  border-radius: 8px;
+  background: white;
+  color: var(--on-surface);
+  font: inherit;
+}
+
+dialog.asset-modal #viewAssetDetails {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  text-align: left;
+}
+
+dialog.asset-modal #viewAssetDetails dt {
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
+dialog.asset-modal #viewAssetDetails dd {
+  margin: 2px 0 0;
+  color: var(--on-surface);
+  font-weight: 600;
+}
+
 .scanner {
   padding: 2rem;
   text-align: center;
