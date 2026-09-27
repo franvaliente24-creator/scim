@@ -648,6 +648,37 @@ if ($method === 'GET' && preg_match('#^/api/v1/assets/([^/]+)$#', $path, $m)) {
     reply($a ?: ['error' => 'Asset not found'], $a ? 200 : 404);
 }
 
+if ($method === 'PUT' && preg_match('#^/api/v1/assets/([^/]+)$#', $path, $m)) {
+    auth(['Admin', 'Manager']);
+    $x = body();
+    $d = db();
+
+    $updateFields = [];
+    $params = [];
+
+    foreach (['name', 'category', 'status', 'location'] as $field) {
+        if (array_key_exists($field, $x)) {
+            $updateFields[] = $field . ' = ?';
+            $params[] = $x[$field];
+        }
+    }
+
+    if (array_key_exists('value', $x)) {
+        $updateFields[] = 'value = ?';
+        $params[] = $x['value'];
+    }
+
+    if (empty($updateFields)) {
+        reply(['error' => 'No fields to update'], 400);
+    }
+
+    $params[] = $m[1];
+    $q = $d->prepare('UPDATE assets SET ' . implode(', ', $updateFields) . ' WHERE qr_code = ?');
+    $q->execute($params);
+
+    reply(['ok' => true]);
+}
+
 if ($method === 'POST' && $path === '/api/v1/assets/scan') {
     auth();
     $x = body();
@@ -912,6 +943,53 @@ if ($method === 'GET' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
     reply($a ?: ['error' => 'Asset not found'], $a ? 200 : 404);
 }
 
+if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $path, $m)) {
+    auth(['Admin', 'Manager']);
+    $x = body();
+    $d = db();
+    
+    $updateFields = [];
+    $params = [];
+    
+    if (!empty($x['name'])) {
+        $updateFields[] = 'name = ?';
+        $params[] = $x['name'];
+    }
+    if (!empty($x['category'])) {
+        $updateFields[] = 'category = ?';
+        $params[] = $x['category'];
+    }
+    if (!empty($x['value'])) {
+        $updateFields[] = 'value = ?';
+        $params[] = $x['value'];
+    }
+    if (!empty($x['status'])) {
+        $updateFields[] = 'status = ?';
+        $params[] = $x['status'];
+    }
+    if (!empty($x['location'])) {
+        $updateFields[] = 'location = ?';
+        $params[] = $x['location'];
+    }
+    
+    if (empty($updateFields)) {
+        reply(['error' => 'No fields to update'], 400);
+    }
+    
+    $params[] = $m[1];
+    
+    $q = $d->prepare('UPDATE assets SET ' . implode(', ', $updateFields) . ' WHERE qr_code = ?');
+    $q->execute($params);
+    
+    // Log asset transaction if status changed
+    if (!empty($x['status'])) {
+        $d->prepare('INSERT INTO asset_transactions(asset_id, action, zone, created_at) VALUES(?, ?, ?, NOW())')
+          ->execute([$d->query('SELECT id FROM assets WHERE qr_code = ?')->fetchColumn(), 'Status Updated', $x['location'] ?? 'Unknown']);
+    }
+    
+    reply(['ok' => true]);
+}
+
 if ($method === 'GET' && $path === '/api/v1/inventory/transactions') {
     auth();
     $d = db();
@@ -941,10 +1019,58 @@ if ($method === 'POST' && $path === '/api/v1/procurement/requisitions') {
 if ($method === 'GET' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$#', $path, $m)) {
     auth();
     $d = db();
-    $q = $d->prepare('SELECT r.*, u.full_name AS created_by_name FROM requisitions r LEFT JOIN users u ON r.created_by=u.id WHERE r.req_number = ?');
-    $q->execute([$m[1]]);
+    $q = $d->prepare('SELECT r.*, u.full_name AS created_by_name FROM requisitions r LEFT JOIN users u ON r.created_by=u.id WHERE r.req_number = ? OR r.id = ?');
+    $q->execute([$m[1], $m[1]]);
     $r = $q->fetch(PDO::FETCH_ASSOC);
     reply($r ?: ['error' => 'Requisition not found'], $r ? 200 : 404);
+}
+
+if ($method === 'PUT' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$#', $path, $m)) {
+    auth(['Admin', 'Manager']);
+    $x = body();
+    $d = db();
+
+    $lookup = $d->prepare('SELECT id FROM requisitions WHERE req_number = ? OR id = ? LIMIT 1');
+    $lookup->execute([$m[1], $m[1]]);
+    $req = $lookup->fetch(PDO::FETCH_ASSOC);
+
+    if (!$req) {
+        reply(['error' => 'Requisition not found'], 404);
+    }
+
+    $updateFields = [];
+    $params = [];
+
+    foreach (['title', 'department', 'description', 'priority', 'status'] as $field) {
+        if (array_key_exists($field, $x)) {
+            $updateFields[] = $field . ' = ?';
+            $params[] = $x[$field];
+        }
+    }
+
+    if (array_key_exists('estimated_cost', $x)) {
+        $updateFields[] = 'estimated_cost = ?';
+        $params[] = $x['estimated_cost'];
+    }
+
+    if (array_key_exists('actual_cost', $x)) {
+        $updateFields[] = 'actual_cost = ?';
+        $params[] = $x['actual_cost'];
+    }
+
+    if (array_key_exists('needed_by', $x)) {
+        $updateFields[] = 'needed_by = ?';
+        $params[] = $x['needed_by'];
+    }
+
+    if (empty($updateFields)) {
+        reply(['error' => 'No fields to update'], 400);
+    }
+
+    $params[] = $req['id'];
+    $d->prepare('UPDATE requisitions SET ' . implode(', ', $updateFields) . ' WHERE id = ?')->execute($params);
+
+    reply(['ok' => true]);
 }
 
 if ($method === 'GET' && $path === '/api/v1/procurement/quotes') {
@@ -976,6 +1102,86 @@ if ($method === 'GET' && preg_match('#^/api/v1/suppliers/(\d+)$#', $path, $m)) {
     $q->execute([$m[1]]);
     $s = $q->fetch(PDO::FETCH_ASSOC);
     reply($s ?: ['error' => 'Supplier not found'], $s ? 200 : 404);
+}
+
+if ($method === 'PUT' && preg_match('#^/api/v1/suppliers/(\d+)$#', $path, $m)) {
+    auth(['Admin', 'Manager']);
+    $x = body();
+    $d = db();
+
+    $updateFields = [];
+    $params = [];
+
+    foreach (['name', 'email', 'phone', 'address', 'category'] as $field) {
+        if (array_key_exists($field, $x)) {
+            $updateFields[] = $field . ' = ?';
+            $params[] = $x[$field];
+        }
+    }
+
+    if (array_key_exists('on_time_rate', $x)) {
+        $updateFields[] = 'on_time_rate = ?';
+        $params[] = $x['on_time_rate'];
+    }
+
+    if (array_key_exists('defect_rate', $x)) {
+        $updateFields[] = 'defect_rate = ?';
+        $params[] = $x['defect_rate'];
+    }
+
+    if (array_key_exists('rating', $x)) {
+        $updateFields[] = 'rating = ?';
+        $params[] = $x['rating'];
+    }
+
+    if (empty($updateFields)) {
+        reply(['error' => 'No fields to update'], 400);
+    }
+
+    $params[] = $m[1];
+    $d->prepare('UPDATE vendors SET ' . implode(', ', $updateFields) . ' WHERE id = ?')->execute($params);
+
+    reply(['ok' => true]);
+}
+
+if ($method === 'PUT' && preg_match('#^/api/v1/vendors/(\d+)$#', $path, $m)) {
+    auth(['Admin', 'Manager']);
+    $x = body();
+    $d = db();
+
+    $updateFields = [];
+    $params = [];
+
+    foreach (['name', 'email', 'phone', 'address', 'category'] as $field) {
+        if (array_key_exists($field, $x)) {
+            $updateFields[] = $field . ' = ?';
+            $params[] = $x[$field];
+        }
+    }
+
+    if (array_key_exists('on_time_rate', $x)) {
+        $updateFields[] = 'on_time_rate = ?';
+        $params[] = $x['on_time_rate'];
+    }
+
+    if (array_key_exists('defect_rate', $x)) {
+        $updateFields[] = 'defect_rate = ?';
+        $params[] = $x['defect_rate'];
+    }
+
+    if (array_key_exists('rating', $x)) {
+        $updateFields[] = 'rating = ?';
+        $params[] = $x['rating'];
+    }
+
+    if (empty($updateFields)) {
+        reply(['error' => 'No fields to update'], 400);
+    }
+
+    $params[] = $m[1];
+    $d->prepare('UPDATE vendors SET ' . implode(', ', $updateFields) . ' WHERE id = ?')->execute($params);
+
+    reply(['ok' => true]);
 }
 
 // --- Purchase Orders API Endpoints ---
