@@ -184,11 +184,50 @@ async function loadRecentQuotes() {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
-// Add Requisition Button - redirect to add page
+// Add Requisition Button - open in-page modal
 const addRequisitionBtn = $('#addRequisition');
 if (addRequisitionBtn) {
   addRequisitionBtn.onclick = () => {
-    window.location.href = 'procurement-add.html';
+    const modal = $('#addRequisitionModal');
+    if (modal) {
+      if (typeof modal.showModal === 'function') modal.showModal();
+      else modal.setAttribute('open', 'open');
+    }
+  };
+}
+
+const closeRequisitionModal = $('#closeRequisitionModal');
+if (closeRequisitionModal) {
+  closeRequisitionModal.onclick = () => {
+    const modal = $('#addRequisitionModal');
+    if (modal) {
+      if (typeof modal.close === 'function') modal.close();
+      else modal.removeAttribute('open');
+    }
+  };
+}
+
+const addRequisitionForm = $('#addRequisitionForm');
+if (addRequisitionForm) {
+  addRequisitionForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const payload = Object.fromEntries(formData.entries());
+
+    const response = await fetch('/api/v1/procurement/requisitions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (response.ok) {
+      $('#addRequisitionModal').close();
+      e.target.reset();
+      loadProcurementData();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to create requisition');
+    }
   };
 }
 

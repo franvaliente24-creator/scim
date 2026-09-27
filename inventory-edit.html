@@ -68,10 +68,15 @@
     const qrCode = params.get('qr');
 
     async function loadAsset() {
-      if (!qrCode) return;
+      if (!qrCode) {
+        alert('Missing asset QR code in the page URL.');
+        window.location.href = 'inventory.html';
+        return;
+      }
+
       const response = await fetch(`/api/v1/inventory/assets/${encodeURIComponent(qrCode)}`);
       const asset = await response.json();
-      if (!asset || asset.error) {
+      if (!response.ok || !asset || asset.error) {
         alert(asset?.error || 'Asset not found');
         window.location.href = 'inventory.html';
         return;

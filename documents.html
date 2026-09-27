@@ -229,6 +229,38 @@
         </main>
     </div>
     
+    <!-- Add Document Modal -->
+    <dialog id="addDocumentModal">
+        <div class="scanner">
+            <button id="closeDocumentModal" class="close">×</button>
+            <h2>Add Document</h2>
+            <form id="addDocumentForm">
+                <label>Document Type
+                    <select name="document_type" required>
+                        <option value="Invoice">Invoice</option>
+                        <option value="Receipt">Receipt</option>
+                        <option value="Contract">Contract</option>
+                        <option value="EAF">EAF</option>
+                        <option value="Permit">Permit</option>
+                    </select>
+                </label>
+                <label>Owner
+                    <input type="text" name="owner" required placeholder="Operations Team">
+                </label>
+                <label>Related PO
+                    <input type="text" name="related_po" placeholder="PO-2026-001">
+                </label>
+                <label>Due Date
+                    <input type="date" name="due_date">
+                </label>
+                <label>Description
+                    <textarea name="description" rows="3" placeholder="Document details"></textarea>
+                </label>
+                <button type="submit">Save Document</button>
+            </form>
+        </div>
+    </dialog>
+
     <!-- Scanner Dialog Modal -->
     <dialog id="scanner">
         <div class="scanner">

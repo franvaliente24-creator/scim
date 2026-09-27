@@ -214,6 +214,32 @@
         </main>
     </div>
     
+    <!-- Add Supplier Modal -->
+    <dialog id="addSupplierModal">
+        <div class="scanner">
+            <button id="closeSupplierModal" class="close">×</button>
+            <h2>Add Supplier</h2>
+            <form id="addSupplierForm">
+                <label>Supplier Name
+                    <input type="text" name="name" required placeholder="Acme Technology Solutions">
+                </label>
+                <label>Category
+                    <input type="text" name="category" required placeholder="IT Equipment">
+                </label>
+                <label>Email
+                    <input type="email" name="email" required placeholder="sales@company.com">
+                </label>
+                <label>Phone
+                    <input type="text" name="phone" placeholder="+63 912 345 6789">
+                </label>
+                <label>Address
+                    <textarea name="address" rows="3" placeholder="Supplier address"></textarea>
+                </label>
+                <button type="submit">Save Supplier</button>
+            </form>
+        </div>
+    </dialog>
+
     <!-- Scanner Dialog Modal -->
     <dialog id="scanner">
         <div class="scanner">

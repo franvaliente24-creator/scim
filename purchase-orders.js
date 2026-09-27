@@ -234,41 +234,63 @@ function loadVendorSummary(purchaseOrders) {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
-// Create PO Button - redirect to add page
+// Create PO Button - open in-page modal
 const createPOBtn = $('#createPO');
 if (createPOBtn) {
   createPOBtn.onclick = () => {
-    window.location.href = 'purchase-orders-add.html';
+    const modal = $('#createPOModal');
+    if (modal) {
+      if (typeof modal.showModal === 'function') modal.showModal();
+      else modal.setAttribute('open', 'open');
+    }
   };
 }
 
-// Add PO Button - redirect to add page
+const closeCreatePO = $('#closeCreatePO');
+if (closeCreatePO) {
+  closeCreatePO.onclick = () => {
+    const modal = $('#createPOModal');
+    if (modal) {
+      if (typeof modal.close === 'function') modal.close();
+      else modal.removeAttribute('open');
+    }
+  };
+}
+
+const createPOForm = $('#createPOForm');
+if (createPOForm) {
+  createPOForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+
+    const response = await fetch('/api/v1/pos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.fromEntries(formData)),
+    });
+
+    if (response.ok) {
+      $('#createPOModal').close();
+      e.target.reset();
+      loadPOData();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to create purchase order');
+    }
+  };
+}
+
+// Add PO Button - open in-page modal
 const addPOBtn = $('#addPOBtn');
 if (addPOBtn) {
   addPOBtn.onclick = () => {
-    window.location.href = 'purchase-orders-add.html';
+    const modal = $('#createPOModal');
+    if (modal) {
+      if (typeof modal.showModal === 'function') modal.showModal();
+      else modal.setAttribute('open', 'open');
+    }
   };
 }
-$('#closePO').onclick = () => $('#addPOModal').close();
-
-$('#addPOForm').onsubmit = async (e) => {
-  e.preventDefault();
-  const formData = new FormData(e.target);
-
-  const response = await fetch('/api/v1/pos', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.fromEntries(formData)),
-  });
-
-  if (response.ok) {
-    $('#addPOModal').close();
-    e.target.reset();
-    loadPOData();
-  } else {
-    alert('Failed to create purchase order');
-  }
-};
 
 // Update Status Modal
 $('#closeStatus').onclick = () => $('#updateStatusModal').close();

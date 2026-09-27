@@ -947,27 +947,34 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
     auth(['Admin', 'Manager']);
     $x = body();
     $d = db();
+
+    $assetQuery = $d->prepare('SELECT id, status FROM assets WHERE qr_code = ?');
+    $assetQuery->execute([$m[1]]);
+    $existingAsset = $assetQuery->fetch(PDO::FETCH_ASSOC);
+    if (!$existingAsset) {
+        reply(['error' => 'Asset not found'], 404);
+    }
     
     $updateFields = [];
     $params = [];
     
-    if (!empty($x['name'])) {
+    if (array_key_exists('name', $x)) {
         $updateFields[] = 'name = ?';
         $params[] = $x['name'];
     }
-    if (!empty($x['category'])) {
+    if (array_key_exists('category', $x)) {
         $updateFields[] = 'category = ?';
         $params[] = $x['category'];
     }
-    if (!empty($x['value'])) {
+    if (array_key_exists('value', $x)) {
         $updateFields[] = 'value = ?';
         $params[] = $x['value'];
     }
-    if (!empty($x['status'])) {
+    if (array_key_exists('status', $x)) {
         $updateFields[] = 'status = ?';
         $params[] = $x['status'];
     }
-    if (!empty($x['location'])) {
+    if (array_key_exists('location', $x)) {
         $updateFields[] = 'location = ?';
         $params[] = $x['location'];
     }
@@ -981,10 +988,9 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
     $q = $d->prepare('UPDATE assets SET ' . implode(', ', $updateFields) . ' WHERE qr_code = ?');
     $q->execute($params);
     
-    // Log asset transaction if status changed
-    if (!empty($x['status'])) {
+        if (isset($x['status']) && $x['status'] !== $existingAsset['status']) {
         $d->prepare('INSERT INTO asset_transactions(asset_id, action, zone, created_at) VALUES(?, ?, ?, NOW())')
-          ->execute([$d->query('SELECT id FROM assets WHERE qr_code = ?')->fetchColumn(), 'Status Updated', $x['location'] ?? 'Unknown']);
+                    ->execute([$existingAsset['id'], 'Status Updated', $x['location'] ?? 'Unknown']);
     }
     
     reply(['ok' => true]);

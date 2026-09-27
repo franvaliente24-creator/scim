@@ -89,6 +89,14 @@ async function loadInventoryData() {
 }
 
 function renderAssetTable(assets) {
+  const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character]);
+
   const tableHTML = `
     <table class="data-table">
       <thead>
@@ -105,15 +113,15 @@ function renderAssetTable(assets) {
       <tbody>
         ${assets.map(asset => `
           <tr>
-            <td><span class="tag">${asset.qr_code}</span></td>
-            <td><b>${asset.name}</b></td>
-            <td>${asset.category}</td>
-            <td><span class="tag ${getStatusClass(asset.status)}">${asset.status}</span></td>
+            <td><span class="tag">${escapeHTML(asset.qr_code)}</span></td>
+            <td><b>${escapeHTML(asset.name)}</b></td>
+            <td>${escapeHTML(asset.category)}</td>
+            <td><span class="tag ${getStatusClass(asset.status)}">${escapeHTML(asset.status)}</span></td>
             <td>${money(asset.value)}</td>
-            <td>${asset.location || 'N/A'}</td>
+            <td>${escapeHTML(asset.location || 'N/A')}</td>
             <td>
-              <button class="action-btn" onclick="viewAsset('${asset.qr_code}')">View</button>
-              <button class="action-btn" onclick="editAsset('${asset.qr_code}')">Edit</button>
+              <button class="action-btn" type="button" data-asset-action="view" data-qr-code="${escapeHTML(asset.qr_code)}">View</button>
+              <button class="action-btn" type="button" data-asset-action="edit" data-qr-code="${escapeHTML(asset.qr_code)}">Edit</button>
             </td>
           </tr>
         `).join('')}
@@ -123,6 +131,15 @@ function renderAssetTable(assets) {
 
   $('#assetTable').innerHTML = tableHTML;
 }
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-asset-action][data-qr-code]');
+  if (!button) return;
+
+  const { assetAction, qrCode } = button.dataset;
+  if (assetAction === 'view') window.viewAsset(qrCode);
+  if (assetAction === 'edit') window.editAsset(qrCode);
+});
 
 function getStatusClass(status) {
   switch (status) {
@@ -364,15 +381,28 @@ if (scanNow) {
 // Asset action functions
 window.viewAsset = async (qrCode) => {
   try {
-    const response = await api(`inventory/assets/${qrCode}`);
-    const asset = response.asset;
+    const response = await fetch(`/api/v1/inventory/assets/${encodeURIComponent(qrCode)}`);
+    const payload = await response.json();
+    const asset = payload.asset || payload;
+
+    if (!response.ok || !asset || asset.error) {
+      alert(asset?.error || 'Asset not found');
+      return;
+    }
+
     alert(`Asset Details:\nName: ${asset.name}\nQR: ${asset.qr_code}\nCategory: ${asset.category}\nStatus: ${asset.status}\nValue: ${money(asset.value)}\nLocation: ${asset.location || 'N/A'}`);
   } catch (error) {
     console.error('Error viewing asset:', error);
+    alert('Unable to load asset details.');
   }
 };
 
 window.editAsset = (qrCode) => {
+  if (!qrCode) {
+    alert('Asset QR code is missing.');
+    return;
+  }
+
   window.location.href = `inventory-edit.html?qr=${encodeURIComponent(qrCode)}`;
 };
 

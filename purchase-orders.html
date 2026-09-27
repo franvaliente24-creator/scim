@@ -220,6 +220,35 @@
         </main>
     </div>
     
+    <!-- Create PO Modal -->
+    <dialog id="createPOModal">
+      <div class="scanner">
+        <button id="closeCreatePO" class="close">×</button>
+        <h2>Create Purchase Order</h2>
+        <form id="createPOForm">
+          <label>Vendor
+            <input type="text" name="vendor" required placeholder="Supplier name">
+          </label>
+          <label>Vendor ID
+            <input type="number" name="vendor_id" min="1" placeholder="Optional">
+          </label>
+          <label>Items
+            <textarea name="items" rows="3" required placeholder="Describe purchase items"></textarea>
+          </label>
+          <label>Total Amount
+            <input type="number" name="total" min="0" step="0.01" required placeholder="50000">
+          </label>
+          <label>Expected Delivery
+            <input type="date" name="expected_delivery">
+          </label>
+          <label>Notes
+            <textarea name="notes" rows="2" placeholder="Optional notes"></textarea>
+          </label>
+          <button type="submit">Create PO</button>
+        </form>
+      </div>
+    </dialog>
+
     <!-- Scanner Dialog Modal -->
     <dialog id="scanner">
         <div class="scanner">

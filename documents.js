@@ -199,43 +199,62 @@ function loadCourierTracking(documents) {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
-// Add Document Button - redirect to add page
+// Add Document Button - open in-page modal
 const addDocumentBtn = $('#addDocument');
 if (addDocumentBtn) {
   addDocumentBtn.onclick = () => {
-    window.location.href = 'documents-add.html';
+    const modal = $('#addDocumentModal');
+    if (modal) {
+      if (typeof modal.showModal === 'function') modal.showModal();
+      else modal.setAttribute('open', 'open');
+    }
   };
 }
 
-// Add Document Modal Button - redirect to add page
 const addDocumentBtnModal = $('#addDocumentBtn');
 if (addDocumentBtnModal) {
   addDocumentBtnModal.onclick = () => {
-    window.location.href = 'documents-add.html';
+    const modal = $('#addDocumentModal');
+    if (modal) {
+      if (typeof modal.showModal === 'function') modal.showModal();
+      else modal.setAttribute('open', 'open');
+    }
   };
 }
 
-// Close Document Modal
-$('#closeDocument').onclick = () => $('#addDocumentModal').close();
+const closeDocumentModal = $('#closeDocumentModal');
+if (closeDocumentModal) {
+  closeDocumentModal.onclick = () => {
+    const modal = $('#addDocumentModal');
+    if (modal) {
+      if (typeof modal.close === 'function') modal.close();
+      else modal.removeAttribute('open');
+    }
+  };
+}
 
-$('#addDocumentForm').onsubmit = async (e) => {
-  e.preventDefault();
-  const formData = new FormData(e.target);
+const addDocumentForm = $('#addDocumentForm');
+if (addDocumentForm) {
+  addDocumentForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
 
-  const response = await fetch('/api/v1/documents', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.fromEntries(formData)),
-  });
+    const response = await fetch('/api/v1/documents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.fromEntries(formData)),
+    });
 
-  if (response.ok) {
-    $('#addDocumentModal').close();
-    e.target.reset();
-    loadDocumentData();
-  } else {
-    alert('Failed to create document');
-  }
-};
+    if (response.ok) {
+      $('#addDocumentModal').close();
+      e.target.reset();
+      loadDocumentData();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to create document');
+    }
+  };
+}
 
 // Search functionality
 $('#searchDocuments').oninput = (e) => {

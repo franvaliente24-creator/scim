@@ -151,11 +151,50 @@ function renderAttentionSuppliers(suppliers) {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
-// Add Supplier Button - redirect to add page
+// Add Supplier Button - open in-page modal
 const addSupplierBtn = $('#addSupplier');
 if (addSupplierBtn) {
   addSupplierBtn.onclick = () => {
-    window.location.href = 'suppliers-add.html';
+    const modal = $('#addSupplierModal');
+    if (modal) {
+      if (typeof modal.showModal === 'function') modal.showModal();
+      else modal.setAttribute('open', 'open');
+    }
+  };
+}
+
+const closeSupplierModal = $('#closeSupplierModal');
+if (closeSupplierModal) {
+  closeSupplierModal.onclick = () => {
+    const modal = $('#addSupplierModal');
+    if (modal) {
+      if (typeof modal.close === 'function') modal.close();
+      else modal.removeAttribute('open');
+    }
+  };
+}
+
+const addSupplierForm = $('#addSupplierForm');
+if (addSupplierForm) {
+  addSupplierForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const payload = Object.fromEntries(formData.entries());
+
+    const response = await fetch('/api/v1/suppliers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (response.ok) {
+      $('#addSupplierModal').close();
+      e.target.reset();
+      loadSupplierData();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to create supplier');
+    }
   };
 }
 
