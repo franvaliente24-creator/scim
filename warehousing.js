@@ -135,13 +135,44 @@ async function loadRecentScans() {
 // EVENT LISTENERS & INTERACTION
 // ==========================================
 
-// Add Zone Button - redirect to add page
+// Add Zone Button - open the in-module form
 const addZoneBtn = $('#addZone');
+const addZoneModal = $('#addZoneModal');
+const addZoneForm = $('#addZoneForm');
+const zoneFormError = $('#zoneFormError');
+
 if (addZoneBtn) {
-  addZoneBtn.onclick = () => {
-    window.location.href = 'warehousing-add.html';
-  };
+  addZoneBtn.onclick = () => addZoneModal?.showModal();
 }
+
+$('#closeZoneModal')?.addEventListener('click', () => addZoneModal?.close());
+
+addZoneForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  zoneFormError.hidden = true;
+
+  try {
+    const response = await fetch('/api/v1/warehouse/zones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.fromEntries(new FormData(addZoneForm).entries())),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      zoneFormError.textContent = result.error || 'Unable to create zone.';
+      zoneFormError.hidden = false;
+      return;
+    }
+
+    addZoneModal.close();
+    addZoneForm.reset();
+    await loadWarehouseData();
+  } catch (error) {
+    console.error('Error creating warehouse zone:', error);
+    zoneFormError.textContent = 'Unable to reach the server. Please try again.';
+    zoneFormError.hidden = false;
+  }
+});
 
 // Scanner Modal Controls
 const mobileBtn = $('#mobileBtn');
@@ -166,6 +197,7 @@ if (closeScan) {
 
 let currentAction = 'Inventory Intake';
 let cameraStream = null;
+let qrDetectionFrame = null;
 
 // Camera initialization
 async function initializeCamera() {
@@ -188,6 +220,7 @@ async function initializeCamera() {
       
       cameraStream = stream;
       video.srcObject = stream;
+      await video.play();
       video.style.display = 'block';
       fallback.style.display = 'none';
       status.textContent = '● Camera active';
@@ -200,14 +233,24 @@ async function initializeCamera() {
     }
   } catch (error) {
     console.error('Camera access error:', error);
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      cameraStream = null;
+    }
     video.style.display = 'none';
     fallback.style.display = 'grid';
-    status.textContent = '● Camera unavailable';
+    status.textContent = error.name === 'NotAllowedError'
+      ? '● Allow camera access to scan QR codes'
+      : '● Camera unavailable';
     status.style.color = '#dc2626';
   }
 }
 
 function stopCamera() {
+  if (qrDetectionFrame !== null) {
+    cancelAnimationFrame(qrDetectionFrame);
+    qrDetectionFrame = null;
+  }
   if (cameraStream) {
     cameraStream.getTracks().forEach(track => track.stop());
     cameraStream = null;
@@ -242,11 +285,72 @@ modeButtons.forEach((btn) => {
   };
 });
 
-// QR Detection (simplified - in production, use a library like jsQR)
 function startQRDetection() {
-  // This is a placeholder for QR detection
-  // In production, integrate a library like jsQR or html5-qrcode
-  // For now, users can manually enter QR codes or use the camera as a visual reference
+  const video = $('#cameraPreview');
+  const canvas = $('#qrCanvas');
+  const result = $('#scanResult');
+  if (!video || !canvas || !cameraStream) return;
+
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return;
+
+  let detector = null;
+  if ('BarcodeDetector' in window) {
+    try {
+      detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    } catch (error) {
+      console.warn('Native QR detector unavailable; using jsQR:', error);
+    }
+  }
+  let detectionInProgress = false;
+
+  const decodeWithJsQR = () => {
+    if (typeof window.jsQR !== 'function') return null;
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    return window.jsQR(pixels.data, pixels.width, pixels.height);
+  };
+
+  const detect = () => {
+    if (!cameraStream) return;
+    if (video.readyState >= video.HAVE_CURRENT_DATA && !detectionInProgress) {
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const onCode = (value) => {
+        const qrInput = $('#qr');
+        if (qrInput) qrInput.value = value;
+        if (result) result.textContent = `QR detected: ${value}. Press Record scan to save it.`;
+        stopCamera();
+      };
+
+      if (detector) {
+        detectionInProgress = true;
+        detector.detect(video)
+          .then((codes) => { if (codes.length) onCode(codes[0].rawValue); })
+          .catch((error) => {
+            console.warn('Native QR detection failed; trying jsQR:', error);
+            const code = decodeWithJsQR();
+            if (code) onCode(code.data);
+          })
+          .finally(() => { detectionInProgress = false; });
+      } else if (typeof window.jsQR === 'function') {
+        const code = decodeWithJsQR();
+        if (code) {
+          onCode(code.data);
+          return;
+        }
+      } else {
+        const status = $('#scannerStatus');
+        if (status) status.textContent = 'QR decoder unavailable. Enter the code manually.';
+        return;
+      }
+    }
+
+    qrDetectionFrame = requestAnimationFrame(detect);
+  };
+
+  qrDetectionFrame = requestAnimationFrame(detect);
 }
 
 const scanNow = $('#scanNow');
@@ -257,25 +361,29 @@ if (scanNow) {
     
     if (!qrInput) return;
     
-    const response = await fetch('/api/v1/assets/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        qr_code: qrInput.value,
-        action: currentAction,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (scanResult) {
-      scanResult.textContent = response.ok
-        ? `${data.asset.name} recorded for ${currentAction}.`
-        : data.error;
+    if (!qrInput.value.trim()) {
+      if (scanResult) scanResult.textContent = 'Scan or enter a QR code first.';
+      return;
     }
 
-    if (response.ok) {
-      loadWarehouseData();
+    try {
+      const response = await fetch('/api/v1/assets/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qr_code: qrInput.value.trim(), action: currentAction }),
+      });
+      const data = await response.json();
+
+      if (scanResult) {
+        scanResult.textContent = response.ok
+          ? `${data.asset.name} recorded for ${currentAction}.`
+          : data.error || 'Unable to record scan.';
+      }
+
+      if (response.ok) await loadWarehouseData();
+    } catch (error) {
+      console.error('Error recording scan:', error);
+      if (scanResult) scanResult.textContent = 'Unable to reach the server. Please try again.';
     }
   };
 }

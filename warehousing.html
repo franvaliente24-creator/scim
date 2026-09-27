@@ -13,13 +13,12 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="styles.css?v=3">
+    <link rel="stylesheet" href="styles.css?v=5">
     
     <!-- Permissions System -->
     <script src="permissions.js"></script>
     <script src="layout.js"></script>
     <script src="inactivity.js"></script>
-    <script src="warehousing.js"></script>
 <body class="bg-background text-on-background font-body h-screen flex flex-row overflow-hidden">
     
     <!-- Mobile Backdrop overlay -->
@@ -218,6 +217,26 @@
         </main>
     </div>
     
+    <dialog id="addZoneModal" class="asset-modal">
+        <div class="scanner">
+            <button id="closeZoneModal" class="close" type="button" aria-label="Close">×</button>
+            <h2>Add Warehouse Zone</h2>
+            <form id="addZoneForm">
+                <label>Zone Name
+                    <input name="zone" required maxlength="20" placeholder="E">
+                </label>
+                <label>Total Capacity
+                    <input name="capacity" type="number" required min="1" step="1" value="100">
+                </label>
+                <label>Number of Rows
+                    <input name="row_count" type="number" required min="1" max="20" step="1" value="4">
+                </label>
+                <p id="zoneFormError" role="alert" hidden></p>
+                <button type="submit">Create Zone</button>
+            </form>
+        </div>
+    </dialog>
+
     <!-- Scanner Dialog Modal -->
     <dialog id="scanner">
         <div class="scanner">
@@ -247,7 +266,8 @@
     </dialog>
     
     <script src="layout.js"></script>
-    <script src="warehousing.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="warehousing.js?v=5"></script>
     <script src="inactivity.js"></script>
 </body>
 </html>

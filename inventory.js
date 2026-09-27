@@ -12,6 +12,7 @@ const $ = (selector) => {
 };
 
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
+  await video.play();
 
 const money = (amount) =>
   new Intl.NumberFormat('en-PH', {
@@ -165,7 +166,7 @@ function openAssetForm(asset = null) {
   if (!assetForm || !assetModal) return;
   editingAssetQr = asset?.qr_code || null;
   assetModalTitle.textContent = editingAssetQr ? 'Edit Asset' : 'Add Asset';
-  assetForm.elements.qr_code.readOnly = Boolean(editingAssetQr);
+  assetForm.elements.qr_code.readOnly = false;
   assetForm.elements.qr_code.value = asset?.qr_code || '';
   assetForm.elements.name.value = asset?.name || '';
   assetForm.elements.category.value = asset?.category || '';
@@ -308,6 +309,7 @@ if (closeScan) {
 
 let currentAction = 'Inventory Intake';
 let cameraStream = null;
+let qrDetectionFrame = null;
 
 // Camera initialization
 async function initializeCamera() {
@@ -340,14 +342,24 @@ async function initializeCamera() {
     }
   } catch (error) {
     console.error('Camera access error:', error);
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      cameraStream = null;
+    }
     video.style.display = 'none';
     fallback.style.display = 'grid';
-    status.textContent = '● Camera unavailable';
+    status.textContent = error.name === 'NotAllowedError'
+      ? '● Allow camera access to scan QR codes'
+      : '● Camera unavailable';
     status.style.color = '#dc2626';
   }
 }
 
 function stopCamera() {
+  if (qrDetectionFrame !== null) {
+    cancelAnimationFrame(qrDetectionFrame);
+    qrDetectionFrame = null;
+  }
   if (cameraStream) {
     cameraStream.getTracks().forEach(track => track.stop());
     cameraStream = null;
@@ -385,35 +397,72 @@ function startQRDetection() {
   const canvas = $('#qrCanvas');
   const resultEl = $('#scanResult');
 
-  if (!video || !canvas || !cameraStream || !window.jsQR) {
+  if (!video || !canvas || !cameraStream) {
     return;
   }
 
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+  let detector = null;
+  if ('BarcodeDetector' in window) {
+    try {
+      detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    } catch (error) {
+      console.warn('Native QR detector unavailable; using jsQR:', error);
+    }
+  }
+  let detectionInProgress = false;
+
+  const detectWithJsQR = () => {
+    if (typeof window.jsQR !== 'function') return null;
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return window.jsQR(imageData.data, imageData.width, imageData.height);
+  };
+
   const detect = () => {
-    if (video.readyState === video.HAVE_CURRENT_DATA) {
+    if (!cameraStream) return;
+
+    if (video.readyState >= video.HAVE_CURRENT_DATA && !detectionInProgress) {
       canvas.width = video.videoWidth || 640;
       canvas.height = video.videoHeight || 480;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = window.jsQR(imageData.data, imageData.width, imageData.height);
 
-      if (code) {
+      const handleDetectedCode = (value) => {
         const qrInput = $('#qr');
-        if (qrInput) {
-          qrInput.value = code.data;
+        if (qrInput) qrInput.value = value;
+        if (resultEl) resultEl.textContent = `QR detected: ${value}`;
+        stopCamera();
+      };
+
+      if (detector) {
+        detectionInProgress = true;
+        detector.detect(video)
+          .then((codes) => {
+            if (codes.length) handleDetectedCode(codes[0].rawValue);
+          })
+          .catch((error) => {
+            console.warn('Native QR detection failed; trying jsQR:', error);
+            const code = detectWithJsQR();
+            if (code) handleDetectedCode(code.data);
+          })
+          .finally(() => { detectionInProgress = false; });
+      } else if (typeof window.jsQR === 'function') {
+        const code = detectWithJsQR();
+        if (code) {
+          handleDetectedCode(code.data);
+          return;
         }
-        if (resultEl) {
-          resultEl.textContent = `QR detected: ${code.data}`;
-        }
+      } else {
+        const status = $('#scannerStatus');
+        if (status) status.textContent = 'QR decoder unavailable. Enter the code manually.';
         return;
       }
     }
 
-    requestAnimationFrame(detect);
+    qrDetectionFrame = requestAnimationFrame(detect);
   };
 
-  requestAnimationFrame(detect);
+  qrDetectionFrame = requestAnimationFrame(detect);
 }
 
 const scanNow = $('#scanNow');

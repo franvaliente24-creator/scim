@@ -912,6 +912,44 @@ if ($method === 'GET' && $path === '/api/v1/warehouse/zones') {
     reply(['zones' => $zones]);
 }
 
+if ($method === 'POST' && $path === '/api/v1/warehouse/zones') {
+    auth(['Admin', 'Manager']);
+    $x = body();
+    $zone = trim((string)($x['zone'] ?? ''));
+    $capacity = filter_var($x['capacity'] ?? null, FILTER_VALIDATE_INT);
+    $rowCount = filter_var($x['row_count'] ?? 4, FILTER_VALIDATE_INT);
+
+    if ($zone === '' || strlen($zone) > 20 || $capacity === false || $capacity < 1 ||
+        $rowCount === false || $rowCount < 1 || $rowCount > 20 || $rowCount > $capacity) {
+        reply(['error' => 'Enter a zone name, a positive capacity, and 1 to 20 rows not exceeding the capacity.'], 400);
+    }
+
+    $d = db();
+    try {
+        $d->beginTransaction();
+        $d->prepare('INSERT INTO warehouse_zones(zone, capacity, occupied) VALUES(?, ?, 0)')
+          ->execute([$zone, $capacity]);
+
+        $baseRowCapacity = intdiv($capacity, $rowCount);
+        $remainingCapacity = $capacity % $rowCount;
+        $rowInsert = $d->prepare('INSERT INTO warehouse_rows(zone, row_num, capacity, occupied) VALUES(?, ?, ?, 0)');
+        for ($rowNumber = 1; $rowNumber <= $rowCount; $rowNumber++) {
+            $rowCapacity = $baseRowCapacity + ($rowNumber <= $remainingCapacity ? 1 : 0);
+            $rowInsert->execute([$zone, (string)$rowNumber, $rowCapacity]);
+        }
+
+        $d->commit();
+    } catch (PDOException $error) {
+        if ($d->inTransaction()) $d->rollBack();
+        if ($error->getCode() === '23000') {
+            reply(['error' => 'That zone already exists. Choose a different zone name.'], 409);
+        }
+        reply(['error' => 'Unable to create warehouse zone.'], 500);
+    }
+
+    reply(['ok' => true, 'zone' => $zone], 201);
+}
+
 if ($method === 'GET' && $path === '/api/v1/warehouse/scans') {
     auth();
     $d = db();
@@ -938,7 +976,7 @@ if ($method === 'POST' && $path === '/api/v1/inventory/assets') {
 if ($method === 'GET' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $path, $m)) {
     auth();
     $q = db()->prepare('SELECT * FROM assets WHERE qr_code = ?');
-    $q->execute([$m[1]]);
+    $q->execute([rawurldecode($m[1])]);
     $a = $q->fetch(PDO::FETCH_ASSOC);
     reply($a ?: ['error' => 'Asset not found'], $a ? 200 : 404);
 }
@@ -948,8 +986,8 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
     $x = body();
     $d = db();
 
-    $assetQuery = $d->prepare('SELECT id, status FROM assets WHERE qr_code = ?');
-    $assetQuery->execute([$m[1]]);
+    $assetQuery = $d->prepare('SELECT id, status, qr_code FROM assets WHERE qr_code = ?');
+    $assetQuery->execute([rawurldecode($m[1])]);
     $existingAsset = $assetQuery->fetch(PDO::FETCH_ASSOC);
     if (!$existingAsset) {
         reply(['error' => 'Asset not found'], 404);
@@ -957,6 +995,15 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
     
     $updateFields = [];
     $params = [];
+
+    if (array_key_exists('qr_code', $x)) {
+        $newQrCode = trim((string)$x['qr_code']);
+        if ($newQrCode === '' || strlen($newQrCode) > 50) {
+            reply(['error' => 'QR code is required and must be 50 characters or fewer.'], 400);
+        }
+        $updateFields[] = 'qr_code = ?';
+        $params[] = $newQrCode;
+    }
     
     if (array_key_exists('name', $x)) {
         $updateFields[] = 'name = ?';
@@ -983,14 +1030,26 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
         reply(['error' => 'No fields to update'], 400);
     }
     
-    $params[] = $m[1];
+    $params[] = rawurldecode($m[1]);
     
     $q = $d->prepare('UPDATE assets SET ' . implode(', ', $updateFields) . ' WHERE qr_code = ?');
-    $q->execute($params);
+    try {
+        $q->execute($params);
+    } catch (PDOException $error) {
+        if ($error->getCode() === '23000') {
+            reply(['error' => 'That QR code is already assigned to another asset.'], 409);
+        }
+        throw $error;
+    }
+
+    if (isset($newQrCode) && $newQrCode !== $existingAsset['qr_code']) {
+        $d->prepare('UPDATE equipment_request_items SET assigned_qr_code = ? WHERE assigned_asset_id = ?')
+          ->execute([$newQrCode, $existingAsset['id']]);
+    }
     
-        if (isset($x['status']) && $x['status'] !== $existingAsset['status']) {
+    if (isset($x['status']) && $x['status'] !== $existingAsset['status']) {
         $d->prepare('INSERT INTO asset_transactions(asset_id, action, zone, created_at) VALUES(?, ?, ?, NOW())')
-                    ->execute([$existingAsset['id'], 'Status Updated', $x['location'] ?? 'Unknown']);
+          ->execute([$existingAsset['id'], 'Status Updated', $x['location'] ?? 'Unknown']);
     }
     
     reply(['ok' => true]);

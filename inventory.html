@@ -227,7 +227,7 @@
             <h2 id="assetModalTitle">Add Asset</h2>
             <form id="assetForm">
                 <label>QR Code
-                    <input name="qr_code" required placeholder="QR-LAP-001">
+                    <input name="qr_code" required maxlength="50" placeholder="QR-LAP-001">
                 </label>
                 <label>Asset Name
                     <input name="name" required placeholder="Laptop">
@@ -291,7 +291,8 @@
     </dialog>
     
     <script src="layout.js"></script>
-    <script src="inventory.js?v=4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="inventory.js?v=5"></script>
     <script src="inactivity.js"></script>
 </body>
 </html>

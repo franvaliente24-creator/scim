@@ -1,5 +1,7 @@
 # SCIM System Flow and Usage Guide
 
+> Latest dated edition: [SCIM System Version 3: Flow and Change Guide (September 28, 2026)](SCIM_SYSTEM_V3_FLOW_AND_CHANGES_2026-09-28.md).
+
 ## Overview
 This guide explains how the main modules work together in the SCIM application, including the add flows, the scanner workflow, and the expected data flow from the page UI to the backend API.
 
@@ -142,4 +144,4 @@ A practical QA flow for this app is:
 ---
 
 ## Current Status
-The app now has a working add-page flow for the major missing user entry points, the scanner has been upgraded from a placeholder to a real camera-based QR detection flow, and the module pages have a coherent user journey from list to create to action to refresh.
+For the current implementation, scanner requirements, database dependencies, deployment notes, and QA steps, use the [Version 3 guide dated September 28, 2026](SCIM_SYSTEM_V3_FLOW_AND_CHANGES_2026-09-28.md).
