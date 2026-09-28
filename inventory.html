@@ -8,6 +8,8 @@
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    <!-- jsQR Library for QR Code Decoding -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -266,7 +268,6 @@
     <dialog id="scanner">
         <div class="scanner">
             <button id="closeScan" class="close">×</button>
-            <p class="live" id="scannerStatus">● Initializing camera...</p>
             <div class="viewport">
                 <video id="cameraPreview" autoplay playsinline muted></video>
                 <canvas id="qrCanvas" style="display:none;"></canvas>
@@ -291,7 +292,6 @@
     </dialog>
     
     <script src="layout.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <script src="inventory.js?v=5"></script>
     <script src="inactivity.js"></script>
 </body>
