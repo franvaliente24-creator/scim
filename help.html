@@ -1,322 +1,191 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Help & Documentation | Great Solomon SCIM</title>
-    <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="layout.js" defer></script>
-    <script src="permissions.js" defer></script>
-    <script src="help.js" defer></script>
+    <link rel="stylesheet" href="styles.css?v=4">
     <style>
-        .help-card {
-            background: white;
-            border-radius: 12px;
-            padding: 2rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        .help-section {
-            margin-bottom: 2rem;
-        }
-        .help-item {
-            padding: 1rem;
-            border-left: 4px solid #4f46e5;
-            background: #f9fafb;
-            margin-bottom: 1rem;
-            border-radius: 0 8px 8px 0;
-        }
-        .code-block {
-            background: #1f2937;
-            color: #e5e7eb;
-            padding: 1rem;
-            border-radius: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.875rem;
-            overflow-x: auto;
-        }
+        .help-item { padding: 1rem; border-left: 4px solid #4f46e5; background: #f9fafb; margin-bottom: 1rem; border-radius: 0 8px 8px 0; }
+        .help-item p { margin-bottom: 0.25rem; }
     </style>
 </head>
-<body class="bg-surface-dim font-body text-on-surface">
-    <!-- Sidebar -->
-    <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
-    <aside id="app-sidebar" class="sidebar">
-        <div class="sidebar-header">
-            <div class="flex items-center justify-center py-4">
-                <img src="img/logo.png" alt="Great Solomon Logo" class="w-12 h-12 object-contain">
+<body class="bg-background text-on-background font-body h-screen flex flex-row overflow-hidden">
+
+    <div id="sidebar-backdrop" class="fixed top-16 bottom-0 left-0 right-0 md:inset-0 bg-gray-900/50 backdrop-blur-md z-40 hidden md:hidden transition-opacity duration-300 opacity-0"></div>
+
+    <aside id="app-sidebar" class="dashboard-sidebar fixed md:static top-16 bottom-0 md:inset-y-0 left-0 z-50 bg-white flex flex-col h-[calc(100vh-4rem)] md:h-full shrink-0 shadow-xl md:shadow-none transition-all duration-300 ease-in-out overflow-hidden w-72 border-r border-slate-200 -translate-x-full md:translate-x-0 opacity-100">
+        <div class="px-5 pt-6 pb-5 border-b border-slate-200 flex justify-center">
+            <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg">
+                <img src="img/logo.png" alt="Company Logo" class="w-full h-full object-contain">
             </div>
         </div>
-        <nav class="sidebar-nav">
-            <div class="sidebar-nav-section">
-                <a id="dashboardLink" class="sidebar-subsystem-link" href="index.html">
-                    <span class="material-symbols-outlined">dashboard</span>
-                    <span>Dashboard</span>
-                </a>
-            </div>
-            <div class="sidebar-nav-section">
-                <a id="warehousingLink" class="sidebar-subsystem-link" href="warehousing.html">
-                    <span class="material-symbols-outlined">warehouse</span>
-                    <span>Smart Warehousing</span>
-                </a>
-            </div>
-            <div class="sidebar-nav-section">
-                <a id="inventoryLink" class="sidebar-subsystem-link" href="inventory.html">
-                    <span class="material-symbols-outlined">inventory_2</span>
-                    <span>Inventory Management</span>
-                </a>
-            </div>
-            <div class="sidebar-nav-section">
-                <a id="procurementLink" class="sidebar-subsystem-link" href="procurement.html">
-                    <span class="material-symbols-outlined">shopping_cart</span>
-                    <span>Procurement & Sourcing</span>
-                </a>
-            </div>
-            <div class="sidebar-nav-section">
-                <a id="suppliersLink" class="sidebar-subsystem-link" href="suppliers.html">
-                    <span class="material-symbols-outlined">groups</span>
-                    <span>Supplier Management</span>
-                </a>
-            </div>
-            <div class="sidebar-nav-section">
-                <a id="purchaseOrdersLink" class="sidebar-subsystem-link" href="purchase-orders.html">
-                    <span class="material-symbols-outlined">receipt_long</span>
-                    <span>Purchase Orders</span>
-                </a>
-            </div>
-            <div class="sidebar-nav-section">
-                <a id="documentsLink" class="sidebar-subsystem-link" href="documents.html">
-                    <span class="material-symbols-outlined">description</span>
-                    <span>Documents & Logistics</span>
-                </a>
-            </div>
-            <div class="sidebar-nav-section">
-                <a id="usersLink" class="sidebar-subsystem-link" href="users.html">
-                    <span class="material-symbols-outlined">manage_accounts</span>
-                    <span>User Management</span>
-                </a>
-            </div>
-            <div class="sidebar-nav-section">
-                <a id="mfaSetupLink" class="sidebar-subsystem-link" href="mfa-setup.html">
-                    <span class="material-symbols-outlined">security</span>
-                    <span>Security & MFA</span>
-                </a>
+        <nav class="flex-1 overflow-y-auto px-5 py-6 space-y-3">
+            <a id="sidebar-dashboard-link" class="sidebar-main-link" href="index.html">
+                <span class="sidebar-main-link-icon material-symbols-outlined">dashboard</span>
+                <span class="font-label font-medium text-sm">Dashboard</span>
+            </a>
+            <div id="sidebar-subsystem-nav-panel" class="sidebar-subsystem-nav-panel">
+                <nav id="sidebar-subsystem-modules-nav" class="sidebar-subsystem-modules">
+                    <a class="sidebar-subsystem-link" href="warehousing.html"><span class="material-symbols-outlined">warehouse</span><span>Smart Warehousing</span></a>
+                    <a class="sidebar-subsystem-link" href="inventory.html"><span class="material-symbols-outlined">inventory</span><span>Inventory Management</span></a>
+                    <a class="sidebar-subsystem-link" href="procurement.html"><span class="material-symbols-outlined">shopping_cart</span><span>Procurement & Sourcing</span></a>
+                    <a class="sidebar-subsystem-link" href="suppliers.html"><span class="material-symbols-outlined">business</span><span>Supplier Management</span></a>
+                    <a class="sidebar-subsystem-link" href="purchase-orders.html"><span class="material-symbols-outlined">receipt_long</span><span>Purchase Orders</span></a>
+                    <a class="sidebar-subsystem-link" href="documents.html"><span class="material-symbols-outlined">description</span><span>Documents & Logistics</span></a>
+                    <a id="equipment-requests-link" class="sidebar-subsystem-link" href="equipment-requests.html"><span class="material-symbols-outlined">request_quote</span><span>Equipment Requests</span></a>
+                </nav>
             </div>
         </nav>
     </aside>
 
-    <!-- Main Content -->
-    <div class="main-content">
-        <!-- Top Header -->
-        <header class="top-header">
-            <button id="desktop-sidebar-toggle" type="button" class="flex items-center justify-center p-2 rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low focus:outline-none transition border border-outline-variant/30 shrink-0 min-w-[2.5rem] min-h-[2.5rem]" title="Toggle Sidebar">
-                <span id="sidebar-toggle-icon" class="material-symbols-outlined">menu</span>
-            </button>
+    <div class="flex-1 flex flex-col h-full overflow-hidden relative">
+        <header class="bg-surface/80 backdrop-blur-md shadow-sm border-b border-outline-variant/30 flex justify-between items-center h-16 px-6 w-full z-30 shrink-0">
             <div class="flex items-center gap-3">
-                <img src="img/logo.png" alt="Great Solomon Logo" class="w-12 h-12 object-contain">
-            </div>
-            <div class="flex-1"></div>
-            <button id="profile-dropdown-toggle" type="button" class="flex items-center gap-3 p-1.5 rounded-full hover:bg-surface-container-low transition-colors focus:outline-none border border-transparent hover:border-outline-variant/30 cursor-pointer" aria-expanded="false" title="Account Menu">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center overflow-hidden">
-                        <img id="headerProfileImg" src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
-                    </div>
-                    <div class="hidden md:block text-left">
-                        <div class="text-sm font-medium text-on-surface">User</div>
-                        <div class="text-xs text-on-surface-variant" id="headerUserRole">User</div>
-                    </div>
-                    <span class="material-symbols-outlined text-on-surface-variant">expand_more</span>
+                <div class="w-12 h-12 shrink-0 overflow-hidden rounded-lg">
+                    <img src="img/logo.png" alt="Great Solomon Logo" class="w-full h-full object-contain">
                 </div>
-            </button>
-            <!-- Profile Dropdown -->
-            <div id="profile-dropdown-menu" class="profile-dropdown hidden">
-                <div class="profile-dropdown-header">
-                    <div class="w-12 h-12 rounded-full bg-primary flex items-center justify-center overflow-hidden mb-3">
-                        <img id="dropdownProfileImg" src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
-                    </div>
-                    <div class="text-sm font-medium text-on-surface" id="dropdownUserName">User</div>
-                    <div class="text-xs text-on-surface-variant" id="dropdownUserEmail">user@example.com</div>
-                </div>
-                <div class="profile-dropdown-divider"></div>
-                <a href="profile.html" class="profile-dropdown-item">
-                    <span class="material-symbols-outlined">person</span>
-                    <span>My Profile</span>
-                </a>
-                <a href="mfa-setup.html" class="profile-dropdown-item">
-                    <span class="material-symbols-outlined">security</span>
-                    <span>Security & MFA</span>
-                </a>
-                <a href="help.html" class="profile-dropdown-item">
-                    <span class="material-symbols-outlined">help</span>
-                    <span>Help & Documentation</span>
-                </a>
-                <div class="profile-dropdown-divider"></div>
-                <button id="logout" class="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors font-medium cursor-pointer w-full text-left">
-                    <span class="material-symbols-outlined">logout</span>
-                    <span>Sign Out</span>
+                <span class="text-outline-variant font-light select-none">|</span>
+                <button id="desktop-sidebar-toggle" type="button" class="flex items-center justify-center p-2 rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low focus:outline-none transition border border-outline-variant/30 shrink-0 min-w-[2.5rem] min-h-[2.5rem]" title="Toggle Sidebar">
+                    <span class="material-symbols-outlined text-xl" id="sidebar-toggle-icon">menu_open</span>
                 </button>
+            </div>
+            <div class="relative flex items-center">
+                <button id="profile-dropdown-toggle" type="button" class="flex items-center gap-3 p-1.5 rounded-full hover:bg-surface-container-low transition-colors focus:outline-none border border-transparent hover:border-outline-variant/30 cursor-pointer" aria-expanded="false" title="Account Menu">
+                    <div class="w-9 h-9 shrink-0 overflow-hidden rounded-full">
+                        <img src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
+                    </div>
+                    <div class="hidden md:flex flex-col text-left mr-1">
+                        <span class="font-label font-semibold text-sm text-on-surface leading-tight" data-user-name>User</span>
+                        <span class="text-xs text-on-surface-variant font-light" data-user-role>—</span>
+                    </div>
+                    <span class="material-symbols-outlined text-on-surface-variant text-sm hidden sm:inline-block">expand_more</span>
+                </button>
+                <div id="profile-dropdown-menu" class="absolute right-0 top-14 w-60 bg-surface rounded-2xl shadow-xl border border-outline-variant/30 py-2 z-50 transition-all duration-200 hidden opacity-0 scale-95 origin-top-right">
+                    <div class="px-4 py-3 border-b border-outline-variant/20 md:hidden">
+                        <p class="text-sm font-semibold text-on-surface" data-user-name>User</p>
+                        <p class="text-xs text-on-surface-variant truncate" data-user-email></p>
+                    </div>
+                    <div class="px-4 py-2 hidden md:block">
+                        <p class="text-xs font-medium text-on-surface-variant uppercase tracking-wider">Account</p>
+                    </div>
+                    <a href="profile.html" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors"><span class="material-symbols-outlined text-lg text-on-surface-variant">person</span><span class="font-medium">My Profile</span></a>
+                    <a href="mfa-setup.html" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors"><span class="material-symbols-outlined text-lg text-on-surface-variant">security</span><span class="font-medium">Security & MFA Settings</span></a>
+                    <a href="users.html" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors"><span class="material-symbols-outlined text-lg text-on-surface-variant">manage_accounts</span><span class="font-medium">User Management</span></a>
+                    <a href="help.html" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors"><span class="material-symbols-outlined text-lg text-on-surface-variant">help</span><span class="font-medium">Help & Documentation</span></a>
+                    <div class="my-1 border-t border-outline-variant/20"></div>
+                    <button id="logout" class="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors font-medium cursor-pointer w-full text-left">
+                        <span class="material-symbols-outlined text-lg">logout</span><span>Log Out</span>
+                    </button>
+                </div>
             </div>
         </header>
 
-        <!-- Page Content -->
-        <main class="page-content">
-            <div class="page-header">
-                <div>
-                    <h1 class="page-title">Help & Documentation</h1>
-                    <p class="page-subtitle">Get help with using the Supply Chain & Inventory Management System</p>
+        <main class="flex-1 overflow-y-auto bg-surface-container-lowest p-6 md:p-8">
+            <div class="max-w-4xl mx-auto space-y-8">
+                <div class="bg-surface-container-lowest rounded-xl sm:rounded-2xl border border-outline-variant/60 shadow-sm p-4 sm:px-6 sm:py-4.5 flex items-center gap-4">
+                    <div class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary/10 text-primary text-xs sm:text-sm font-bold border border-primary/20 shadow-2xs">
+                        <span class="material-symbols-outlined text-[20px] fill">help</span>
+                        <span>Help & Documentation</span>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Getting Started -->
-            <div class="help-card">
-                <h2 class="text-xl font-headline font-semibold text-on-surface mb-4">Getting Started</h2>
-                <div class="help-section">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-3xl font-headline font-bold text-on-surface">Help & Documentation</h1>
+                        <p class="text-on-surface-variant text-sm mt-2">Get help with using the Supply Chain & Inventory Management System.</p>
+                    </div>
+                </div>
+
+                <!-- Getting Started -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                    <h2 class="text-xl font-headline font-semibold text-on-surface mb-4">Getting Started</h2>
                     <div class="help-item">
                         <h3 class="font-semibold text-on-surface mb-2">1. Login to the System</h3>
-                        <p class="text-sm text-on-surface-variant">Use your email and password to login. If MFA is enabled, you'll need to enter the OTP sent to your email.</p>
+                        <p class="text-sm text-on-surface-variant">Use your email and password to sign in, then enter the 6-digit verification code sent to your email.</p>
                     </div>
                     <div class="help-item">
                         <h3 class="font-semibold text-on-surface mb-2">2. Navigate Using the Sidebar</h3>
-                        <p class="text-sm text-on-surface-variant">Click on any module in the left sidebar to access different features. Use the toggle button to collapse/expand the sidebar.</p>
+                        <p class="text-sm text-on-surface-variant">Click any module in the left sidebar. Use the toggle button to collapse or expand it.</p>
                     </div>
                     <div class="help-item">
-                        <h3 class="font-semibold text-on-surface mb-2">3. Access Your Profile</h3>
-                        <p class="text-sm text-on-surface-variant">Click on your profile picture in the top-right corner to access profile settings, security options, and logout.</p>
+                        <h3 class="font-semibold text-on-surface mb-2">3. Quick QR Scan (from any page)</h3>
+                        <p class="text-sm text-on-surface-variant">Tap the floating scan button at the bottom-right corner of any screen to scan a QR code — pick the action (intake, check-out, assign, move) and point the camera.</p>
+                    </div>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2">4. Access Your Profile</h3>
+                        <p class="text-sm text-on-surface-variant">Click your profile picture in the top-right corner for profile settings, security options, and log out.</p>
                     </div>
                 </div>
-            </div>
 
-            <!-- Module Documentation -->
-            <div class="help-card mt-6">
-                <h2 class="text-xl font-headline font-semibold text-on-surface mb-4">Module Documentation</h2>
-                
-                <div class="help-section">
-                    <h3 class="text-lg font-semibold text-on-surface mb-3 flex items-center gap-2">
-                        <span class="material-symbols-outlined">warehouse</span>
-                        Smart Warehousing
-                    </h3>
-                    <p class="text-sm text-on-surface-variant mb-3">Manage warehouse zones, scan QR codes for assets, and track warehouse operations.</p>
-                    <div class="code-block">Features:
-• Create and manage warehouse zones
-• Scan QR codes to track assets
-• View recent scan activity
-• Filter scans by type (check-in, check-out, transfer)</div>
+                <!-- Module Documentation -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                    <h2 class="text-xl font-headline font-semibold text-on-surface mb-4">Module Documentation</h2>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2 flex items-center gap-2"><span class="material-symbols-outlined text-primary">warehouse</span>Smart Warehousing</h3>
+                        <p class="text-sm text-on-surface-variant">Manage warehouse zones and rows, scan QR codes to intake/check-in/check-out/move assets, and view the scan activity feed.</p>
+                    </div>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2 flex items-center gap-2"><span class="material-symbols-outlined text-primary">inventory_2</span>Inventory Management</h3>
+                        <p class="text-sm text-on-surface-variant">Track assets, locations, values, and transactions. Each asset has a QR code you can scan to update its status instantly.</p>
+                    </div>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2 flex items-center gap-2"><span class="material-symbols-outlined text-primary">shopping_cart</span>Procurement & Sourcing</h3>
+                        <p class="text-sm text-on-surface-variant">Create requisitions and compare supplier quotes. Low stock detected by scans automatically raises a requisition here.</p>
+                    </div>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2 flex items-center gap-2"><span class="material-symbols-outlined text-primary">groups</span>Supplier Management</h3>
+                        <p class="text-sm text-on-surface-variant">Manage supplier records, contacts, and performance metrics like on-time and defect rates.</p>
+                    </div>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2 flex items-center gap-2"><span class="material-symbols-outlined text-primary">receipt_long</span>Purchase Orders</h3>
+                        <p class="text-sm text-on-surface-variant">Create, approve, reject, ship and receive POs. Scanning a received PO receipt adds items straight into inventory.</p>
+                    </div>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2 flex items-center gap-2"><span class="material-symbols-outlined text-primary">description</span>Documents & Logistics</h3>
+                        <p class="text-sm text-on-surface-variant">Manage shipping documents, courier receipts, digital signatures, and verification status.</p>
+                    </div>
                 </div>
 
-                <div class="help-section">
-                    <h3 class="text-lg font-semibold text-on-surface mb-3 flex items-center gap-2">
-                        <span class="material-symbols-outlined">inventory_2</span>
-                        Inventory Management
-                    </h3>
-                    <p class="text-sm text-on-surface-variant mb-3">Track and manage all inventory assets, locations, and transactions.</p>
-                    <div class="code-block">Features:
-• Add, edit, and delete inventory assets
-• Track asset locations and zones
-• View asset history and transactions
-• QR code management for each asset</div>
+                <!-- Common Tasks -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                    <h2 class="text-xl font-headline font-semibold text-on-surface mb-4">Common Tasks</h2>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2">How do I scan a QR code?</h3>
+                        <p class="text-sm text-on-surface-variant">Click the floating scan button (bottom-right) on any page, choose the action, and point your camera — or go to Smart Warehousing for zone-aware scanning.</p>
+                    </div>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2">What happens when an item is checked out?</h3>
+                        <p class="text-sm text-on-surface-variant">The asset is marked Deployed, an immutable scan log entry is recorded, and if the category drops below its minimum stock level, a purchase requisition is created automatically.</p>
+                    </div>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2">How do I create a Purchase Order?</h3>
+                        <p class="text-sm text-on-surface-variant">Go to Purchase Orders, click Create PO, fill in supplier and items, then submit for approval.</p>
+                    </div>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2">How do I change my profile photo?</h3>
+                        <p class="text-sm text-on-surface-variant">Go to My Profile and click the camera icon on your avatar. Name, email and role are locked — contact your administrator to change them.</p>
+                    </div>
                 </div>
 
-                <div class="help-section">
-                    <h3 class="text-lg font-semibold text-on-surface mb-3 flex items-center gap-2">
-                        <span class="material-symbols-outlined">shopping_cart</span>
-                        Procurement & Sourcing
-                    </h3>
-                    <p class="text-sm text-on-surface-variant mb-3">Manage requisitions, supplier quotes, and procurement processes.</p>
-                    <div class="code-block">Features:
-• Create and approve requisitions
-• Compare supplier quotes
-• Track procurement pipeline
-• Manage sourcing activities</div>
-                </div>
-
-                <div class="help-section">
-                    <h3 class="text-lg font-semibold text-on-surface mb-3 flex items-center gap-2">
-                        <span class="material-symbols-outlined">groups</span>
-                        Supplier Management
-                    </h3>
-                    <p class="text-sm text-on-surface-variant mb-3">Manage supplier relationships, contacts, and performance.</p>
-                    <div class="code-block">Features:
-• Add and manage supplier records
-• Track supplier performance metrics
-• Store contact information
-• View supplier history</div>
-                </div>
-
-                <div class="help-section">
-                    <h3 class="text-lg font-semibold text-on-surface mb-3 flex items-center gap-2">
-                        <span class="material-symbols-outlined">receipt_long</span>
-                        Purchase Orders
-                    </h3>
-                    <p class="text-sm text-on-surface-variant mb-3">Create, approve, and track purchase orders throughout their lifecycle.</p>
-                    <div class="code-block">Features:
-• Create and submit purchase orders
-• Approve or reject POs
-• Track PO status and shipping
-• Receive goods and generate QR codes
-• View complete PO lifecycle</div>
-                </div>
-
-                <div class="help-section">
-                    <h3 class="text-lg font-semibold text-on-surface mb-3 flex items-center gap-2">
-                        <span class="material-symbols-outlined">description</span>
-                        Documents & Logistics
-                    </h3>
-                    <p class="text-sm text-on-surface-variant mb-3">Manage shipping documents, receipts, and logistics documentation.</p>
-                    <div class="code-block">Features:
-• Upload and manage shipping documents
-• Track document status
-• Digital signatures for documents
-• Courier receipt management</div>
-                </div>
-            </div>
-
-            <!-- Common Tasks -->
-            <div class="help-card mt-6">
-                <h2 class="text-xl font-headline font-semibold text-on-surface mb-4">Common Tasks</h2>
-                
-                <div class="help-item">
-                    <h3 class="font-semibold text-on-surface mb-2">How to scan a QR code?</h3>
-                    <p class="text-sm text-on-surface-variant mb-2">1. Go to Smart Warehousing module</p>
-                    <p class="text-sm text-on-surface-variant mb-2">2. Click "Enable Camera" to activate your device camera</p>
-                    <p class="text-sm text-on-surface-variant">3. Point the camera at a QR code - it will be automatically detected and recorded</p>
-                </div>
-
-                <div class="help-item">
-                    <h3 class="font-semibold text-on-surface mb-2">How to create a Purchase Order?</h3>
-                    <p class="text-sm text-on-surface-variant mb-2">1. Go to Purchase Orders module</p>
-                    <p class="text-sm text-on-surface-variant mb-2">2. Click "Create PO" button</p>
-                    <p class="text-sm text-on-surface-variant mb-2">3. Fill in supplier, items, and quantities</p>
-                    <p class="text-sm text-on-surface-variant">4. Submit for approval</p>
-                </div>
-
-                <div class="help-item">
-                    <h3 class="font-semibold text-on-surface mb-2">How to add a new asset?</h3>
-                    <p class="text-sm text-on-surface-variant mb-2">1. Go to Inventory Management module</p>
-                    <p class="text-sm text-on-surface-variant mb-2">2. Click "Add Asset" button</p>
-                    <p class="text-sm text-on-surface-variant">3. Fill in asset details including QR code, location, and zone</p>
-                </div>
-
-                <div class="help-item">
-                    <h3 class="font-semibold text-on-surface mb-2">How to enable MFA?</h3>
-                    <p class="text-sm text-on-surface-variant mb-2">1. Go to Security & MFA Settings</p>
-                    <p class="text-sm text-on-surface-variant mb-2">2. Click "Enable MFA"</p>
-                    <p class="text-sm text-on-surface-variant">3. Scan the QR code with your authenticator app or enter the secret key</p>
-                </div>
-            </div>
-
-            <!-- Support -->
-            <div class="help-card mt-6">
-                <h2 class="text-xl font-headline font-semibold text-on-surface mb-4">Support</h2>
-                <div class="help-item">
-                    <h3 class="font-semibold text-on-surface mb-2">Need Additional Help?</h3>
-                    <p class="text-sm text-on-surface-variant mb-2">If you encounter any issues or need assistance:</p>
-                    <p class="text-sm text-on-surface-variant mb-1">• Contact your system administrator</p>
-                    <p class="text-sm text-on-surface-variant mb-1">• Check the system documentation in the <code>md/</code> folder</p>
-                    <p class="text-sm text-on-surface-variant">• Review error messages for troubleshooting guidance</p>
+                <!-- Support -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                    <h2 class="text-xl font-headline font-semibold text-on-surface mb-4">Support</h2>
+                    <div class="help-item">
+                        <h3 class="font-semibold text-on-surface mb-2">Need Additional Help?</h3>
+                        <p class="text-sm text-on-surface-variant">Contact your system administrator. Password resets must be requested from the sign-in page using "Forgot password?".</p>
+                    </div>
                 </div>
             </div>
         </main>
     </div>
+
+    <script src="permissions.js"></script>
+    <script src="layout.js"></script>
+    <script src="help.js"></script>
+    <script src="inactivity.js"></script>
 </body>
 </html>

@@ -167,136 +167,118 @@ function showElementsByPermission(permission, elementSelectors) {
 
 // Apply RBAC to current page
 function applyRBAC() {
-  // Always run for all roles to ensure proper hiding
+  // Hide entire module links by href — works on every page regardless of IDs
+  const modulePermissions = {
+    'procurement.html': 'PROCUREMENT_VIEW',
+    'suppliers.html': 'SUPPLIER_VIEW',
+    'purchase-orders.html': 'PO_VIEW',
+    'documents.html': 'DOCUMENT_VIEW',
+    'users.html': 'USER_VIEW',
+    'warehousing.html': 'WAREHOUSE_VIEW',
+    'inventory.html': 'INVENTORY_VIEW',
+  };
   
-  // Hide user management for non-admins
-  if (!hasPermission('USER_VIEW')) {
-    const userManagementLinks = document.querySelectorAll('a[href="users.html"]');
-    userManagementLinks.forEach(link => {
+  Object.entries(modulePermissions).forEach(([href, permission]) => {
+    if (!hasPermission(permission)) {
+      document.querySelectorAll(`a[href="${href}"]`).forEach(link => {
+        link.style.display = 'none';
+      });
+    }
+  });
+  
+  // Hide MFA settings for warehouse staff
+  if (!hasPermission('SECURITY_VIEW')) {
+    document.querySelectorAll('a[href="mfa-setup.html"]').forEach(link => {
       link.style.display = 'none';
-    });
-    
-    const userManagementSections = document.querySelectorAll('.user-management-section');
-    userManagementSections.forEach(section => {
-      section.style.display = 'none';
     });
   }
   
   // Hide system settings for non-admins
   if (!hasPermission('SYSTEM_SETTINGS')) {
-    const systemSettingsSections = document.querySelectorAll('.system-settings-section');
-    systemSettingsSections.forEach(section => {
+    document.querySelectorAll('.system-settings-section').forEach(section => {
       section.style.display = 'none';
     });
   }
   
-  // Hide procurement for warehouse staff
-  if (!hasPermission('PROCUREMENT_VIEW')) {
-    const procurementLinks = document.querySelectorAll('#procurementLink');
-    procurementLinks.forEach(link => {
-      link.style.display = 'none';
-    });
-  }
+  // Block direct access to restricted pages (server enforces too)
+  const pageFile = window.location.pathname.split('/').pop();
+  const pageGuards = {
+    'procurement.html': 'PROCUREMENT_VIEW',
+    'suppliers.html': 'SUPPLIER_VIEW',
+    'purchase-orders.html': 'PO_VIEW',
+    'documents.html': 'DOCUMENT_VIEW',
+    'users.html': 'USER_VIEW',
+  };
   
-  // Hide supplier management for warehouse staff
-  if (!hasPermission('SUPPLIER_VIEW')) {
-    const supplierLinks = document.querySelectorAll('#suppliersLink');
-    supplierLinks.forEach(link => {
-      link.style.display = 'none';
-    });
-  }
-  
-  // Hide document management for warehouse staff
-  if (!hasPermission('DOCUMENT_VIEW')) {
-    const documentLinks = document.querySelectorAll('#documentsLink');
-    documentLinks.forEach(link => {
-      link.style.display = 'none';
-    });
-  }
-  
-  // Hide MFA settings for warehouse staff
-  if (!hasPermission('SECURITY_VIEW')) {
-    const mfaLinks = document.querySelectorAll('a[href="mfa-setup.html"]');
-    mfaLinks.forEach(link => {
-      link.style.display = 'none';
-    });
+  if (pageGuards[pageFile] && !hasPermission(pageGuards[pageFile])) {
+    document.body.innerHTML = `
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8fafc;font-family:Inter,sans-serif;">
+        <div style="text-align:center;background:#fff;padding:48px;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.08);max-width:420px;">
+          <div style="font-size:48px;margin-bottom:16px;">🔒</div>
+          <h1 style="font-size:22px;font-weight:700;color:#15233b;margin:0 0 8px;">Access Restricted</h1>
+          <p style="color:#64748b;font-size:14px;margin:0 0 24px;">Your role does not have permission to view this module.</p>
+          <a href="index.html" style="display:inline-block;background:#5046e5;color:#fff;padding:11px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;">Back to Dashboard</a>
+        </div>
+      </div>`;
+    return;
   }
   
   // Hide add/edit/delete buttons based on permissions
   if (!hasPermission('WAREHOUSE_ADD_ZONE')) {
-    const addZoneBtns = document.querySelectorAll('#addZone');
-    addZoneBtns.forEach(btn => btn.style.display = 'none');
+    document.querySelectorAll('#addZone').forEach(btn => btn.style.display = 'none');
   }
 
   if (!hasPermission('INVENTORY_ADD_ASSET')) {
-    const addAssetBtns = document.querySelectorAll('#addAssetBtn');
-    addAssetBtns.forEach(btn => btn.style.display = 'none');
+    document.querySelectorAll('#addAssetBtn, #addAsset, #new-transaction').forEach(btn => btn.style.display = 'none');
   }
 
   if (!hasPermission('SUPPLIER_ADD')) {
-    const addSupplierBtns = document.querySelectorAll('#addSupplier');
-    addSupplierBtns.forEach(btn => btn.style.display = 'none');
+    document.querySelectorAll('#addSupplier').forEach(btn => btn.style.display = 'none');
   }
 
   if (!hasPermission('PROCUREMENT_CREATE_REQ')) {
-    const addRequisitionBtns = document.querySelectorAll('#addRequisition');
-    addRequisitionBtns.forEach(btn => btn.style.display = 'none');
+    document.querySelectorAll('#addRequisition').forEach(btn => btn.style.display = 'none');
   }
 
   if (!hasPermission('PO_CREATE')) {
-    const addPOBtns = document.querySelectorAll('#createPO, #addPOBtn');
-    addPOBtns.forEach(btn => btn.style.display = 'none');
-
-    const poCreateSections = document.querySelectorAll('.po-create-section');
-    poCreateSections.forEach(section => section.style.display = 'none');
+    document.querySelectorAll('#createPO, #addPOBtn, .po-create-section').forEach(el => el.style.display = 'none');
   }
 
   if (!hasPermission('DOCUMENT_CREATE')) {
-    const addDocumentBtns = document.querySelectorAll('#addDocument, #addDocumentBtn');
-    addDocumentBtns.forEach(btn => btn.style.display = 'none');
+    document.querySelectorAll('#addDocument, #addDocumentBtn').forEach(btn => btn.style.display = 'none');
   }
   
   if (!hasPermission('PO_APPROVE')) {
-    const poApproveSections = document.querySelectorAll('.po-approve-section');
-    poApproveSections.forEach(section => section.style.display = 'none');
+    document.querySelectorAll('.po-approve-section').forEach(el => el.style.display = 'none');
   }
   
   if (!hasPermission('PO_REJECT')) {
-    const poRejectSections = document.querySelectorAll('.po-reject-section');
-    poRejectSections.forEach(section => section.style.display = 'none');
+    document.querySelectorAll('.po-reject-section').forEach(el => el.style.display = 'none');
   }
   
-  // Show warehouse staff specific elements
+  // Show elements granted by permission
   if (hasPermission('WAREHOUSE_SCAN')) {
-    const mobileBtns = document.querySelectorAll('#mobileBtn');
-    mobileBtns.forEach(btn => btn.style.display = '');
+    document.querySelectorAll('#mobileBtn').forEach(btn => btn.style.display = '');
   }
   
   if (hasPermission('PO_RECEIVE')) {
-    const poReceiveSections = document.querySelectorAll('.po-receive-section');
-    poReceiveSections.forEach(section => section.style.display = '');
+    document.querySelectorAll('.po-receive-section').forEach(el => el.style.display = '');
   }
   
   if (hasPermission('PO_QR_GENERATE')) {
-    const poQRSections = document.querySelectorAll('.po-qr-section');
-    poQRSections.forEach(section => section.style.display = '');
+    document.querySelectorAll('.po-qr-section').forEach(el => el.style.display = '');
   }
   
-  // Show manager specific elements
   if (hasPermission('PROCUREMENT_APPROVE_REQ')) {
-    const procurementApproveSections = document.querySelectorAll('.procurement-approve-section');
-    procurementApproveSections.forEach(section => section.style.display = '');
+    document.querySelectorAll('.procurement-approve-section').forEach(el => el.style.display = '');
   }
   
-  // Show admin specific elements
   if (hasPermission('USER_CHANGE_ROLE')) {
-    const userRoleSections = document.querySelectorAll('.user-role-section');
-    userRoleSections.forEach(section => section.style.display = '');
+    document.querySelectorAll('.user-role-section').forEach(el => el.style.display = '');
   }
   
   if (hasPermission('SYSTEM_SETTINGS')) {
-    const systemSettingsSections = document.querySelectorAll('.system-settings-section');
-    systemSettingsSections.forEach(section => section.style.display = '');
+    document.querySelectorAll('.system-settings-section').forEach(el => el.style.display = '');
   }
 }
 

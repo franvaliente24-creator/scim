@@ -65,14 +65,19 @@
             <div style="width:56px;height:56px;border-radius:50%;background:#eef2ff;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;">
                 <span class="material-symbols-outlined" style="color:#4f46e5;font-size:28px;">lock_reset</span>
             </div>
-            <h2 id="forgotTitle">Password Reset Required</h2>
-            <p>For security reasons, password resets must be authorized by an administrator. Please contact your system administrator or IT helpdesk to reset your credentials.</p>
-            <button type="button" id="forgotModalClose">Got it</button>
+            <h2 id="forgotTitle">Reset Your Password?</h2>
+            <p>Password resets must be authorized by an administrator. Would you like to notify the Administrator to update your credentials?</p>
+            <input type="email" id="forgotEmail" placeholder="Your account email" style="width:100%;border:1px solid #e2e8f0;border-radius:10px;padding:11px 14px;font-size:14px;margin-bottom:6px;">
+            <p id="forgotStatus" style="min-height:18px;font-size:13px;"></p>
+            <div style="display:flex;gap:10px;">
+                <button type="button" id="forgotModalClose" style="flex:1;background:#f1f5f9;color:#334155;">Cancel</button>
+                <button type="button" id="forgotModalSend" style="flex:1;">Notify Admin</button>
+            </div>
         </div>
     </div>
     
     <!-- Permissions System -->
     <script src="permissions.js"></script>
-    <script src="login.js"></script>
+    <script src="login.js?v=6"></script>
 </body>
 </html>

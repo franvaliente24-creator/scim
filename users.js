@@ -1,17 +1,19 @@
 // ==========================================
 // 1. UTILITY FUNCTIONS
 // ==========================================
-const $ = (s) => {
-  const element = document.querySelector(s);
-  if (!element) {
-    console.warn(`Element not found: ${s}`);
-    return null;
-  }
-  return element;
-};
+const $ = (s) => document.querySelector(s);
 
 const api = (path, options) => fetch(`/api/v1/${path}`, options);
 
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Mask an email for display: f*****e@gmail.com
+const maskEmail = (email) => {
+  const [name, domain] = String(email || '').split('@');
+  if (!name || !domain) return '•••';
+  const visible = name.slice(0, 2);
+  return `${visible}${'•'.repeat(Math.max(3, name.length - 2))}@${domain}`;
+};
 
 // ==========================================
 // 2. AUTHENTICATION & ACCESS CONTROL
@@ -26,19 +28,18 @@ async function requireAdmin() {
   }
 
   if (data.user.role !== 'Admin') {
-    document.querySelector('.admin-page').innerHTML = `
-      <section class="access-denied">
-        <h1>Access denied</h1>
-        <p>Only administrators can manage accounts.</p>
-        <a href="index.html">Return to dashboard</a>
-      </section>
-    `;
+    const main = document.querySelector('main');
+    if (main) main.innerHTML = `
+      <section class="access-denied" style="padding:60px;text-align:center;">
+        <h1 style="font-size:22px;font-weight:700;">Access denied</h1>
+        <p style="color:#64748b;margin:8px 0 20px;">Only administrators can manage accounts.</p>
+        <a href="index.html" style="background:#5046e5;color:#fff;padding:10px 24px;border-radius:10px;text-decoration:none;">Return to dashboard</a>
+      </section>`;
     return false;
   }
 
   return true;
 }
-
 
 // ==========================================
 // 3. USER MANAGEMENT FUNCTIONS
@@ -46,56 +47,135 @@ async function requireAdmin() {
 async function loadUsers() {
   const response = await api('users');
   const users = await response.json();
+  const list = $('#users');
+  if (!list) return;
 
-  $('#users').innerHTML = users
-    .map(
-      (u) => `
-        <div class="user-row">
-          <div>
-            <b>${u.full_name}</b>
-            <small>${u.email}</small>
-          </div>
-          <div>
-            <span class="role ${u.role.toLowerCase()}">${u.role}</span>
-            <button class="text-button" onclick="editUser(${u.id})">Edit</button>
-            <button class="text-button" onclick="deleteUser(${u.id})" style="color: #dc2626;">Delete</button>
-          </div>
+  list.innerHTML = users.map((u) => `
+    <div class="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm overflow-hidden shrink-0">
+          ${u.avatar ? `<img src="${esc(u.avatar)}" class="w-full h-full object-cover" alt="">` : esc((u.full_name || '?').charAt(0).toUpperCase())}
         </div>
-      `
-    )
-    .join('');
+        <div class="min-w-0">
+          <b class="text-sm block truncate">${esc(u.full_name)}</b>
+          <small class="text-slate-500 block truncate">${esc(maskEmail(u.email))}</small>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="role ${esc(u.role.toLowerCase())}">${esc(u.role)}</span>
+        <span class="text-xs ${u.is_active ? 'text-emerald-600' : 'text-slate-400'}">${u.is_active ? 'Active' : 'Disabled'}</span>
+        <button class="text-button" onclick="editUser(${u.id})">Edit</button>
+        <button class="text-button" onclick="deleteUser(${u.id})" style="color:#dc2626;">Delete</button>
+      </div>
+    </div>`).join('');
 }
 
-async function loadLoginHistory() {
+// Login history — paginated
+let historyPage = 1;
+async function loadLoginHistory(page = 1) {
+  const el = $('#loginHistory');
+  if (!el) return;
   try {
-    const response = await api('login-history');
-    const history = await response.json();
-    
-    $('#loginHistory').innerHTML = history.map((h) => `
-      <div class="user-row">
-        <div>
-          <b>${h.email}</b>
-          <small>${new Date(h.created_at).toLocaleString()}</small>
-        </div>
-        <span class="role ${h.success ? 'manager' : 'admin'}">${h.success ? 'Success' : 'Failed'}</span>
-      </div>
-    `).join('');
+    const res = await api(`login-history?page=${page}&per_page=10`);
+    const data = await res.json();
+    const items = data.items || [];
+    historyPage = data.page || 1;
+
+    el.innerHTML = items.length
+      ? `<table class="data-table w-full text-sm">
+          <thead><tr><th>User</th><th>Email</th><th>Result</th><th>IP</th><th>Time</th></tr></thead>
+          <tbody>${items.map((h) => `
+            <tr>
+              <td><b>${esc(h.full_name || '—')}</b></td>
+              <td>${esc(maskEmail(h.email))}</td>
+              <td><span class="role ${h.success ? 'manager' : 'admin'}">${h.success ? 'Success' : 'Failed'}</span></td>
+              <td class="text-slate-500">${esc(h.ip_address || '—')}</td>
+              <td class="text-slate-500">${new Date(h.created_at).toLocaleString()}</td>
+            </tr>`).join('')}</tbody>
+        </table>`
+      : '<p class="text-slate-400 text-sm py-4">No login history yet.</p>';
+
+    const totalEl = $('#historyTotal');
+    if (totalEl) totalEl.textContent = `${data.total} events`;
+    const infoEl = $('#historyPageInfo');
+    if (infoEl) infoEl.textContent = `Page ${data.page} of ${data.pages}`;
+    const prev = $('#historyPrev');
+    const next = $('#historyNext');
+    if (prev) prev.disabled = data.page <= 1;
+    if (next) next.disabled = data.page >= data.pages;
   } catch (error) {
     console.error('Error loading login history:', error);
-    $('#loginHistory').innerHTML = '<p class="muted">Unable to load login history</p>';
+    el.innerHTML = '<p class="text-red-500 text-sm py-4">Unable to load login history</p>';
   }
 }
 
+// Admin request queue (password resets etc.)
+async function loadAdminRequests() {
+  const el = $('#adminRequests');
+  if (!el) return;
+  try {
+    const res = await api('admin-notifications');
+    const data = await res.json();
+    const items = (data.items || []).filter((i) => i.status === 'Pending');
+
+    const badge = $('#requestsBadge');
+    if (badge) {
+      badge.textContent = items.length;
+      badge.classList.toggle('hidden', !items.length);
+    }
+
+    el.innerHTML = items.length
+      ? items.map((n) => `
+        <div class="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
+          <div class="min-w-0">
+            <b class="text-sm">${esc(n.title)}</b>
+            <p class="text-xs text-slate-500 truncate">${esc(n.details || '')} ${n.user_email ? '· ' + esc(n.user_email) : ''}</p>
+            <small class="text-slate-400">${new Date(n.created_at).toLocaleString()}</small>
+          </div>
+          <button class="text-button text-emerald-600" onclick="resolveRequest(${n.id})">Resolve</button>
+        </div>`).join('')
+      : '<p class="text-slate-400 text-sm py-2">No pending requests.</p>';
+  } catch (e) {
+    console.error('Requests error:', e);
+  }
+}
+
+window.resolveRequest = async (id) => {
+  await api('notifications/dismiss', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }),
+  });
+  loadAdminRequests();
+};
 
 // ==========================================
 // 4. EVENT LISTENERS
 // ==========================================
 
+// Password visibility toggles (both fields)
+document.querySelectorAll('.pw-eye').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(btn.dataset.target);
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.querySelector('.material-symbols-outlined').textContent = show ? 'visibility_off' : 'visibility';
+  });
+});
+
 // Create User Form Submission
-$('#userForm').onsubmit = async (e) => {
+const userForm = $('#userForm');
+if (userForm) userForm.onsubmit = async (e) => {
   e.preventDefault();
   const message = $('#formMessage');
-  const button = e.target.querySelector('button');
+  const button = e.target.querySelector('button[type=submit]');
+  const payload = Object.fromEntries(new FormData(e.target));
+
+  if (payload.password !== payload.confirm_password) {
+    message.style.color = '#dc2626';
+    message.textContent = 'Passwords do not match.';
+    return;
+  }
+  delete payload.confirm_password;
 
   button.disabled = true;
   message.textContent = '';
@@ -104,41 +184,39 @@ $('#userForm').onsubmit = async (e) => {
     const response = await api('users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.fromEntries(new FormData(e.target))),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Could not create account.');
-    }
+    if (!response.ok) throw new Error(data.error || 'Could not create account.');
 
     e.target.reset();
+    message.style.color = '#059669';
     message.textContent = 'Account created.';
     await loadUsers();
   } catch (err) {
+    message.style.color = '#dc2626';
     message.textContent = err.message;
   } finally {
     button.disabled = false;
   }
 };
 
-// Logout Handler
-$('#logout').onclick = () =>
-  api('auth/logout', { method: 'POST' }).finally(() =>
-    location.replace('login.html')
-  );
+// Pagination controls
+$('#historyPrev')?.addEventListener('click', () => loadLoginHistory(historyPage - 1));
+$('#historyNext')?.addEventListener('click', () => loadLoginHistory(historyPage + 1));
 
+// NOTE: logout is handled centrally by layout.js (confirmation modal)
 
 // ==========================================
 // 5. INITIALIZATION
 // ==========================================
 requireAdmin().then((isAuthorized) => {
   if (isAuthorized) {
-    // Initialize permissions
     initializePermissions().then(() => {
       loadUsers();
       loadLoginHistory();
+      loadAdminRequests();
     });
   }
 });
@@ -147,32 +225,20 @@ requireAdmin().then((isAuthorized) => {
 window.editUser = async (userId) => {
   const fullName = prompt('Enter new full name:');
   if (fullName === null) return;
-  
   const email = prompt('Enter new email:');
   if (email === null) return;
-  
   const role = prompt('Enter new role (Admin, Manager, WarehouseStaff):');
   if (role === null) return;
-  
   const isActive = confirm('Is this user active?');
-  
+
   try {
     const response = await api(`users/${userId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        full_name: fullName,
-        email: email,
-        role: role,
-        is_active: isActive ? 1 : 0
-      }),
+      body: JSON.stringify({ full_name: fullName, email, role, is_active: isActive ? 1 : 0 }),
     });
-
-    if (response.ok) {
-      loadUsers();
-    } else {
-      alert('Failed to update user');
-    }
+    if (response.ok) loadUsers();
+    else alert('Failed to update user');
   } catch (error) {
     console.error('Error updating user:', error);
     alert('Error updating user');
@@ -181,20 +247,11 @@ window.editUser = async (userId) => {
 
 // Delete User Function
 window.deleteUser = async (userId) => {
-  if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-    return;
-  }
-  
+  if (!confirm('Delete this user? This cannot be undone.')) return;
   try {
-    const response = await api(`users/${userId}`, {
-      method: 'DELETE',
-    });
-
-    if (response.ok) {
-      loadUsers();
-    } else {
-      alert('Failed to delete user');
-    }
+    const response = await api(`users/${userId}`, { method: 'DELETE' });
+    if (response.ok) loadUsers();
+    else alert('Failed to delete user');
   } catch (error) {
     console.error('Error deleting user:', error);
     alert('Error deleting user');

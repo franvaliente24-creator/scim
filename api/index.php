@@ -698,6 +698,46 @@ function migrate(PDO $d): void {
         
         SET p_request_number = CONCAT('SCIM-REQ-', YEAR(NOW()), '-', LPAD(v_count, 3, '0'));
     END");
+    
+    // Avatar support for profile pictures
+    try {
+        $d->exec("ALTER TABLE users ADD COLUMN avatar VARCHAR(255) NULL");
+    } catch (Exception $e) {
+        // Column might already exist
+    }
+    
+    // Admin notification queue (password reset requests, alerts)
+    $d->exec("CREATE TABLE IF NOT EXISTS admin_notifications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        type VARCHAR(40) NOT NULL,
+        title VARCHAR(200) NOT NULL,
+        details TEXT,
+        user_email VARCHAR(160),
+        status VARCHAR(20) DEFAULT 'Pending',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+    
+    // Immutable compliance scan log (every QR scan, append-only)
+    $d->exec("CREATE TABLE IF NOT EXISTS scan_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        asset_id INT,
+        qr_code VARCHAR(50),
+        action VARCHAR(60) NOT NULL,
+        details TEXT,
+        scanned_by VARCHAR(120),
+        user_id INT,
+        ip_address VARCHAR(64),
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+    
+    // Minimum stock thresholds per category (auto-reorder triggers)
+    $d->exec("CREATE TABLE IF NOT EXISTS stock_thresholds (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        category VARCHAR(60) UNIQUE NOT NULL,
+        min_quantity INT NOT NULL DEFAULT 3
+    )");
+    $d->exec("INSERT IGNORE INTO stock_thresholds(category, min_quantity) VALUES
+        ('Laptop', 5), ('Monitor', 5), ('Peripheral', 8), ('Office Supplies', 10), ('IT Equipment', 5)");
 }
 
 function db(): PDO {
@@ -751,45 +791,40 @@ if ($method === 'POST' && $path === '/api/v1/auth/login') {
         reply(['error' => 'Invalid email or password.'], 401);
     }
 
-    // Check if MFA is enabled
-    if ($u['mfa_enabled']) {
-        // Generate 6-digit OTP
-        $otp = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        
-        // Store OTP in session with 5-minute expiry
-        $_SESSION['mfa_user_id'] = (int)$u['id'];
-        $_SESSION['mfa_email'] = $u['email'];
-        $_SESSION['mfa_otp'] = $otp;
-        $_SESSION['mfa_otp_expires'] = time() + 300;
-        
-        // Send OTP via SMTP
-        $mailSent = sendOtpEmail($u['email'], $u['full_name'], $otp);
-        
-        // Log OTP for debugging if mail fails (check server error log)
-        if (!$mailSent) {
-            error_log("OTP email failed for {$u['email']}. Code: $otp");
-        }
-        
-        reply([
-            'requires_2fa' => true,
-            'message' => 'Verification code sent to your email',
-            'email' => $u['email'],
-            'mail_sent' => $mailSent
-        ]);
+    // Mandatory 2FA: every login requires email OTP verification
+    $otp = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+    $_SESSION['mfa_user_id'] = (int)$u['id'];
+    $_SESSION['mfa_email'] = $u['email'];
+    $_SESSION['mfa_otp'] = $otp;
+    $_SESSION['mfa_otp_expires'] = time() + 300;
+    session_write_close();
+
+    // Respond instantly, then send the email in the background so the
+    // user reaches the OTP page without waiting for SMTP.
+    $payload = json_encode([
+        'requires_2fa' => true,
+        'message' => 'Verification code sent to your email',
+        'email' => $u['email'],
+    ]);
+    http_response_code(200);
+    header('Content-Length: ' . strlen($payload));
+    echo $payload;
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    } else {
+        while (ob_get_level() > 0) { ob_end_flush(); }
+        flush();
     }
 
-    // No MFA - direct login
-    session_regenerate_id(true);
-    $_SESSION['user'] = [
-        'id' => (int)$u['id'],
-        'name' => $u['full_name'],
-        'email' => $u['email'],
-        'role' => $u['role'],
-        'initials' => strtoupper(substr($u['full_name'], 0, 1))
-    ];
-    
-    audit(db(), $email, true, (int)$u['id']);
-    reply(['user' => currentUser()]);
+    try {
+        if (!sendOtpEmail($u['email'], $u['full_name'], $otp)) {
+            error_log("OTP email failed for {$u['email']}. Code: $otp");
+        }
+    } catch (Throwable $e) {
+        error_log('OTP send error: ' . $e->getMessage());
+    }
+    exit;
 }
 
 if ($method === 'POST' && $path === '/api/v1/auth/logout') {
@@ -798,7 +833,76 @@ if ($method === 'POST' && $path === '/api/v1/auth/logout') {
 }
 
 if ($method === 'GET' && $path === '/api/v1/auth/me') {
-    reply(['user' => currentUser()]);
+    $u = currentUser();
+    if ($u && empty($u['avatar'])) {
+        $q = db()->prepare('SELECT avatar, mfa_enabled, is_active FROM users WHERE id = ?');
+        $q->execute([$u['id']]);
+        $row = $q->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $u['avatar'] = $row['avatar'];
+            $u['mfa_enabled'] = (bool)$row['mfa_enabled'];
+            $u['status'] = $row['is_active'] ? 'Active' : 'Inactive';
+            $_SESSION['user'] = $u;
+        }
+    }
+    reply(['user' => $u]);
+}
+
+// Profile picture upload (multipart form, field name "avatar")
+if ($method === 'POST' && $path === '/api/v1/profile/avatar') {
+    $u = auth();
+    if (empty($_FILES['avatar']) || $_FILES['avatar']['error'] !== UPLOAD_ERR_OK) {
+        reply(['error' => 'No image uploaded.'], 400);
+    }
+    if ($_FILES['avatar']['size'] > 2 * 1024 * 1024) {
+        reply(['error' => 'Image must be under 2 MB.'], 400);
+    }
+    $info = @getimagesize($_FILES['avatar']['tmp_name']);
+    if (!$info) {
+        reply(['error' => 'File is not a valid image.'], 400);
+    }
+    $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'][$info['mime']] ?? null;
+    if (!$ext) {
+        reply(['error' => 'Only JPG, PNG, GIF or WebP images are allowed.'], 400);
+    }
+    $dir = __DIR__ . '/../img/avatars';
+    if (!is_dir($dir)) { mkdir($dir, 0755, true); }
+    $file = "u{$u['id']}.$ext";
+    $dest = $dir . '/' . $file;
+    // Remove previous avatar file if extension differs
+    foreach (glob($dir . "/u{$u['id']}.*") as $old) { @unlink($old); }
+    if (!move_uploaded_file($_FILES['avatar']['tmp_name'], $dest)) {
+        reply(['error' => 'Could not save the image.'], 500);
+    }
+    $path = 'img/avatars/' . $file;
+    db()->prepare('UPDATE users SET avatar = ? WHERE id = ?')->execute([$path, $u['id']]);
+    $_SESSION['user']['avatar'] = $path;
+    reply(['ok' => true, 'avatar' => $path]);
+}
+
+// Public: user requests an admin-assisted credential reset
+if ($method === 'POST' && $path === '/api/v1/auth/reset-request') {
+    $x = body();
+    $email = strtolower(trim($x['email'] ?? ''));
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        reply(['error' => 'Please provide your account email.'], 400);
+    }
+    $d = db();
+    $q = $d->prepare('SELECT id, full_name FROM users WHERE email = ?');
+    $q->execute([$email]);
+    $u = $q->fetch(PDO::FETCH_ASSOC);
+    // Always reply OK to avoid account enumeration
+    if ($u) {
+        $d->prepare('INSERT INTO admin_notifications(type, title, details, user_email) VALUES(?, ?, ?, ?)')
+          ->execute(['password_reset', 'Password reset requested', "User {$u['full_name']} requested a credential reset.", $email]);
+        // Notify admins by email
+        $admins = $d->query("SELECT email, full_name FROM users WHERE role = 'Admin' AND is_active = 1")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($admins as $adm) {
+            sendSmtpMail($adm['email'], 'SCIM Password Reset Request',
+                "Hello {$adm['full_name']},\n\n{$u['full_name']} ({$email}) has requested a password reset.\n\nLog in to User Management to issue a new temporary password.\n\n- Great Solomon SCIM", 'text/plain');
+        }
+    }
+    reply(['ok' => true]);
 }
 
 // --- Dashboard Endpoints ---
@@ -865,21 +969,106 @@ if ($method === 'PUT' && preg_match('#^/api/v1/assets/([^/]+)$#', $path, $m)) {
 }
 
 if ($method === 'POST' && $path === '/api/v1/assets/scan') {
-    auth();
+    $u = auth();
     $x = body();
-    $q = db()->prepare('SELECT id, name, status FROM assets WHERE qr_code = ?');
-    $q->execute([$x['qr_code'] ?? '']);
-    $a = $q->fetch(PDO::FETCH_ASSOC);
-    
-    if (!$a) {
-        reply(['error' => 'Unknown QR code.'], 404);
-    }
-    
+    $d = db();
+    $qr = trim($x['qr_code'] ?? '');
     $action = $x['action'] ?? 'Inventory Intake';
-    db()->prepare('INSERT INTO asset_transactions(asset_id, action, zone, created_at) VALUES(?, ?, ?, NOW())')
-      ->execute([$a['id'], $action, $x['zone'] ?? null]);
-      
-    reply(['ok' => true, 'asset' => $a, 'action' => $action]);
+    $zone = $x['zone'] ?? null;
+    $autoCreated = false;
+
+    $q = $d->prepare('SELECT * FROM assets WHERE qr_code = ?');
+    $q->execute([$qr]);
+    $a = $q->fetch(PDO::FETCH_ASSOC);
+
+    if (!$a) {
+        // Inbound automation: scan-to-intake auto-registers unknown items
+        if ($action === 'Inventory Intake' && $qr !== '') {
+            $name = trim($x['name'] ?? '') ?: 'New Asset ' . $qr;
+            $category = trim($x['category'] ?? '') ?: 'IT Equipment';
+            $d->prepare('INSERT INTO assets(qr_code, name, category, value, status, location) VALUES(?,?,?,?,?,?)')
+              ->execute([$qr, $name, $category, (float)($x['value'] ?? 0), 'In Warehouse', $zone ?: 'Receiving Dock']);
+            $a = ['id' => (int)$d->lastInsertId(), 'name' => $name, 'qr_code' => $qr, 'status' => 'In Warehouse', 'category' => $category];
+            $autoCreated = true;
+        } else {
+            reply(['error' => 'Unknown QR code.', 'unknown' => true], 404);
+        }
+    }
+
+    // Apply the physical-state change implied by the scan action
+    $updates = [];
+    $params = [];
+    $details = $action;
+    switch ($action) {
+        case 'Check-Out':
+        case 'Contractor Check-Out':
+            $updates = ['status = ?']; $params[] = 'Deployed';
+            break;
+        case 'Check-In':
+            $updates = ['status = ?']; $params[] = 'In Warehouse';
+            $updates[] = 'external_employee_name = NULL';
+            break;
+        case 'Assign to Staff':
+            $updates = ['status = ?', 'external_employee_name = ?', 'assignment_date = CURDATE()'];
+            $params[] = 'Deployed';
+            $params[] = trim($x['assignee'] ?? 'Staff');
+            $details .= ' — ' . trim($x['assignee'] ?? 'Staff');
+            break;
+        case 'Move to Zone':
+        case 'Asset Transfer':
+            if ($zone) { $updates = ['location = ?']; $params[] = $zone; $details .= ' — ' . $zone; }
+            break;
+        case 'PO Receipt':
+            $updates = ['status = ?']; $params[] = 'In Warehouse';
+            if (!empty($x['po_number'])) { $details .= ' — ' . $x['po_number']; }
+            break;
+    }
+    if ($updates && !$autoCreated) {
+        $params[] = $qr;
+        $d->prepare('UPDATE assets SET ' . implode(', ', $updates) . ' WHERE qr_code = ?')->execute($params);
+    }
+
+    // Transaction + immutable compliance log
+    $d->prepare('INSERT INTO asset_transactions(asset_id, action, zone, created_at) VALUES(?, ?, ?, NOW())')
+      ->execute([$a['id'], $action, $zone]);
+    $d->prepare('INSERT INTO scan_logs(asset_id, qr_code, action, details, scanned_by, user_id, ip_address) VALUES(?,?,?,?,?,?,?)')
+      ->execute([$a['id'], $qr, $action, $details, $u['name'], $u['id'], $_SERVER['REMOTE_ADDR'] ?? null]);
+
+    // Automated procurement loop: check-out drains stock -> auto requisition
+    $requisitionFired = null;
+    if (in_array($action, ['Check-Out', 'Contractor Check-Out'], true) && !$autoCreated) {
+        $cat = $a['category'] ?? 'IT Equipment';
+        $tq = $d->prepare('SELECT min_quantity FROM stock_thresholds WHERE category = ?');
+        $tq->execute([$cat]);
+        $min = (int)($tq->fetchColumn() ?: 3);
+        $stock = (int)$d->query("SELECT COUNT(*) FROM assets WHERE category = " . $d->quote($cat) . " AND status = 'In Warehouse'")->fetchColumn();
+        if ($stock < $min) {
+            $open = $d->prepare("SELECT id FROM requisitions WHERE title LIKE ? AND status NOT IN ('Closed','Rejected','Cancelled') LIMIT 1");
+            $open->execute(["Auto-reorder: $cat%"]);
+            if (!$open->fetch()) {
+                $rq = 'REQ-' . date('Y') . '-' . str_pad((string)($d->query('SELECT COUNT(*)+1 FROM requisitions')->fetchColumn()), 3, '0', STR_PAD_LEFT);
+                $d->prepare("INSERT INTO requisitions(req_number, title, department, description, priority, status, created_by) VALUES(?,?,?,?,?,?,?)")
+                  ->execute([$rq, "Auto-reorder: $cat", 'Warehouse', "Stock of '$cat' dropped to $stock units (minimum $min) after check-out scan of $qr.", 'High', 'Submitted', $u['id']]);
+                $requisitionFired = $rq;
+            }
+        }
+    }
+
+    reply(['ok' => true, 'asset' => $a, 'action' => $action, 'auto_created' => $autoCreated, 'auto_requisition' => $requisitionFired]);
+}
+
+// Compliance feed: the immutable scan log
+if ($method === 'GET' && $path === '/api/v1/scan-logs') {
+    auth();
+    $d = db();
+    $page = max(1, (int)($_GET['page'] ?? 1));
+    $per = min(100, max(5, (int)($_GET['per_page'] ?? 20)));
+    $total = (int)$d->query('SELECT COUNT(*) FROM scan_logs')->fetchColumn();
+    $q = $d->prepare('SELECT * FROM scan_logs ORDER BY created_at DESC LIMIT ? OFFSET ?');
+    $q->bindValue(1, $per, PDO::PARAM_INT);
+    $q->bindValue(2, ($page - 1) * $per, PDO::PARAM_INT);
+    $q->execute();
+    reply(['items' => $q->fetchAll(PDO::FETCH_ASSOC), 'total' => $total, 'page' => $page, 'pages' => max(1, (int)ceil($total / $per))]);
 }
 
 // --- Purchase Orders (Pending) Endpoints ---
@@ -915,7 +1104,7 @@ if ($method === 'GET' && $path === '/api/v1/vendors') {
 // --- Users Endpoints ---
 if ($method === 'GET' && $path === '/api/v1/users') {
     auth(['Admin']);
-    reply(db()->query('SELECT id, full_name, email, role, is_active, created_at FROM users ORDER BY full_name')->fetchAll(PDO::FETCH_ASSOC));
+    reply(db()->query('SELECT id, full_name, email, role, is_active, avatar, created_at FROM users ORDER BY full_name')->fetchAll(PDO::FETCH_ASSOC));
 }
 
 if ($method === 'POST' && $path === '/api/v1/users') {
@@ -972,7 +1161,67 @@ if ($method === 'DELETE' && preg_match('#^/api/v1/users/(\d+)$#', $path, $m)) {
 
 if ($method === 'GET' && $path === '/api/v1/login-history') {
     auth(['Admin']);
-    reply(db()->query('SELECT lh.*, u.full_name FROM login_history lh LEFT JOIN users u ON lh.user_id = u.id ORDER BY lh.created_at DESC LIMIT 50')->fetchAll(PDO::FETCH_ASSOC));
+    $page = max(1, (int)($_GET['page'] ?? 1));
+    $per = min(100, max(5, (int)($_GET['per_page'] ?? 10)));
+    $d = db();
+    $total = (int)$d->query('SELECT COUNT(*) FROM login_history')->fetchColumn();
+    $q = $d->prepare('SELECT lh.*, u.full_name FROM login_history lh LEFT JOIN users u ON lh.user_id = u.id ORDER BY lh.created_at DESC LIMIT ? OFFSET ?');
+    $q->bindValue(1, $per, PDO::PARAM_INT);
+    $q->bindValue(2, ($page - 1) * $per, PDO::PARAM_INT);
+    $q->execute();
+    reply([
+        'items' => $q->fetchAll(PDO::FETCH_ASSOC),
+        'total' => $total,
+        'page' => $page,
+        'pages' => max(1, (int)ceil($total / $per)),
+        'per_page' => $per,
+    ]);
+}
+
+// Notification feed for the header bell (role-aware)
+if ($method === 'GET' && $path === '/api/v1/notifications') {
+    $u = auth();
+    $d = db();
+    $items = [];
+
+    $q = $d->query("SELECT po.po_number, COALESCE(v.name, po.vendor) AS vendor_name, po.created_at FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id = v.id WHERE po.status IN ('Pending','Submitted','Pending Approval') ORDER BY po.created_at DESC LIMIT 10");
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $items[] = ['icon' => 'receipt_long', 'title' => 'PO awaiting approval: ' . $r['po_number'], 'sub' => $r['vendor_name'] ?: 'Vendor TBD', 'time' => $r['created_at'], 'href' => 'purchase-orders.html'];
+    }
+    $q = $d->query("SELECT req_number, title, created_at FROM requisitions WHERE status IN ('Submitted','Pending') ORDER BY created_at DESC LIMIT 10");
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $items[] = ['icon' => 'shopping_cart', 'title' => 'Requisition ' . $r['req_number'], 'sub' => $r['title'], 'time' => $r['created_at'], 'href' => 'procurement.html'];
+    }
+    $q = $d->query("SELECT reference_no, document_type, created_at FROM documents WHERE status IN ('Pending','Pending Verification') ORDER BY created_at DESC LIMIT 10");
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $items[] = ['icon' => 'description', 'title' => 'Document needs verification: ' . $r['reference_no'], 'sub' => $r['document_type'], 'time' => $r['created_at'], 'href' => 'documents.html'];
+    }
+    if ($u['role'] === 'Admin') {
+        $q = $d->query("SELECT title, details, user_email, created_at FROM admin_notifications WHERE status = 'Pending' ORDER BY created_at DESC LIMIT 10");
+        foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $items[] = ['icon' => 'lock_reset', 'title' => $r['title'], 'sub' => $r['user_email'] ?: $r['details'], 'time' => $r['created_at'], 'href' => 'users.html'];
+        }
+        $q = $d->query("SELECT request_number, equipment_needed, created_at FROM equipment_requests WHERE status = 'Pending' ORDER BY created_at DESC LIMIT 10");
+        foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $items[] = ['icon' => 'assignment', 'title' => 'Equipment request ' . $r['request_number'], 'sub' => mb_substr((string)$r['equipment_needed'], 0, 60), 'time' => $r['created_at'], 'href' => 'documents.html'];
+        }
+    }
+    usort($items, fn($a, $b) => strcmp($b['time'], $a['time']));
+    reply(['items' => array_slice($items, 0, 15), 'count' => count($items)]);
+}
+
+// Admin approval queue: pending requests (password resets, alerts)
+if ($method === 'GET' && $path === '/api/v1/admin-notifications') {
+    auth(['Admin']);
+    reply(['items' => db()->query("SELECT * FROM admin_notifications ORDER BY created_at DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC)]);
+}
+
+// Admin dismisses a notification
+if ($method === 'POST' && $path === '/api/v1/notifications/dismiss') {
+    auth(['Admin']);
+    $x = body();
+    db()->prepare('UPDATE admin_notifications SET status = ? WHERE id = ?')->execute(['Resolved', (int)($x['id'] ?? 0)]);
+    reply(['ok' => true]);
 }
 
 // MFA Endpoints
@@ -987,13 +1236,13 @@ if ($method === 'POST' && $path === '/api/v1/mfa/setup') {
     $d = db();
     $d->prepare('UPDATE users SET mfa_secret = ? WHERE id = ?')->execute([$secret, $u['id']]);
     
-    // Generate QR code URI (for authenticator apps)
+    // Generate QR code URI (secret must be Base32 for authenticator apps)
     $issuer = 'Great Solomon SCIM';
     $account = $u['email'];
     $qrCodeUri = sprintf('otpauth://totp/%s:%s?secret=%s&issuer=%s', 
         rawurlencode($issuer), 
         rawurlencode($account), 
-        $secret, 
+        base32EncodeHex($secret), 
         rawurlencode($issuer)
     );
     
@@ -1135,11 +1384,43 @@ if ($method === 'POST' && $path === '/api/v1/mfa/resend-otp') {
     reply(['ok' => true, 'mail_sent' => $mailSent]);
 }
 
-// Simplified TOTP verification (in production, use a proper library like Spomky-Labs/otphp)
+// Encode hex secret to Base32 for authenticator-app compatibility
+function base32EncodeHex(string $hex): string {
+    $bin = pack('H*', $hex);
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    $out = '';
+    for ($i = 0; $i < strlen($bin); $i += 5) {
+        $chunk = substr($bin, $i, 5);
+        $chunk .= str_repeat("\0", 5 - strlen($chunk));
+        $bits = '';
+        for ($j = 0; $j < 5; $j++) $bits .= str_pad(decbin(ord($chunk[$j])), 8, '0', STR_PAD_LEFT);
+        $padLen = [0 => 0, 1 => 6, 2 => 4, 3 => 3, 4 => 1][min(strlen(substr($bin, $i, 5)), 4)];
+        for ($j = 0; $j < 8; $j++) {
+            $piece = substr($bits, $j * 5, 5);
+            $out .= strlen($piece) === 5 ? $alphabet[bindec($piece)] : '=';
+        }
+    }
+    return $out;
+}
+
+// RFC 6238 TOTP verification (30-second step, +/-1 window for clock drift)
 function verifyTOTP($code, $secret) {
-    // This is a simplified version. In production, use a proper TOTP library.
-    // For demonstration, we'll accept any 6-digit code for now
-    return preg_match('/^\d{6}$/', $code) === 1;
+    if (!preg_match('/^\d{6}$/', (string)$code)) return false;
+    $key = pack('H*', strtolower($secret)); // secret stored as hex via bin2hex
+    if ($key === false) return false;
+    for ($w = -1; $w <= 1; $w++) {
+        $t = pack('N*', 0) . pack('N*', floor(time() / 30) + $w);
+        $hmac = hash_hmac('sha1', $t, $key, true);
+        $offset = ord(substr($hmac, -1)) & 0x0F;
+        $totp = ((ord($hmac[$offset]) & 0x7F) << 24)
+              | ((ord($hmac[$offset + 1]) & 0xFF) << 16)
+              | ((ord($hmac[$offset + 2]) & 0xFF) << 8)
+              | (ord($hmac[$offset + 3]) & 0xFF);
+        if (str_pad((string)($totp % 1000000), 6, '0', STR_PAD_LEFT) === (string)$code) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // --- Warehouse API Endpoints ---

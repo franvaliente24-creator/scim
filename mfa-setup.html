@@ -150,79 +150,85 @@
                     </div>
                 </div>
                 
-                <!-- MFA Status and Setup Grid -->
+                <!-- Simplified Security Overview -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <!-- MFA Status -->
-                    <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                        <div class="px-6 py-4 border-b border-outline-variant/30">
-                            <h2 class="text-lg font-headline font-semibold text-on-surface">MFA Status</h2>
+                    <!-- Status card -->
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-8 text-center">
+                        <div class="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                            <span class="material-symbols-outlined text-emerald-600 text-3xl">verified_user</span>
                         </div>
-                        <div id="mfaStatus" class="p-6">
-                            <p class="text-on-surface-variant text-sm">Loading MFA status...</p>
-                        </div>
+                        <h2 class="text-xl font-headline font-bold text-on-surface mb-2">Email Verification Active</h2>
+                        <p class="text-sm text-on-surface-variant leading-relaxed">Every sign-in requires a 6-digit code sent to your email. No extra setup needed — it's always on.</p>
                     </div>
-                    
-                    <!-- MFA Setup -->
-                    <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                        <div class="px-6 py-4 border-b border-outline-variant/30">
-                            <h2 class="text-lg font-headline font-semibold text-on-surface">Setup Two-Factor Authentication</h2>
-                        </div>
-                        <div class="p-6">
-                            <div id="mfaSetup">
-                                <p class="text-on-surface-variant text-sm mb-4">Click below to generate your MFA secret and QR code.</p>
-                                <button id="generateMFA" class="btn-primary w-full">
-                                    <span class="material-symbols-outlined">qr_code_2</span>
-                                    Generate MFA Secret
-                                </button>
-                            </div>
-                            
-                            <div id="mfaQRCode" style="display: none; text-align: center; margin: 20px 0;">
-                                <p class="text-on-surface text-sm font-semibold mb-4"><strong>Step 1:</strong> Scan this QR code with your authenticator app</p>
-                                <div id="qrCodeDisplay" style="margin: 20px 0; padding: 20px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; display: inline-block;">
-                                    <p class="text-on-surface-variant text-sm">QR Code will appear here</p>
+
+                    <!-- How it works -->
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-8">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface mb-5">How sign-in works</h2>
+                        <div class="space-y-4">
+                            <div class="flex items-start gap-4">
+                                <div class="w-8 h-8 rounded-full bg-primary text-white text-sm font-bold flex items-center justify-center shrink-0">1</div>
+                                <div>
+                                    <b class="text-sm text-on-surface">Enter email & password</b>
+                                    <p class="text-xs text-on-surface-variant mt-0.5">On the sign-in page, as usual.</p>
                                 </div>
-                                <p class="text-on-surface-variant text-sm" style="font-size: 12px;">Secret: <code id="secretDisplay">•••••••••</code></p>
                             </div>
-                            
-                            <div id="mfaVerify" style="display: none;">
-                                <p class="text-on-surface text-sm font-semibold mb-4"><strong>Step 2:</strong> Enter the 6-digit code from your authenticator app</p>
-                                <div class="form-group">
-                                    <label>Verification Code</label>
-                                    <input id="mfaCode" type="text" maxlength="6" placeholder="123456" style="letter-spacing: 4px; font-size: 18px; text-align: center;">
+                            <div class="flex items-start gap-4">
+                                <div class="w-8 h-8 rounded-full bg-primary text-white text-sm font-bold flex items-center justify-center shrink-0">2</div>
+                                <div>
+                                    <b class="text-sm text-on-surface">Check your email</b>
+                                    <p class="text-xs text-on-surface-variant mt-0.5">A 6-digit code arrives within seconds. It expires in 5 minutes.</p>
                                 </div>
-                                <button id="verifyMFA" class="btn-primary w-full">Enable MFA</button>
-                                <p id="mfaMessage" class="form-message"></p>
+                            </div>
+                            <div class="flex items-start gap-4">
+                                <div class="w-8 h-8 rounded-full bg-primary text-white text-sm font-bold flex items-center justify-center shrink-0">3</div>
+                                <div>
+                                    <b class="text-sm text-on-surface">Enter the code</b>
+                                    <p class="text-xs text-on-surface-variant mt-0.5">Type it into the verification page — you're in.</p>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                
-                <!-- Disable MFA -->
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Disable MFA</h2>
-                    </div>
-                    <div class="p-6">
-                        <p class="text-on-surface-variant text-sm mb-4">Disable two-factor authentication (not recommended).</p>
-                        <form id="disableMFAForm" class="space-y-4">
-                            <div class="form-group">
-                                <label>Confirm Password</label>
-                                <input name="password" type="password" required placeholder="Enter your password">
-                            </div>
-                            <button type="submit" class="btn-danger w-full">
-                                <span class="material-symbols-outlined">block</span>
-                                Disable MFA
+
+                <!-- Optional authenticator app (collapsible) -->
+                <details class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <summary class="px-6 py-4 cursor-pointer flex items-center justify-between select-none">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Optional: Authenticator App (Advanced)</h2>
+                        <span class="material-symbols-outlined text-on-surface-variant">expand_more</span>
+                    </summary>
+                    <div class="px-6 pb-6">
+                        <p class="text-sm text-on-surface-variant mb-4">Prefer an authenticator app (Google/Microsoft Authenticator)? Generate a secret below — works alongside email codes.</p>
+                        <div id="mfaSetup">
+                            <button id="generateMFA" class="btn-primary">
+                                <span class="material-symbols-outlined">qr_code_2</span>
+                                Generate Authenticator Secret
                             </button>
-                        </form>
+                        </div>
+                        <div id="mfaQRCode" style="display:none;text-align:center;margin:20px 0;">
+                            <p class="text-on-surface text-sm font-semibold mb-4"><strong>Step 1:</strong> Scan this QR code with your authenticator app</p>
+                            <div id="qrCodeDisplay" style="margin:20px 0;padding:20px;background:white;border:1px solid #e5e7eb;border-radius:8px;display:inline-block;">
+                                <p class="text-on-surface-variant text-sm">QR Code will appear here</p>
+                            </div>
+                            <p class="text-on-surface-variant text-sm" style="font-size:12px;">Secret: <code id="secretDisplay">•••••••••</code></p>
+                        </div>
+                        <div id="mfaVerify" style="display:none;">
+                            <p class="text-on-surface text-sm font-semibold mb-4"><strong>Step 2:</strong> Enter the 6-digit code from your authenticator app</p>
+                            <div class="form-group">
+                                <label>Verification Code</label>
+                                <input id="mfaCode" type="text" maxlength="6" placeholder="123456" style="letter-spacing:4px;font-size:18px;text-align:center;">
+                            </div>
+                            <button id="verifyMFA" class="btn-primary w-full">Enable Authenticator MFA</button>
+                            <p id="mfaMessage" class="form-message"></p>
+                        </div>
                     </div>
-                </div>
+                </details>
             </div>
         </main>
     </div>
     
     <script src="permissions.js"></script>
-    <script src="layout.js"></script>
-    <script src="mfa-setup.js"></script>
+    <script src="layout.js?v=6"></script>
+    <script src="mfa-setup.js?v=6"></script>
     <script src="inactivity.js"></script>
 </body>
 </html>

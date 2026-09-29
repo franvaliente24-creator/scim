@@ -2,251 +2,132 @@
 // DOCUMENT TRACKING & LOGISTICS PAGE LOGIC
 // ==========================================
 
-const $ = (selector) => {
-  const element = document.querySelector(selector);
-  if (!element) {
-    console.warn(`Element not found: ${selector}`);
-    return null;
-  }
-  return element;
-};
-
+const $ = (selector) => document.querySelector(selector);
+const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let allDocuments = [];
 
 // ==========================================
 // DOCUMENT DATA LOADING
 // ==========================================
 async function loadDocumentData() {
+  const table = $('#documentTable');
   try {
     const response = await api('documents');
-    const data = response.documents || response;
-    const documents = Array.isArray(data) ? data : [];
+    allDocuments = Array.isArray(response.documents) ? response.documents : [];
 
-    // Calculate stats
-    const totalDocuments = documents.length;
-    const pendingVerification = documents.filter(doc => doc.status === 'Pending Verification').length;
-    const eafDocuments = documents.filter(doc => doc.document_type === 'EAF');
-    const eafCompliance = eafDocuments.length > 0
-      ? Math.round((eafDocuments.filter(doc => doc.status === 'Verified').length / eafDocuments.length) * 100)
-      : 0;
-    const monthlyDocs = documents.filter(doc => {
-      const docDate = new Date(doc.created_at);
-      const now = new Date();
-      return docDate.getMonth() === now.getMonth() && docDate.getFullYear() === now.getFullYear();
-    }).length;
+    const total = allDocuments.length;
+    const pending = allDocuments.filter((d) => d.status === 'Pending Verification' || d.status === 'Pending').length;
+    const verified = allDocuments.filter((d) => d.status === 'Verified' || d.status === 'Signed').length;
+    const compliance = total ? Math.round((verified / total) * 100) : 0;
 
-    // Update stats
-    $('#totalDocuments').textContent = totalDocuments;
-    $('#pendingVerification').textContent = pendingVerification;
-    $('#eafCompliance').textContent = `${eafCompliance}%`;
-    $('#monthlyDocs').textContent = monthlyDocs;
+    setText('totalDocuments', total);
+    setText('verifiedDocuments', verified);
+    setText('pendingDocuments', pending);
+    setText('complianceRate', compliance + '%');
 
-    // Render document table
-    renderDocumentTable(documents);
-
-    // Render EAF status
-    renderEAFStatus(documents);
-
-    // Load recent activity
+    renderDocumentTable(allDocuments);
+    loadCourierReceipts(allDocuments);
     loadRecentActivity();
-
-    // Load courier tracking
-    loadCourierTracking(documents);
   } catch (error) {
     console.error('Error loading document data:', error);
+    if (table) table.innerHTML = '<p class="text-sm text-red-500 py-4">Could not load documents.</p>';
   }
 }
 
 function renderDocumentTable(documents) {
-  const tableHTML = `
-    <table class="data-table">
+  const el = $('#documentTable');
+  if (!el) return;
+  if (!documents.length) {
+    el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No documents yet. Click "Add Document" to create one.</p>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="data-table w-full text-sm">
       <thead>
-        <tr>
-          <th>Document Type</th>
-          <th>Reference #</th>
-          <th>Owner</th>
-          <th>Status</th>
-          <th>Created</th>
-          <th>Due Date</th>
-          <th>Actions</th>
-        </tr>
+        <tr><th>Type</th><th>Reference #</th><th>Owner</th><th>Status</th><th>Created</th><th>Due Date</th><th>Actions</th></tr>
       </thead>
       <tbody>
-        ${documents.map(doc => `
+        ${documents.map((doc) => `
           <tr>
-            <td><b>${doc.document_type}</b></td>
-            <td><span class="tag">${doc.reference_no}</span></td>
-            <td>${doc.owner}</td>
-            <td><span class="tag ${getDocStatusClass(doc.status)}">${doc.status}</span></td>
-            <td>${new Date(doc.created_at).toLocaleDateString()}</td>
-            <td>${doc.due_date ? new Date(doc.due_date).toLocaleDateString() : 'N/A'}</td>
+            <td><b>${esc(doc.document_type)}</b></td>
+            <td><span class="tag">${esc(doc.reference_no)}</span></td>
+            <td>${esc(doc.owner)}</td>
+            <td><span class="tag">${esc(doc.status)}</span></td>
+            <td>${doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '—'}</td>
+            <td>${doc.due_date ? new Date(doc.due_date).toLocaleDateString() : '—'}</td>
             <td>
-              <button class="action-btn" onclick="viewDocument('${doc.id}')">View</button>
-              <button class="action-btn" onclick="updateDocStatus('${doc.id}', '${doc.status}')">Update</button>
-              ${doc.document_type === 'EAF' ? '<button class="action-btn" onclick="signDocument(\'' + doc.id + '\')">Sign</button>' : ''}
+              <button class="action-btn" onclick="viewDocument(${doc.id})">View</button>
+              <button class="action-btn" onclick="updateDocStatus(${doc.id}, '${esc(doc.status)}')">Update</button>
             </td>
-          </tr>
-        `).join('')}
+          </tr>`).join('')}
       </tbody>
-    </table>
-  `;
-
-  $('#documentTable').innerHTML = tableHTML;
+    </table>`;
 }
 
-function getDocStatusClass(status) {
-  switch (status) {
-    case 'Verified':
-      return 'status-verified';
-    case 'Pending Verification':
-      return 'status-pending';
-    case 'Signed':
-      return 'status-signed';
-    case 'Rejected':
-      return 'status-rejected';
-    case 'Expired':
-      return 'status-expired';
-    default:
-      return 'status-default';
-  }
-}
-
-function renderEAFStatus(documents) {
-  const eafDocuments = documents.filter(doc => doc.document_type === 'EAF');
-  
-  const eafStats = {
-    total: eafDocuments.length,
-    verified: eafDocuments.filter(doc => doc.status === 'Verified').length,
-    signed: eafDocuments.filter(doc => doc.status === 'Signed').length,
-    pending: eafDocuments.filter(doc => doc.status === 'Pending Verification').length
-  };
-
-  const eafHTML = `
-    <div class="row">
-      <div>
-        <b>Total EAFs</b><br>
-        <small>All accountability forms</small>
-      </div>
-      <b>${eafStats.total}</b>
-    </div>
-    <div class="row">
-      <div>
-        <b>Verified</b><br>
-        <small>Compliance confirmed</small>
-      </div>
-      <span class="tag status-verified">${eafStats.verified}</span>
-    </div>
-    <div class="row">
-      <div>
-        <b>Signed</b><br>
-        <small>Digital signatures</small>
-      </div>
-      <span class="tag status-signed">${eafStats.signed}</span>
-    </div>
-    <div class="row">
-      <div>
-        <b>Pending</b><br>
-        <small>Awaiting verification</small>
-      </div>
-      <span class="tag status-pending">${eafStats.pending}</span>
-    </div>
-  `;
-
-  $('#eafStatus').innerHTML = eafHTML;
+function loadCourierReceipts(documents) {
+  const el = $('#courierReceipts');
+  if (!el) return;
+  const receipts = documents.filter((d) => ['Receipt', 'Invoice', 'Delivery Receipt', 'Courier'].includes(d.document_type));
+  el.innerHTML = receipts.length
+    ? receipts.slice(0, 8).map((doc) => `
+        <div class="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
+          <div>
+            <b class="text-sm">${esc(doc.document_type)}</b>
+            <p class="text-xs text-slate-500">${esc(doc.reference_no)} · ${esc(doc.owner)}</p>
+          </div>
+          <span class="tag">${esc(doc.status)}</span>
+        </div>`).join('')
+    : '<p class="text-sm text-slate-400 py-6 text-center">No courier receipts to track.</p>';
 }
 
 async function loadRecentActivity() {
+  const el = $('#documentActivity');
+  if (!el) return;
   try {
     const response = await api('documents/activity');
-    const data = response.activities || response;
-    const activities = Array.isArray(data) ? data : [];
-
-    const activityHTML = activities.map(activity => `
-      <div class="row">
-        <div>
-          <b>${activity.action}</b><br>
-          <small>${activity.reference_no}</small>
-        </div>
-        <small>${new Date(activity.created_at).toLocaleString()}</small>
-      </div>
-    `).join('');
-
-    $('#recentDocActivity').innerHTML = activityHTML;
+    const activities = Array.isArray(response.activities) ? response.activities : [];
+    el.innerHTML = activities.length
+      ? activities.map((a) => `
+          <div class="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
+            <div>
+              <b class="text-sm">${esc(a.action)}</b>
+              <p class="text-xs text-slate-500">${esc(a.reference_no || '')} ${a.details ? '· ' + esc(a.details) : ''}</p>
+            </div>
+            <small class="text-slate-400">${a.created_at ? new Date(a.created_at).toLocaleString() : ''}</small>
+          </div>`).join('')
+      : '<p class="text-sm text-slate-400 py-6 text-center">No document activity yet.</p>';
   } catch (error) {
-    console.error('Error loading recent activity:', error);
+    console.error('Error loading activity:', error);
   }
-}
-
-function loadCourierTracking(documents) {
-  const courierDocs = documents.filter(doc => 
-    doc.document_type === 'Receipt' || doc.document_type === 'Invoice'
-  );
-
-  const courierHTML = courierDocs.map(doc => `
-    <div class="row">
-      <div>
-        <b>${doc.document_type}</b><br>
-        <small>${doc.reference_no} · ${doc.owner}</small>
-      </div>
-      <span class="tag ${getDocStatusClass(doc.status)}">${doc.status}</span>
-    </div>
-  `).join('');
-
-  $('#courierTracking').innerHTML = courierHTML || '<p class="muted">No courier/invoice documents to track</p>';
 }
 
 // ==========================================
 // EVENT LISTENERS & INTERACTION
 // ==========================================
-
-// Add Document Button - open in-page modal
+const addDocModal = $('#addDocumentModal');
 const addDocumentBtn = $('#addDocument');
-if (addDocumentBtn) {
-  addDocumentBtn.onclick = () => {
-    const modal = $('#addDocumentModal');
-    if (modal) {
-      if (typeof modal.showModal === 'function') modal.showModal();
-      else modal.setAttribute('open', 'open');
-    }
-  };
+if (addDocumentBtn && addDocModal) {
+  addDocumentBtn.onclick = () => addDocModal.showModal ? addDocModal.showModal() : addDocModal.setAttribute('open', 'open');
 }
-
-const addDocumentBtnModal = $('#addDocumentBtn');
-if (addDocumentBtnModal) {
-  addDocumentBtnModal.onclick = () => {
-    const modal = $('#addDocumentModal');
-    if (modal) {
-      if (typeof modal.showModal === 'function') modal.showModal();
-      else modal.setAttribute('open', 'open');
-    }
-  };
-}
-
 const closeDocumentModal = $('#closeDocumentModal');
-if (closeDocumentModal) {
-  closeDocumentModal.onclick = () => {
-    const modal = $('#addDocumentModal');
-    if (modal) {
-      if (typeof modal.close === 'function') modal.close();
-      else modal.removeAttribute('open');
-    }
-  };
+if (closeDocumentModal && addDocModal) {
+  closeDocumentModal.onclick = () => addDocModal.close ? addDocModal.close() : addDocModal.removeAttribute('open');
 }
 
 const addDocumentForm = $('#addDocumentForm');
 if (addDocumentForm) {
   addDocumentForm.onsubmit = async (e) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
-
     const response = await fetch('/api/v1/documents', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.fromEntries(formData)),
+      body: JSON.stringify(Object.fromEntries(new FormData(e.target))),
     });
-
     if (response.ok) {
-      $('#addDocumentModal').close();
+      addDocModal?.close?.();
       e.target.reset();
       loadDocumentData();
     } else {
@@ -256,99 +137,59 @@ if (addDocumentForm) {
   };
 }
 
-// Search functionality
-$('#searchDocuments').oninput = (e) => {
-  const searchTerm = e.target.value.toLowerCase();
-  const rows = document.querySelectorAll('#documentTable tbody tr');
-  
-  rows.forEach(row => {
-    const text = row.textContent.toLowerCase();
-    row.style.display = text.includes(searchTerm) ? '' : 'none';
+// Search + status filter (client-side over loaded docs)
+const docSearch = $('#documentSearch');
+const statusFilter = $('#statusFilter');
+function applyDocFilters() {
+  const term = (docSearch?.value || '').toLowerCase();
+  const status = statusFilter?.value || '';
+  const filtered = allDocuments.filter((d) => {
+    const matchesTerm = !term || `${d.document_type} ${d.reference_no} ${d.owner}`.toLowerCase().includes(term);
+    const matchesStatus = !status || d.status === status;
+    return matchesTerm && matchesStatus;
   });
-};
-
+  renderDocumentTable(filtered);
+}
+if (docSearch) docSearch.oninput = applyDocFilters;
+if (statusFilter) statusFilter.onchange = applyDocFilters;
 
 // Document action functions
 window.viewDocument = async (docId) => {
   try {
-    const response = await api(`documents/${docId}`);
-    const doc = response.document;
-    alert(`Document Details:\nType: ${doc.document_type}\nReference #: ${doc.reference_no}\nOwner: ${doc.owner}\nStatus: ${doc.status}\nDescription: ${doc.description || 'N/A'}\nCreated: ${new Date(doc.created_at).toLocaleDateString()}\nDue Date: ${doc.due_date ? new Date(doc.due_date).toLocaleDateString() : 'N/A'}\nRelated PO: ${doc.related_po || 'N/A'}`);
-  } catch (error) {
-    console.error('Error viewing document:', error);
-  }
+    const doc = await api(`documents/${docId}`);
+    alert(`Document: ${doc.document_type}\nRef: ${doc.reference_no}\nOwner: ${doc.owner}\nStatus: ${doc.status}\nDescription: ${doc.description || 'N/A'}\nRelated PO: ${doc.related_po || 'N/A'}\nSigned by: ${doc.signer_name || 'N/A'}`);
+  } catch (e) { console.error(e); }
 };
 
 window.updateDocStatus = (docId, currentStatus) => {
-  const newStatus = prompt(`Current status: ${currentStatus}\nEnter new status (Verified, Pending Verification, Signed, Rejected, Expired):`);
-  if (newStatus) {
-    updateDocumentStatus(docId, newStatus);
-  }
+  const newStatus = prompt(`Current status: ${currentStatus}\nNew status (Verified, Pending Verification, Signed, Rejected, Expired):`);
+  if (newStatus) updateDocumentStatus(docId, newStatus);
 };
 
 async function updateDocumentStatus(docId, newStatus) {
-  try {
-    const response = await fetch(`/api/v1/documents/${docId}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
-    });
-
-    if (response.ok) {
-      loadDocumentData();
-    } else {
-      alert('Failed to update document status');
-    }
-  } catch (error) {
-    console.error('Error updating document status:', error);
-    alert('Error updating document status');
-  }
+  const res = await fetch(`/api/v1/documents/${docId}/status`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }),
+  });
+  if (res.ok) loadDocumentData();
+  else alert('Failed to update document status');
 }
 
 window.signDocument = async (docId) => {
-  try {
-    const signature = prompt('Enter your digital signature (name):');
-    if (signature) {
-      const response = await fetch(`/api/v1/documents/${docId}/sign`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signature }),
-      });
-
-      if (response.ok) {
-        alert('Document signed successfully');
-        loadDocumentData();
-      } else {
-        alert('Failed to sign document');
-      }
-    }
-  } catch (error) {
-    console.error('Error signing document:', error);
-    alert('Error signing document');
-  }
+  const signature = prompt('Enter your name as digital signature:');
+  if (!signature) return;
+  const res = await fetch(`/api/v1/documents/${docId}/sign`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signature }),
+  });
+  if (res.ok) { alert('Document signed'); loadDocumentData(); }
+  else alert('Failed to sign document');
 };
 
-
-// View All Receipts Button
 const viewAllReceiptsBtn = $('#viewAllReceipts');
 if (viewAllReceiptsBtn) {
-  viewAllReceiptsBtn.onclick = async () => {
-    await loadDocumentData(true);
-    // Scroll to receipts section
-    const receiptsTable = $('#courierReceipts');
-    if (receiptsTable) {
-      receiptsTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
+  viewAllReceiptsBtn.onclick = () => $('#courierReceipts')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// Load document data on page load
-document.addEventListener("DOMContentLoaded", function() {
-    // Initialize permissions
-    if (typeof initializePermissions === "function") {
-        initializePermissions();
-    }
-    
-    // Load document data
-    loadDocumentData();
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof initializePermissions === 'function') initializePermissions();
+  loadDocumentData();
 });

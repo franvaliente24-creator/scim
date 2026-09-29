@@ -2,15 +2,8 @@
 // PROCUREMENT & SOURCING MANAGEMENT PAGE LOGIC
 // ==========================================
 
-const $ = (selector) => {
-  const element = document.querySelector(selector);
-  if (!element) {
-    console.warn(`Element not found: ${selector}`);
-    return null;
-  }
-  return element;
-};
-
+const $ = (selector) => document.querySelector(selector);
+const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 
 const money = (amount) =>
@@ -18,216 +11,143 @@ const money = (amount) =>
     style: 'currency',
     currency: 'PHP',
     maximumFractionDigits: 0,
-  }).format(amount);
+  }).format(amount || 0);
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // ==========================================
 // PROCUREMENT DATA LOADING
 // ==========================================
 async function loadProcurementData(showAll = false) {
+  const table = $('#requisitionsTable');
+  if (table && !showAll) table.innerHTML = '<p class="text-sm text-slate-400 py-4">Loading requisitions...</p>';
   try {
     const response = await api('procurement/requisitions');
-    const data = response.requisitions || response;
-    const requisitions = Array.isArray(data) ? data : [];
-    
-    // Limit display unless showAll is true
+    const requisitions = Array.isArray(response.requisitions) ? response.requisitions : [];
     const displayRequisitions = showAll ? requisitions : requisitions.slice(0, 10);
 
-    // Calculate stats
-    const activeRequisitions = requisitions.filter(req => req.status !== 'Completed' && req.status !== 'Cancelled').length;
-    const pendingQuotes = requisitions.filter(req => req.status === 'Pending Quote').length;
-    const monthlySpend = requisitions
-      .filter(req => {
-        const reqDate = new Date(req.created_at);
-        const now = new Date();
-        return reqDate.getMonth() === now.getMonth() && reqDate.getFullYear() === now.getFullYear();
-      })
-      .reduce((sum, req) => sum + (req.actual_cost || req.estimated_cost || 0), 0);
-    const approvedRequests = requisitions.filter(req => req.status === 'Approved').length;
+    const active = requisitions.filter((r) => !['Completed', 'Cancelled', 'Closed', 'Rejected'].includes(r.status)).length;
+    const pending = requisitions.filter((r) => ['Submitted', 'Pending', 'Pending Quote', 'Under Review'].includes(r.status)).length;
+    const pipeline = requisitions.reduce((sum, r) => sum + (parseFloat(r.actual_cost) || parseFloat(r.estimated_cost) || 0), 0);
 
-    // Update stats
-    $('#activeRequisitions').textContent = activeRequisitions;
-    $('#pendingQuotes').textContent = pendingQuotes;
-    $('#monthlySpend').textContent = money(monthlySpend);
-    $('#approvedRequests').textContent = approvedRequests;
+    setText('totalRequisitions', requisitions.length);
+    setText('pendingRequisitions', pending || active);
+    setText('pipelineValue', money(pipeline));
 
-    // Render requisition table
     renderRequisitionTable(displayRequisitions);
-
-    // Render sourcing pipeline
     renderSourcingPipeline(requisitions);
-
-    // Load recent quotes
-    loadRecentQuotes();
+    loadRecentQuotes(showAll);
   } catch (error) {
     console.error('Error loading procurement data:', error);
+    if (table) table.innerHTML = '<p class="text-sm text-red-500 py-4">Could not load requisitions.</p>';
   }
 }
 
 function renderRequisitionTable(requisitions) {
-  const tableHTML = `
-    <table class="data-table">
+  const el = $('#requisitionsTable');
+  if (!el) return;
+  if (!requisitions.length) {
+    el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No requisitions yet. Click "New Requisition" to create one.</p>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="data-table w-full text-sm">
       <thead>
         <tr>
-          <th>Req #</th>
-          <th>Title</th>
-          <th>Department</th>
-          <th>Priority</th>
-          <th>Est. Cost</th>
-          <th>Status</th>
-          <th>Needed By</th>
-          <th>Actions</th>
+          <th>Req #</th><th>Title</th><th>Department</th><th>Priority</th>
+          <th>Est. Cost</th><th>Status</th><th>Needed By</th>
         </tr>
       </thead>
       <tbody>
-        ${requisitions.map(req => `
+        ${requisitions.map((req) => `
           <tr>
-            <td><span class="tag">${req.req_number}</span></td>
-            <td><b>${req.title}</b></td>
-            <td>${req.department}</td>
-            <td><span class="tag ${getPriorityClass(req.priority)}">${req.priority}</span></td>
+            <td><span class="tag">${esc(req.req_number)}</span></td>
+            <td><b>${esc(req.title)}</b></td>
+            <td>${esc(req.department)}</td>
+            <td><span class="tag">${esc(req.priority)}</span></td>
             <td>${money(req.estimated_cost)}</td>
-            <td><span class="tag ${getStatusClass(req.status)}">${req.status}</span></td>
-            <td>${new Date(req.needed_by).toLocaleDateString()}</td>
-            <td>
-              <button class="action-btn" onclick="viewRequisition('${req.req_number}')">View</button>
-              <button class="action-btn" onclick="editRequisition('${req.req_number}')">Edit</button>
-            </td>
+            <td><span class="tag">${esc(req.status)}</span></td>
+            <td>${req.needed_by ? new Date(req.needed_by).toLocaleDateString() : '—'}</td>
           </tr>
         `).join('')}
       </tbody>
-    </table>
-  `;
-
-  $('#requisitionTable').innerHTML = tableHTML;
-}
-
-function getPriorityClass(priority) {
-  switch (priority) {
-    case 'Urgent':
-      return 'priority-urgent';
-    case 'High':
-      return 'priority-high';
-    case 'Medium':
-      return 'priority-medium';
-    case 'Low':
-    default:
-      return 'priority-low';
-  }
-}
-
-function getStatusClass(status) {
-  switch (status) {
-    case 'Approved':
-      return 'status-approved';
-    case 'Pending Quote':
-      return 'status-pending';
-    case 'Completed':
-      return 'status-completed';
-    case 'Cancelled':
-      return 'status-cancelled';
-    default:
-      return 'status-default';
-  }
+    </table>`;
 }
 
 function renderSourcingPipeline(requisitions) {
-  const pipelineStages = {
-    'Draft': 0,
-    'Submitted': 0,
-    'Pending Quote': 0,
-    'Under Review': 0,
-    'Approved': 0,
-    'Completed': 0
-  };
-
-  requisitions.forEach(req => {
-    if (pipelineStages.hasOwnProperty(req.status)) {
-      pipelineStages[req.status]++;
-    }
+  const el = $('#sourcingPipeline');
+  if (!el) return;
+  const stages = ['Draft', 'Submitted', 'Under Review', 'Approved', 'Completed'];
+  const counts = Object.fromEntries(stages.map((s) => [s, 0]));
+  requisitions.forEach((r) => {
+    const s = counts.hasOwnProperty(r.status) ? r.status : 'Submitted';
+    counts[s]++;
   });
-
-  const pipelineHTML = Object.entries(pipelineStages).map(([stage, count]) => `
-    <div class="pipeline-stage">
-      <div class="stage-header">
-        <b>${stage}</b>
-        <span class="stage-count">${count}</span>
-      </div>
-      <div class="stage-bar">
-        <div class="stage-fill" style="width: ${Math.min(count * 20, 100)}%"></div>
-      </div>
-    </div>
-  `).join('');
-
-  $('#sourcingPipeline').innerHTML = pipelineHTML;
+  const max = Math.max(1, ...Object.values(counts));
+  el.innerHTML = `
+    <div class="grid grid-cols-1 sm:grid-cols-5 gap-4">
+      ${Object.entries(counts).map(([stage, count]) => `
+        <div class="bg-slate-50 rounded-xl p-4 border border-slate-100">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-slate-600">${stage}</span>
+            <span class="text-sm font-bold text-primary">${count}</span>
+          </div>
+          <div class="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+            <div class="h-full bg-primary rounded-full" style="width:${Math.round((count / max) * 100)}%"></div>
+          </div>
+        </div>`).join('')}
+    </div>`;
 }
 
 async function loadRecentQuotes(showAll = false) {
+  const el = $('#quotesTable');
+  if (!el) return;
   try {
     const response = await api('procurement/quotes');
-    const data = response.quotes || response;
-    const quotes = Array.isArray(data) ? data : [];
-    
-    // Limit display unless showAll is true
-    const displayQuotes = showAll ? quotes : quotes.slice(0, 5);
-
-    const quotesHTML = displayQuotes.map(quote => `
-      <div class="row">
-        <div>
-          <b>${quote.vendor}</b><br>
-          <small>${quote.req_number} · ${money(quote.quote_amount)}</small>
-        </div>
-        <span class="tag ${quote.status === 'Accepted' ? 'status-approved' : 'status-pending'}">${quote.status}</span>
-      </div>
-    `).join('');
-
-    $('#recentQuotes').innerHTML = quotesHTML;
+    const quotes = Array.isArray(response.quotes) ? response.quotes : [];
+    setText('totalQuotes', quotes.length);
+    const display = showAll ? quotes : quotes.slice(0, 5);
+    el.innerHTML = display.length
+      ? display.map((q) => `
+          <div class="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
+            <div>
+              <b class="text-sm">${esc(q.vendor)}</b>
+              <p class="text-xs text-slate-500">${esc(q.req_number)} · ${money(q.quote_amount)}</p>
+            </div>
+            <span class="tag">${esc(q.status)}</span>
+          </div>`).join('')
+      : '<p class="text-sm text-slate-400 py-6 text-center">No supplier quotes yet.</p>';
   } catch (error) {
-    console.error('Error loading recent quotes:', error);
+    console.error('Error loading quotes:', error);
+    el.innerHTML = '<p class="text-sm text-red-500 py-4">Could not load quotes.</p>';
   }
 }
 
 // ==========================================
 // EVENT LISTENERS & INTERACTION
 // ==========================================
-
-// Add Requisition Button - open in-page modal
 const addRequisitionBtn = $('#addRequisition');
-if (addRequisitionBtn) {
-  addRequisitionBtn.onclick = () => {
-    const modal = $('#addRequisitionModal');
-    if (modal) {
-      if (typeof modal.showModal === 'function') modal.showModal();
-      else modal.setAttribute('open', 'open');
-    }
-  };
+const reqModal = $('#addRequisitionModal');
+if (addRequisitionBtn && reqModal) {
+  addRequisitionBtn.onclick = () => reqModal.showModal ? reqModal.showModal() : reqModal.setAttribute('open', 'open');
 }
-
 const closeRequisitionModal = $('#closeRequisitionModal');
-if (closeRequisitionModal) {
-  closeRequisitionModal.onclick = () => {
-    const modal = $('#addRequisitionModal');
-    if (modal) {
-      if (typeof modal.close === 'function') modal.close();
-      else modal.removeAttribute('open');
-    }
-  };
+if (closeRequisitionModal && reqModal) {
+  closeRequisitionModal.onclick = () => reqModal.close ? reqModal.close() : reqModal.removeAttribute('open');
 }
 
 const addRequisitionForm = $('#addRequisitionForm');
 if (addRequisitionForm) {
   addRequisitionForm.onsubmit = async (e) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
-    const payload = Object.fromEntries(formData.entries());
-
+    const payload = Object.fromEntries(new FormData(e.target).entries());
     const response = await fetch('/api/v1/procurement/requisitions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
-
     if (response.ok) {
-      $('#addRequisitionModal').close();
+      reqModal?.close?.();
       e.target.reset();
       loadProcurementData();
     } else {
@@ -237,42 +157,21 @@ if (addRequisitionForm) {
   };
 }
 
-
-// View All Requisitions Button
 const viewAllRequisitionsBtn = $('#viewAllRequisitions');
 if (viewAllRequisitionsBtn) {
-  viewAllRequisitionsBtn.onclick = async () => {
-    // Reload requisitions to show all
-    await loadProcurementData(true);
-    // Scroll to requisitions section
-    const requisitionsTable = $('#requisitionsTable');
-    if (requisitionsTable) {
-      requisitionsTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
+  viewAllRequisitionsBtn.onclick = () => loadProcurementData(true).then(() => {
+    $('#requisitionsTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
-// View All Quotes Button
 const viewAllQuotesBtn = $('#viewAllQuotes');
 if (viewAllQuotesBtn) {
-  viewAllQuotesBtn.onclick = async () => {
-    // Reload quotes to show all
-    await loadRecentQuotes(true);
-    // Scroll to quotes section
-    const quotesTable = $('#quotesTable');
-    if (quotesTable) {
-      quotesTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
+  viewAllQuotesBtn.onclick = () => loadRecentQuotes(true).then(() => {
+    $('#quotesTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
-// Load procurement data on page load
-document.addEventListener("DOMContentLoaded", function() {
-    // Initialize permissions
-    if (typeof initializePermissions === "function") {
-        initializePermissions();
-    }
-    
-    // Load procurement data
-    loadProcurementData();
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof initializePermissions === 'function') initializePermissions();
+  loadProcurementData();
 });

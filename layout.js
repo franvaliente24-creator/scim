@@ -238,32 +238,16 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadNotifications() {
       notifList.innerHTML = '<p class="text-sm text-slate-400 text-center py-6">Loading...</p>';
       const items = [];
-      
+
       try {
-        const [pos, docs] = await Promise.all([
-          fetch('/api/v1/pos').then((r) => r.ok ? r.json() : {}),
-          fetch('/api/v1/documents').then((r) => r.ok ? r.json() : {}),
-        ]);
-        
-        (Array.isArray(pos.pos) ? pos.pos : [])
-          .filter((p) => p.status === 'Pending Approval')
-          .slice(0, 5)
-          .forEach((p) => items.push({
-            icon: 'approval', color: 'text-amber-600 bg-amber-100',
-            title: `PO ${p.po_number} awaiting approval`,
-            sub: p.vendor_name || p.vendor || '',
-            href: 'purchase-orders.html',
+        const res = await fetch('/api/v1/notifications');
+        if (res.ok) {
+          const data = await res.json();
+          (Array.isArray(data.items) ? data.items : []).forEach((n) => items.push({
+            icon: n.icon || 'notifications', color: 'text-indigo-600 bg-indigo-100',
+            title: n.title, sub: n.sub || '', href: n.href || '#',
           }));
-        
-        (Array.isArray(docs.documents) ? docs.documents : [])
-          .filter((doc) => doc.status !== 'Verified')
-          .slice(0, 5)
-          .forEach((doc) => items.push({
-            icon: 'description', color: 'text-red-600 bg-red-100',
-            title: `Document ${doc.reference_no} needs attention`,
-            sub: doc.status || '',
-            href: 'documents.html',
-          }));
+        }
       } catch (err) {
         console.error('Notifications error:', err);
       }
@@ -310,6 +294,205 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // ==========================================
+  // DYNAMIC PROFILE (name, role, avatar)
+  // ==========================================
+  (async function fillProfileIdentity() {
+    try {
+      const res = await fetch('/api/v1/auth/me');
+      if (!res.ok) return;
+      const data = await res.json();
+      const u = data.user;
+      if (!u) return;
+
+      const roleLabel = (typeof getRoleDisplayName === 'function') ? getRoleDisplayName(u.role) : u.role;
+
+      // Header toggle button: name + role spans
+      if (profileToggle) {
+        const nameSpan = profileToggle.querySelector('span.font-label');
+        const roleSpan = profileToggle.querySelector('span.text-xs');
+        if (nameSpan) nameSpan.textContent = u.name || 'User';
+        if (roleSpan) roleSpan.textContent = roleLabel || '';
+        const img = profileToggle.querySelector('img.user-profile-img');
+        if (img && u.avatar) img.src = u.avatar;
+      }
+
+      // Mobile header inside dropdown
+      if (profileMenu) {
+        const dName = profileMenu.querySelector('p.text-sm.font-semibold');
+        const dEmail = profileMenu.querySelector('p.text-xs.truncate');
+        if (dName) dName.textContent = u.name || 'User';
+        if (dEmail) dEmail.textContent = u.email || '';
+      }
+
+      // Common page-level placeholders (profile.html etc.)
+      document.querySelectorAll('[data-user-name]').forEach(el => { el.textContent = u.name || ''; });
+      document.querySelectorAll('[data-user-email]').forEach(el => { el.textContent = u.email || ''; });
+      document.querySelectorAll('[data-user-role]').forEach(el => { el.textContent = roleLabel || ''; });
+      document.querySelectorAll('img[data-user-avatar]').forEach(el => { if (u.avatar) el.src = u.avatar; });
+    } catch (e) { /* non-fatal */ }
+  })();
+
+  // ==========================================
+  // GLOBAL QUICK QR SCAN (floating trigger on every page)
+  // ==========================================
+  document.body.insertAdjacentHTML('beforeend', `
+    <button id="quickScanFab" type="button" title="Quick QR Scan" aria-label="Quick QR Scan"
+      class="fixed bottom-6 right-6 z-[150] w-14 h-14 rounded-full bg-primary text-white shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform">
+      <span class="material-symbols-outlined text-2xl">qr_code_scanner</span>
+    </button>
+    <div id="quickScanModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[160] hidden items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary">qr_code_scanner</span> Quick QR Scan
+          </h2>
+          <button id="quickScanClose" class="text-slate-400 hover:text-slate-600"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <div class="p-5 space-y-4">
+          <div class="flex gap-2">
+            <select id="quickScanAction" class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm">
+              <option value="Inventory Intake">Inventory Intake</option>
+              <option value="Check-Out">Check-Out (deploy)</option>
+              <option value="Check-In">Check-In (return)</option>
+              <option value="Assign to Staff">Assign to Staff</option>
+              <option value="Move to Zone">Move to Zone</option>
+              <option value="PO Receipt">PO Receipt</option>
+            </select>
+          </div>
+          <div id="quickScanExtra" class="hidden space-y-2">
+            <input id="quickScanExtraInput" type="text" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="">
+          </div>
+          <div class="relative rounded-xl overflow-hidden bg-slate-900 aspect-video">
+            <video id="quickScanVideo" class="w-full h-full object-cover" playsinline muted></video>
+            <div class="absolute inset-0 border-2 border-primary/60 rounded-xl pointer-events-none"></div>
+          </div>
+          <div class="flex gap-2">
+            <input id="quickScanManual" type="text" placeholder="Or type QR code manually…" class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm">
+            <button id="quickScanManualGo" class="px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold">Go</button>
+          </div>
+          <p id="quickScanStatus" class="text-sm text-slate-500 text-center min-h-[20px]"></p>
+        </div>
+      </div>
+    </div>
+  `);
+
+  (function initQuickScan() {
+    const fab = document.getElementById('quickScanFab');
+    const modal = document.getElementById('quickScanModal');
+    const video = document.getElementById('quickScanVideo');
+    const status = document.getElementById('quickScanStatus');
+    const actionSel = document.getElementById('quickScanAction');
+    const extraWrap = document.getElementById('quickScanExtra');
+    const extraInput = document.getElementById('quickScanExtraInput');
+    const manualInput = document.getElementById('quickScanManual');
+    let stream = null;
+    let scanning = false;
+    let lastCode = '';
+
+    function setStatus(msg, ok) {
+      status.textContent = msg || '';
+      status.className = 'text-sm text-center min-h-[20px] ' + (ok === true ? 'text-emerald-600' : ok === false ? 'text-red-600' : 'text-slate-500');
+    }
+
+    async function submitScan(code) {
+      if (!code || code === lastCode) return;
+      lastCode = code;
+      setStatus('Processing ' + code + '…');
+      const payload = { qr_code: code, action: actionSel.value };
+      if (actionSel.value === 'Assign to Staff') payload.assignee = extraInput.value.trim();
+      if (actionSel.value === 'Move to Zone') payload.zone = extraInput.value.trim();
+      if (actionSel.value === 'PO Receipt' && extraInput.value.trim()) payload.po_number = extraInput.value.trim();
+      try {
+        const res = await fetch('/api/v1/assets/scan', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Scan failed');
+        let msg = `${data.action}: ${data.asset ? data.asset.name : code}`;
+        if (data.auto_created) msg += ' (auto-registered)';
+        if (data.auto_requisition) msg += ` — low stock! Requisition ${data.auto_requisition} created`;
+        setStatus(msg, true);
+      } catch (err) {
+        setStatus(err.message, false);
+      } finally {
+        setTimeout(() => { lastCode = ''; }, 2500);
+      }
+    }
+
+    async function startCamera() {
+      setStatus('Starting camera…');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+        await video.play();
+        scanning = true;
+        if ('BarcodeDetector' in window) {
+          const detector = new BarcodeDetector({ formats: ['qr_code'] });
+          const tick = async () => {
+            if (!scanning) return;
+            try {
+              const codes = await detector.detect(video);
+              if (codes.length) submitScan(codes[0].rawValue);
+            } catch (e) { /* frame not ready */ }
+            requestAnimationFrame(tick);
+          };
+          tick();
+          setStatus('Point the camera at a QR code.');
+        } else if (window.jsQR) {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const tick = () => {
+            if (!scanning) return;
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+              canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0);
+              const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const found = window.jsQR(img.data, img.width, img.height);
+              if (found && found.data) submitScan(found.data);
+            }
+            requestAnimationFrame(tick);
+          };
+          tick();
+          setStatus('Point the camera at a QR code.');
+        } else {
+          setStatus('Camera live, but no QR engine loaded — type the code manually.');
+        }
+      } catch (err) {
+        setStatus('Camera unavailable: ' + err.message + ' — use manual entry.', false);
+      }
+    }
+
+    function stopCamera() {
+      scanning = false;
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      video.srcObject = null;
+    }
+
+    function openModal() {
+      modal.classList.remove('hidden'); modal.classList.add('flex');
+      startCamera();
+    }
+    function closeModal() {
+      modal.classList.add('hidden'); modal.classList.remove('flex');
+      stopCamera(); setStatus(''); manualInput.value = '';
+    }
+
+    actionSel.addEventListener('change', () => {
+      const v = actionSel.value;
+      if (v === 'Assign to Staff') { extraWrap.classList.remove('hidden'); extraInput.placeholder = 'Employee name…'; }
+      else if (v === 'Move to Zone') { extraWrap.classList.remove('hidden'); extraInput.placeholder = 'Zone / aisle (e.g. A-02)…'; }
+      else if (v === 'PO Receipt') { extraWrap.classList.remove('hidden'); extraInput.placeholder = 'PO number (optional)…'; }
+      else { extraWrap.classList.add('hidden'); }
+    });
+
+    fab.addEventListener('click', openModal);
+    document.getElementById('quickScanClose').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    document.getElementById('quickScanManualGo').addEventListener('click', () => submitScan(manualInput.value.trim()));
+    manualInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitScan(manualInput.value.trim()); });
+  })();
 
   // Profile dropdown links are handled as regular HTML links (<a href="...">)
   // No JavaScript needed for navigation links in the dropdown

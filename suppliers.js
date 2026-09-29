@@ -2,193 +2,103 @@
 // SUPPLIER/VENDOR MANAGEMENT PAGE LOGIC
 // ==========================================
 
-const $ = (selector) => {
-  const element = document.querySelector(selector);
-  if (!element) {
-    console.warn(`Element not found: ${selector}`);
-    return null;
-  }
-  return element;
-};
-
+const $ = (selector) => document.querySelector(selector);
+const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-// ==========================================
-// SUPPLIER DATA LOADING
-// ==========================================
+let allSuppliers = [];
+
 async function loadSupplierData() {
+  const table = $('#supplierTable');
   try {
     const response = await api('suppliers');
-    const data = response.suppliers || response;
-    const suppliers = Array.isArray(data) ? data : [];
+    allSuppliers = Array.isArray(response.suppliers) ? response.suppliers : (Array.isArray(response) ? response : []);
 
-    // Calculate stats
-    const totalSuppliers = suppliers.length;
-    const avgRating = suppliers.length > 0 
-      ? (suppliers.reduce((sum, s) => sum + (s.rating || 0), 0) / suppliers.length).toFixed(1)
-      : '0.0';
-    const avgOnTime = suppliers.length > 0
-      ? Math.round(suppliers.reduce((sum, s) => sum + (s.on_time_rate || 0), 0) / suppliers.length)
-      : 0;
-    const avgDefect = suppliers.length > 0
-      ? Math.round(suppliers.reduce((sum, s) => sum + (s.defect_rate || 0), 0) / suppliers.length)
-      : 0;
+    const total = allSuppliers.length;
+    const topPerformers = allSuppliers.filter((s) => (s.rating || 0) >= 4).length;
+    const avgOnTime = total ? Math.round(allSuppliers.reduce((s, v) => s + (parseFloat(v.on_time_rate) || 0), 0) / total) : 0;
+    const avgDefect = total ? Math.round(allSuppliers.reduce((s, v) => s + (parseFloat(v.defect_rate) || 0), 0) / total) : 0;
 
-    // Update stats
-    $('#totalSuppliers').textContent = totalSuppliers;
-    $('#avgRating').textContent = avgRating;
-    $('#avgOnTime').textContent = `${avgOnTime}%`;
-    $('#avgDefect').textContent = `${avgDefect}%`;
+    setText('totalSuppliers', total);
+    setText('topPerformers', topPerformers);
+    setText('avgOnTime', avgOnTime + '%');
+    setText('avgDefect', avgDefect + '%');
 
-    // Render supplier table
-    renderSupplierTable(suppliers);
-
-    // Render top suppliers
-    renderTopSuppliers(suppliers);
-
-    // Render suppliers needing attention
-    renderAttentionSuppliers(suppliers);
+    renderSupplierTable(allSuppliers);
+    renderAttentionSuppliers(allSuppliers);
   } catch (error) {
     console.error('Error loading supplier data:', error);
+    if (table) table.innerHTML = '<p class="text-sm text-red-500 py-4">Could not load suppliers.</p>';
   }
 }
 
 function renderSupplierTable(suppliers) {
-  const tableHTML = `
-    <table class="data-table">
+  const el = $('#supplierTable');
+  if (!el) return;
+  if (!suppliers.length) {
+    el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No suppliers yet. Click "Add Supplier" to create one.</p>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="data-table w-full text-sm">
       <thead>
-        <tr>
-          <th>Supplier</th>
-          <th>Category</th>
-          <th>Rating</th>
-          <th>On-Time Rate</th>
-          <th>Defect Rate</th>
-          <th>Contact</th>
-          <th>Actions</th>
-        </tr>
+        <tr><th>Supplier</th><th>Category</th><th>Rating</th><th>On-Time</th><th>Defects</th><th>Contact</th></tr>
       </thead>
       <tbody>
-        ${suppliers.map(supplier => `
+        ${suppliers.map((s) => `
           <tr>
-            <td><b>${supplier.name}</b></td>
-            <td>${supplier.category}</td>
-            <td><span class="rating-star">★ ${supplier.rating.toFixed(1)}</span></td>
-            <td>
-              <div class="metric-bar">
-                <div class="metric-fill ${getPerformanceClass(supplier.on_time_rate, 90, 75)}" style="width: ${supplier.on_time_rate}%"></div>
-              </div>
-              <small>${supplier.on_time_rate}%</small>
-            </td>
-            <td>
-              <div class="metric-bar">
-                <div class="metric-fill ${getDefectClass(supplier.defect_rate, 5, 10)}" style="width: ${Math.min(supplier.defect_rate * 5, 100)}%"></div>
-              </div>
-              <small>${supplier.defect_rate}%</small>
-            </td>
-            <td>${supplier.email}</td>
-            <td>
-              <button class="action-btn" onclick="viewSupplier('${supplier.id}')">View</button>
-              <button class="action-btn" onclick="editSupplier('${supplier.id}')">Edit</button>
-            </td>
-          </tr>
-        `).join('')}
+            <td><b>${esc(s.name)}</b></td>
+            <td>${esc(s.category)}</td>
+            <td>★ ${(parseFloat(s.rating) || 0).toFixed(1)}</td>
+            <td>${esc(s.on_time_rate ?? 0)}%</td>
+            <td>${esc(s.defect_rate ?? 0)}%</td>
+            <td>${esc(s.email || s.phone || '—')}</td>
+          </tr>`).join('')}
       </tbody>
-    </table>
-  `;
-
-  $('#supplierTable').innerHTML = tableHTML;
-}
-
-function getPerformanceClass(value, excellent, good) {
-  if (value >= excellent) return 'performance-excellent';
-  if (value >= good) return 'performance-good';
-  return 'performance-poor';
-}
-
-function getDefectClass(value, poor, acceptable) {
-  if (value <= poor) return 'defect-excellent';
-  if (value <= acceptable) return 'defect-good';
-  return 'defect-poor';
-}
-
-function renderTopSuppliers(suppliers) {
-  const topSuppliers = [...suppliers]
-    .sort((a, b) => b.rating - a.rating)
-    .slice(0, 5);
-
-  const topHTML = topSuppliers.map((supplier, index) => `
-    <div class="row">
-      <div>
-        <b>${index + 1}. ${supplier.name}</b><br>
-        <small>${supplier.category} · ${supplier.on_time_rate}% on-time</small>
-      </div>
-      <div class="rating-badge">★ ${supplier.rating.toFixed(1)}</div>
-    </div>
-  `).join('');
-
-  $('#topSuppliers').innerHTML = topHTML;
+    </table>`;
 }
 
 function renderAttentionSuppliers(suppliers) {
-  const attentionSuppliers = suppliers.filter(s => 
-    s.on_time_rate < 75 || s.defect_rate > 10 || s.rating < 3.0
-  );
-
-  const attentionHTML = attentionSuppliers.map(supplier => `
-    <div class="row">
-      <div>
-        <b>${supplier.name}</b><br>
-        <small>${supplier.on_time_rate}% on-time · ${supplier.defect_rate}% defects</small>
-      </div>
-      <span class="tag status-pending">Needs Review</span>
-    </div>
-  `).join('');
-
-  $('#attentionSuppliers').innerHTML = attentionHTML || '<p class="muted">No suppliers need attention</p>';
+  const el = $('#attentionNeeded');
+  if (!el) return;
+  const attention = suppliers.filter((s) => (s.on_time_rate || 0) < 75 || (s.defect_rate || 0) > 10 || (s.rating || 5) < 3);
+  el.innerHTML = attention.length
+    ? attention.map((s) => `
+        <div class="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
+          <div>
+            <b class="text-sm">${esc(s.name)}</b>
+            <p class="text-xs text-slate-500">${s.on_time_rate || 0}% on-time · ${s.defect_rate || 0}% defects</p>
+          </div>
+          <span class="tag">Needs Review</span>
+        </div>`).join('')
+    : '<p class="text-sm text-slate-400 py-6 text-center">All suppliers performing well.</p>';
 }
 
 // ==========================================
-// EVENT LISTENERS & INTERACTION
+// EVENT LISTENERS
 // ==========================================
-
-// Add Supplier Button - open in-page modal
+const supplierModal = $('#addSupplierModal');
 const addSupplierBtn = $('#addSupplier');
-if (addSupplierBtn) {
-  addSupplierBtn.onclick = () => {
-    const modal = $('#addSupplierModal');
-    if (modal) {
-      if (typeof modal.showModal === 'function') modal.showModal();
-      else modal.setAttribute('open', 'open');
-    }
-  };
+if (addSupplierBtn && supplierModal) {
+  addSupplierBtn.onclick = () => supplierModal.showModal ? supplierModal.showModal() : supplierModal.setAttribute('open', 'open');
 }
-
 const closeSupplierModal = $('#closeSupplierModal');
-if (closeSupplierModal) {
-  closeSupplierModal.onclick = () => {
-    const modal = $('#addSupplierModal');
-    if (modal) {
-      if (typeof modal.close === 'function') modal.close();
-      else modal.removeAttribute('open');
-    }
-  };
+if (closeSupplierModal && supplierModal) {
+  closeSupplierModal.onclick = () => supplierModal.close ? supplierModal.close() : supplierModal.removeAttribute('open');
 }
 
 const addSupplierForm = $('#addSupplierForm');
 if (addSupplierForm) {
   addSupplierForm.onsubmit = async (e) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
-    const payload = Object.fromEntries(formData.entries());
-
     const response = await fetch('/api/v1/suppliers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())),
     });
-
     if (response.ok) {
-      $('#addSupplierModal').close();
+      supplierModal?.close?.();
       e.target.reset();
       loadSupplierData();
     } else {
@@ -198,15 +108,23 @@ if (addSupplierForm) {
   };
 }
 
+// Search + category filter
+const supplierSearch = $('#supplierSearch');
+const supplierCategoryFilter = $('#categoryFilter');
+function applySupplierFilters() {
+  const term = (supplierSearch?.value || '').toLowerCase();
+  const cat = supplierCategoryFilter?.value || '';
+  const filtered = allSuppliers.filter((s) => {
+    const matchesTerm = !term || `${s.name} ${s.email} ${s.category}`.toLowerCase().includes(term);
+    const matchesCat = !cat || s.category === cat;
+    return matchesTerm && matchesCat;
+  });
+  renderSupplierTable(filtered);
+}
+if (supplierSearch) supplierSearch.oninput = applySupplierFilters;
+if (supplierCategoryFilter) supplierCategoryFilter.onchange = applySupplierFilters;
 
-
-// Load supplier data on page load
-document.addEventListener("DOMContentLoaded", function() {
-    // Initialize permissions
-    if (typeof initializePermissions === "function") {
-        initializePermissions();
-    }
-    
-    // Load supplier data
-    loadSupplierData();
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof initializePermissions === 'function') initializePermissions();
+  loadSupplierData();
 });

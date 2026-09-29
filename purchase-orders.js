@@ -2,15 +2,8 @@
 // PURCHASE ORDER MANAGEMENT PAGE LOGIC
 // ==========================================
 
-const $ = (selector) => {
-  const element = document.querySelector(selector);
-  if (!element) {
-    console.warn(`Element not found: ${selector}`);
-    return null;
-  }
-  return element;
-};
-
+const $ = (selector) => document.querySelector(selector);
+const setStat = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 
 const money = (amount) =>
@@ -29,29 +22,16 @@ async function loadPOData() {
     const data = response.pos || response;
     const purchaseOrders = Array.isArray(data) ? data : [];
 
-    // Calculate stats
-    const activePOs = purchaseOrders.filter(po => po.status !== 'Received' && po.status !== 'Cancelled').length;
+    const totalPOs = purchaseOrders.length;
+    const activePipeline = purchaseOrders.filter(po => po.status !== 'Received' && po.status !== 'Cancelled').length;
     const pendingApproval = purchaseOrders.filter(po => po.status === 'Pending Approval').length;
-    const monthlyTotal = purchaseOrders
-      .filter(po => {
-        const poDate = new Date(po.created_at);
-        const now = new Date();
-        return poDate.getMonth() === now.getMonth() && poDate.getFullYear() === now.getFullYear();
-      })
-      .reduce((sum, po) => sum + (po.total || 0), 0);
-    const receivedCount = purchaseOrders.filter(po => {
-      const poDate = new Date(po.created_at);
-      const now = new Date();
-      return po.status === 'Received' && 
-             poDate.getMonth() === now.getMonth() && 
-             poDate.getFullYear() === now.getFullYear();
-    }).length;
+    const totalPOValue = purchaseOrders.reduce((sum, po) => sum + (parseFloat(po.total) || 0), 0);
 
     // Update stats
-    $('#activePOs').textContent = activePOs;
-    $('#pendingApproval').textContent = pendingApproval;
-    $('#monthlyTotal').textContent = money(monthlyTotal);
-    $('#receivedCount').textContent = receivedCount;
+    setStat('totalPOs', totalPOs);
+    setStat('activePipeline', activePipeline);
+    setStat('pendingApproval', pendingApproval);
+    setStat('totalPOValue', money(totalPOValue));
 
     // Render PO table
     renderPOTable(purchaseOrders);
@@ -73,6 +53,12 @@ async function loadPOData() {
 }
 
 function renderPOTable(purchaseOrders) {
+  const el = $('#poTable');
+  if (!el) return;
+  if (!purchaseOrders.length) {
+    el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No purchase orders yet.</p>';
+    return;
+  }
   const tableHTML = `
     <table class="data-table">
       <thead>
@@ -105,7 +91,7 @@ function renderPOTable(purchaseOrders) {
     </table>
   `;
 
-  $('#poTable').innerHTML = tableHTML;
+  el.innerHTML = tableHTML;
 }
 
 function getPOActionButtons(po) {
@@ -155,6 +141,8 @@ function getPOStatusClass(status) {
 }
 
 function renderPOPipeline(purchaseOrders) {
+  const el = $('#poPipeline');
+  if (!el) return;
   const pipelineStages = {
     'Draft': 0,
     'Pending Approval': 0,
@@ -182,10 +170,12 @@ function renderPOPipeline(purchaseOrders) {
     </div>
   `).join('');
 
-  $('#poPipeline').innerHTML = pipelineHTML;
+  el.innerHTML = pipelineHTML;
 }
 
 async function loadPOActivityLog() {
+  const el = $('#poActivityLog');
+  if (!el) return;
   try {
     const response = await api('pos/activity');
     const data = response.activities || response;
@@ -201,13 +191,15 @@ async function loadPOActivityLog() {
       </div>
     `).join('');
 
-    $('#poActivityLog').innerHTML = activityLogHTML || '<p class="muted">No activity recorded yet</p>';
+    el.innerHTML = activityLogHTML || '<p class="muted">No activity recorded yet</p>';
   } catch (error) {
     console.error('Error loading PO activity log:', error);
   }
 }
 
 function loadVendorSummary(purchaseOrders) {
+  const el = $('#vendorSummary');
+  if (!el) return;
   const vendorData = {};
   purchaseOrders.forEach(po => {
     if (!vendorData[po.vendor]) {
@@ -227,7 +219,7 @@ function loadVendorSummary(purchaseOrders) {
     </div>
   `).join('');
 
-  $('#vendorSummary').innerHTML = vendorHTML;
+  el.innerHTML = vendorHTML;
 }
 
 // ==========================================
@@ -293,9 +285,12 @@ if (addPOBtn) {
 }
 
 // Update Status Modal
-$('#closeStatus').onclick = () => $('#updateStatusModal').close();
+const statusModal = $('#updateStatusModal');
+const closeStatusBtn = $('#closeStatus');
+if (closeStatusBtn) closeStatusBtn.onclick = () => statusModal?.close?.();
 
-$('#updateStatusForm').onsubmit = async (e) => {
+const updateStatusForm = $('#updateStatusForm');
+if (updateStatusForm) updateStatusForm.onsubmit = async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
   const data = Object.fromEntries(formData);
@@ -307,7 +302,7 @@ $('#updateStatusForm').onsubmit = async (e) => {
   });
 
   if (response.ok) {
-    $('#updateStatusModal').close();
+    statusModal?.close?.();
     loadPOData();
   } else {
     alert('Failed to update PO status');
@@ -315,9 +310,12 @@ $('#updateStatusForm').onsubmit = async (e) => {
 };
 
 // Reject PO Modal
-$('#closeReject').onclick = () => $('#rejectPOModal').close();
+const rejectModal = $('#rejectPOModal');
+const closeRejectBtn = $('#closeReject');
+if (closeRejectBtn) closeRejectBtn.onclick = () => rejectModal?.close?.();
 
-$('#rejectPOForm').onsubmit = async (e) => {
+const rejectPOForm = $('#rejectPOForm');
+if (rejectPOForm) rejectPOForm.onsubmit = async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
   const data = Object.fromEntries(formData);
@@ -329,7 +327,7 @@ $('#rejectPOForm').onsubmit = async (e) => {
   });
 
   if (response.ok) {
-    $('#rejectPOModal').close();
+    rejectModal?.close?.();
     e.target.reset();
     loadPOData();
   } else {
@@ -338,9 +336,12 @@ $('#rejectPOForm').onsubmit = async (e) => {
 };
 
 // Mark Shipped Modal
-$('#closeShipped').onclick = () => $('#shippedModal').close();
+const shippedModal = $('#shippedModal');
+const closeShippedBtn = $('#closeShipped');
+if (closeShippedBtn) closeShippedBtn.onclick = () => shippedModal?.close?.();
 
-$('#shippedForm').onsubmit = async (e) => {
+const shippedForm = $('#shippedForm');
+if (shippedForm) shippedForm.onsubmit = async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
   const data = Object.fromEntries(formData);
@@ -354,7 +355,7 @@ $('#shippedForm').onsubmit = async (e) => {
   });
 
   if (response.ok) {
-    $('#shippedModal').close();
+    shippedModal?.close?.();
     e.target.reset();
     loadPOData();
   } else {
@@ -363,9 +364,12 @@ $('#shippedForm').onsubmit = async (e) => {
 };
 
 // Receive PO Modal
-$('#closeReceive').onclick = () => $('#receiveModal').close();
+const receiveModal = $('#receiveModal');
+const closeReceiveBtn = $('#closeReceive');
+if (closeReceiveBtn) closeReceiveBtn.onclick = () => receiveModal?.close?.();
 
-$('#receiveForm').onsubmit = async (e) => {
+const receiveForm = $('#receiveForm');
+if (receiveForm) receiveForm.onsubmit = async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
   const data = Object.fromEntries(formData);
@@ -379,7 +383,7 @@ $('#receiveForm').onsubmit = async (e) => {
   });
 
   if (response.ok) {
-    $('#receiveModal').close();
+    receiveModal?.close?.();
     e.target.reset();
     loadPOData();
     
@@ -390,16 +394,22 @@ $('#receiveForm').onsubmit = async (e) => {
   }
 };
 
-// Search functionality
-$('#searchPOs').oninput = (e) => {
-  const searchTerm = e.target.value.toLowerCase();
-  const rows = document.querySelectorAll('#poTable tbody tr');
-  
-  rows.forEach(row => {
+// Search + status filter (client-side)
+const poSearch = $('#poSearch');
+const poStatusFilter = $('#statusFilter');
+function applyPOFilters() {
+  const term = (poSearch?.value || '').toLowerCase();
+  const status = poStatusFilter?.value || '';
+  document.querySelectorAll('#poTable tbody tr').forEach((row) => {
     const text = row.textContent.toLowerCase();
-    row.style.display = text.includes(searchTerm) ? '' : 'none';
+    const rowStatus = row.querySelector('.tag:last-child')?.textContent?.trim() || '';
+    const matchesTerm = !term || text.includes(term);
+    const matchesStatus = !status || text.includes(status.toLowerCase());
+    row.style.display = (matchesTerm && matchesStatus) ? '' : 'none';
   });
-};
+}
+if (poSearch) poSearch.oninput = applyPOFilters;
+if (poStatusFilter) poStatusFilter.onchange = applyPOFilters;
 
 // PO action functions
 window.viewPO = async (poId) => {

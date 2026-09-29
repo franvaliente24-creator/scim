@@ -169,7 +169,21 @@
                                 </div>
                                 <div class="form-group">
                                     <label>Temporary password</label>
-                                    <input name="password" type="password" minlength="8" required placeholder="At least 8 characters">
+                                    <div class="relative">
+                                        <input id="newPassword" name="password" type="password" minlength="8" required placeholder="At least 8 characters" class="pr-10">
+                                        <button type="button" class="pw-eye absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" data-target="newPassword" aria-label="Show password">
+                                            <span class="material-symbols-outlined text-lg">visibility</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Confirm password</label>
+                                    <div class="relative">
+                                        <input id="confirmPassword" name="confirm_password" type="password" minlength="8" required placeholder="Re-enter the password" class="pr-10">
+                                        <button type="button" class="pw-eye absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" data-target="confirmPassword" aria-label="Show password">
+                                            <span class="material-symbols-outlined text-lg">visibility</span>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="form-group">
                                     <label>Role</label>
@@ -196,13 +210,30 @@
                     </div>
                 </div>
                 
+                <!-- Pending Admin Requests (password reset queue) -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Pending Requests</h2>
+                        <span id="requestsBadge" class="text-xs font-bold bg-red-100 text-red-600 px-2 py-1 rounded-full hidden">0</span>
+                    </div>
+                    <div id="adminRequests" class="p-6">
+                        <p class="text-on-surface-variant text-sm">No pending requests.</p>
+                    </div>
+                </div>
+
                 <!-- Login History -->
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between">
                         <h2 class="text-lg font-headline font-semibold text-on-surface">Login History</h2>
+                        <span id="historyTotal" class="text-xs text-on-surface-variant"></span>
                     </div>
                     <div id="loginHistory" class="p-6">
                         <p class="text-on-surface-variant text-sm">Loading login history...</p>
+                    </div>
+                    <div class="px-6 py-3 border-t border-outline-variant/30 flex items-center justify-between">
+                        <button id="historyPrev" class="text-sm font-medium text-primary disabled:opacity-40 flex items-center gap-1"><span class="material-symbols-outlined text-sm">chevron_left</span>Prev</button>
+                        <span id="historyPageInfo" class="text-xs text-on-surface-variant"></span>
+                        <button id="historyNext" class="text-sm font-medium text-primary disabled:opacity-40 flex items-center gap-1">Next<span class="material-symbols-outlined text-sm">chevron_right</span></button>
                     </div>
                 </div>
                 
@@ -246,8 +277,8 @@
     </div>
     
     <script src="permissions.js"></script>
-    <script src="layout.js"></script>
-    <script src="users.js"></script>
+    <script src="layout.js?v=6"></script>
+    <script src="users.js?v=6"></script>
     <script src="inactivity.js"></script>
 </body>
 </html>

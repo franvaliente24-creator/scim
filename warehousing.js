@@ -400,12 +400,8 @@ if (refreshWarehouseBtn) {
 const viewAllScansBtn = $('#viewAllScans');
 if (viewAllScansBtn) {
   viewAllScansBtn.onclick = async () => {
-    await loadWarehouseData(true);
-    // Scroll to scans section
-    const scansTable = $('#recentScans');
-    if (scansTable) {
-      scansTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    await loadRecentScans();
+    $('#recentScansList')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 }
 

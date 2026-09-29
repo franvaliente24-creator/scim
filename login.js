@@ -22,21 +22,51 @@ if (togglePasswordBtn) {
   };
 }
 
-// Forgot Password Modal
+// Forgot Password — notify the administrator for a reset
 const forgotLink = document.querySelector('#forgotPassword');
 const forgotModal = document.querySelector('#forgotModal');
 const forgotModalClose = document.querySelector('#forgotModalClose');
+const forgotModalSend = document.querySelector('#forgotModalSend');
+const forgotEmail = document.querySelector('#forgotEmail');
+const forgotStatus = document.querySelector('#forgotStatus');
 
 if (forgotLink && forgotModal) {
   forgotLink.onclick = (e) => {
     e.preventDefault();
+    forgotEmail.value = form.email?.value || '';
+    forgotStatus.textContent = '';
     forgotModal.classList.remove('hidden');
   };
-  
+
   const closeModal = () => forgotModal.classList.add('hidden');
   forgotModalClose.onclick = closeModal;
   forgotModal.onclick = (e) => { if (e.target === forgotModal) closeModal(); };
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+  forgotModalSend.onclick = async () => {
+    forgotModalSend.disabled = true;
+    forgotModalSend.textContent = 'Sending...';
+    forgotStatus.style.color = '#64748b';
+    forgotStatus.textContent = '';
+    try {
+      const res = await fetch('/api/v1/auth/reset-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.value.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed.');
+      forgotStatus.style.color = '#059669';
+      forgotStatus.textContent = 'Administrator notified. You will be contacted once your credentials are reset.';
+      forgotModalSend.style.display = 'none';
+    } catch (err) {
+      forgotStatus.style.color = '#dc2626';
+      forgotStatus.textContent = err.message;
+    } finally {
+      forgotModalSend.disabled = false;
+      forgotModalSend.textContent = 'Notify Admin';
+    }
+  };
 }
 
 // Form Submission / Sign In Handler

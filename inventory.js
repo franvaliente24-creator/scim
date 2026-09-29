@@ -38,26 +38,28 @@ function showError(containerId, message) {
 
 // Initialize permissions on page load
 document.addEventListener('DOMContentLoaded', async () => {
-  // Show loading states
-  showLoading('#assetsContainer');
-  
+  showLoading('#assetTable');
+
   try {
     await initializePermissions();
     await loadInventoryData();
   } catch (error) {
     console.error('Error initializing page:', error);
-    showError('#assetsContainer', 'Failed to load data. Please refresh the page.');
+    showError('#assetTable', 'Failed to load data. Please refresh the page.');
   }
 });
 
 // ==========================================
 // INVENTORY DATA LOADING
 // ==========================================
+let allAssets = [];
+
 async function loadInventoryData() {
   try {
     const response = await api('inventory/assets');
     const data = response.assets || response;
     const assets = Array.isArray(data) ? data : [];
+    allAssets = assets;
 
     // Calculate stats
     const totalAssets = assets.length;
@@ -89,6 +91,12 @@ async function loadInventoryData() {
 }
 
 function renderAssetTable(assets) {
+  const el = $('#assetTable');
+  if (!el) return;
+  if (!assets.length) {
+    el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No assets found. Click "Add Asset" to register one.</p>';
+    return;
+  }
   const tableHTML = `
     <table class="data-table">
       <thead>
@@ -121,7 +129,7 @@ function renderAssetTable(assets) {
     </table>
   `;
 
-  $('#assetTable').innerHTML = tableHTML;
+  el.innerHTML = tableHTML;
 }
 
 function escapeHTML(value) {
@@ -243,7 +251,8 @@ function renderAssetCategories(assets) {
     </div>
   `).join('');
 
-  $('#assetCategories').innerHTML = categoriesHTML;
+  const categoriesEl = $('#assetCategories');
+  if (categoriesEl) categoriesEl.innerHTML = categoriesHTML;
 }
 
 async function loadRecentTransactions(showAll = false) {
@@ -334,13 +343,24 @@ if (addAssetBtn) {
 const viewAllTransactionsBtn = $('#viewAllTransactions');
 if (viewAllTransactionsBtn) {
   viewAllTransactionsBtn.onclick = async () => {
-    // Reload transactions without limit
     await loadRecentTransactions(true);
-    // Scroll to transactions section
-    const transactionTable = $('#transactionTable');
-    if (transactionTable) {
-      transactionTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    $('#transactionTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 }
+
+// Asset search + category filter (client-side)
+const assetSearchInput = $('#assetSearch');
+const assetCategoryFilter = $('#categoryFilter');
+function applyAssetFilters() {
+  const term = (assetSearchInput?.value || '').toLowerCase();
+  const cat = assetCategoryFilter?.value || '';
+  const filtered = allAssets.filter((a) => {
+    const matchesTerm = !term || `${a.qr_code} ${a.name} ${a.location}`.toLowerCase().includes(term);
+    const matchesCat = !cat || a.category === cat;
+    return matchesTerm && matchesCat;
+  });
+  renderAssetTable(filtered);
+}
+if (assetSearchInput) assetSearchInput.oninput = applyAssetFilters;
+if (assetCategoryFilter) assetCategoryFilter.onchange = applyAssetFilters;
 
