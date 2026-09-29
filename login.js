@@ -43,6 +43,14 @@ form.onsubmit = async (e) => {
       throw new Error(data.error || 'Unable to sign in.');
     }
 
+    // Check if 2FA is required
+    if (data.requires_2fa) {
+      // Store email in sessionStorage for OTP page
+      sessionStorage.setItem('mfa_email', data.email || '');
+      window.location.href = 'otp.html';
+      return;
+    }
+
     // Direct login without 2FA
     window.location.href = 'index.html';
   } catch (err) {

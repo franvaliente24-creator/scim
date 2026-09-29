@@ -27,15 +27,15 @@ document.addEventListener('DOMContentLoaded', () => {
     otpError.textContent = '';
     
     try {
-      const response = await fetch('/api/v1/auth/verify-otp', {
+      const response = await fetch('/api/v1/mfa/login-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ otp }),
+        body: JSON.stringify({ code: otp }),
       });
       
       const data = await response.json();
       
-      if (response.ok) {
+      if (response.ok && data.ok) {
         // OTP verified, redirect to dashboard
         window.location.href = 'index.html';
       } else {
@@ -47,26 +47,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   
-  // Resend OTP (optional functionality)
-  const resendButton = document.querySelector('.resend-otp');
-  if (resendButton) {
-    resendButton.addEventListener('click', async (e) => {
+  // Back to login link
+  const backToLogin = document.querySelector('.back-to-login');
+  if (backToLogin) {
+    backToLogin.addEventListener('click', (e) => {
       e.preventDefault();
-      
-      try {
-        const response = await fetch('/api/v1/auth/resend-otp', {
-          method: 'POST',
-        });
-        
-        if (response.ok) {
-          alert('A new OTP has been sent to your email.');
-        } else {
-          alert('Failed to resend OTP. Please try again.');
-        }
-      } catch (error) {
-        console.error('Resend OTP error:', error);
-        alert('An error occurred. Please try again.');
-      }
+      window.location.href = 'login.html';
     });
   }
 });

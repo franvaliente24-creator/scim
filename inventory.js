@@ -12,7 +12,6 @@ const $ = (selector) => {
 };
 
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
-  await video.play();
 
 const money = (amount) =>
   new Intl.NumberFormat('en-PH', {
@@ -247,16 +246,19 @@ function renderAssetCategories(assets) {
   $('#assetCategories').innerHTML = categoriesHTML;
 }
 
-async function loadRecentTransactions() {
+async function loadRecentTransactions(showAll = false) {
   try {
     const response = await api('inventory/transactions');
     const data = response.transactions || response;
     const transactions = Array.isArray(data) ? data : [];
+    
+    // Limit to 5 items unless showAll is true
+    const displayTransactions = showAll ? transactions : transactions.slice(0, 5);
 
     const transactionTableEl = $('#transactionTable');
     if (!transactionTableEl) return;
 
-    const transactionsHTML = transactions.map(transaction => `
+    const transactionsHTML = displayTransactions.map(transaction => `
       <div class="row">
         <div>
           <b>${transaction.action}</b><br>
@@ -331,8 +333,14 @@ if (addAssetBtn) {
 // View All Transactions Button
 const viewAllTransactionsBtn = $('#viewAllTransactions');
 if (viewAllTransactionsBtn) {
-  viewAllTransactionsBtn.onclick = () => {
-    window.location.href = 'documents.html';
+  viewAllTransactionsBtn.onclick = async () => {
+    // Reload transactions without limit
+    await loadRecentTransactions(true);
+    // Scroll to transactions section
+    const transactionTable = $('#transactionTable');
+    if (transactionTable) {
+      transactionTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 }
 

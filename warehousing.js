@@ -396,11 +396,16 @@ if (refreshWarehouseBtn) {
   };
 }
 
-// View All button
+// View All button - reload all scans
 const viewAllScansBtn = $('#viewAllScans');
 if (viewAllScansBtn) {
-  viewAllScansBtn.onclick = () => {
-    window.location.href = 'documents.html'; // Or dedicated scans page
+  viewAllScansBtn.onclick = async () => {
+    await loadWarehouseData(true);
+    // Scroll to scans section
+    const scansTable = $('#recentScans');
+    if (scansTable) {
+      scansTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 }
 

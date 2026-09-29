@@ -594,6 +594,20 @@ if ($method === 'POST' && $path === '/api/v1/auth/login') {
         reply(['error' => 'Invalid email or password.'], 401);
     }
 
+    // Check if MFA is enabled
+    if ($u['mfa_enabled']) {
+        // Store user ID in session for MFA verification
+        $_SESSION['mfa_user_id'] = (int)$u['id'];
+        $_SESSION['mfa_email'] = $u['email'];
+        
+        reply([
+            'requires_2fa' => true,
+            'message' => 'Please enter your verification code',
+            'email' => $u['email']
+        ]);
+    }
+
+    // No MFA - direct login
     session_regenerate_id(true);
     $_SESSION['user'] = [
         'id' => (int)$u['id'],
@@ -872,16 +886,22 @@ if ($method === 'POST' && $path === '/api/v1/mfa/disable') {
 if ($method === 'POST' && $path === '/api/v1/mfa/login-verify') {
     $x = body();
     
-    if (empty($x['code']) || empty($x['user_id'])) {
-        reply(['error' => 'Missing required fields'], 400);
+    if (empty($x['code'])) {
+        reply(['error' => 'Verification code required'], 400);
+    }
+    
+    // Check if user_id is in session (from login attempt)
+    $userId = $_SESSION['mfa_user_id'] ?? null;
+    if (!$userId) {
+        reply(['error' => 'Invalid session. Please login again.'], 401);
     }
     
     $d = db();
-    $q = $d->prepare('SELECT mfa_secret FROM users WHERE id = ?');
-    $q->execute([$x['user_id']]);
+    $q = $d->prepare('SELECT * FROM users WHERE id = ?');
+    $q->execute([$userId]);
     $user = $q->fetch(PDO::FETCH_ASSOC);
     
-    if (empty($user['mfa_secret'])) {
+    if (!$user || empty($user['mfa_secret'])) {
         reply(['error' => 'MFA not enabled for this user'], 400);
     }
     
@@ -889,7 +909,23 @@ if ($method === 'POST' && $path === '/api/v1/mfa/login-verify') {
         reply(['error' => 'Invalid MFA code'], 401);
     }
     
-    reply(['ok' => true]);
+    // MFA verified - create session
+    session_regenerate_id(true);
+    $_SESSION['user'] = [
+        'id' => (int)$user['id'],
+        'name' => $user['full_name'],
+        'email' => $user['email'],
+        'role' => $user['role'],
+        'initials' => strtoupper(substr($user['full_name'], 0, 1))
+    ];
+    
+    // Clear MFA session data
+    unset($_SESSION['mfa_user_id'], $_SESSION['mfa_email']);
+    
+    // Log successful login
+    audit($d, $user['email'], true, (int)$user['id']);
+    
+    reply(['ok' => true, 'user' => currentUser()]);
 }
 
 // Simplified TOTP verification (in production, use a proper library like Spomky-Labs/otphp)

@@ -332,8 +332,13 @@ window.signDocument = async (docId) => {
 // View All Receipts Button
 const viewAllReceiptsBtn = $('#viewAllReceipts');
 if (viewAllReceiptsBtn) {
-  viewAllReceiptsBtn.onclick = () => {
-    window.location.href = 'documents.html';
+  viewAllReceiptsBtn.onclick = async () => {
+    await loadDocumentData(true);
+    // Scroll to receipts section
+    const receiptsTable = $('#courierReceipts');
+    if (receiptsTable) {
+      receiptsTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 }
 

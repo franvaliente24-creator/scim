@@ -23,11 +23,14 @@ const money = (amount) =>
 // ==========================================
 // PROCUREMENT DATA LOADING
 // ==========================================
-async function loadProcurementData() {
+async function loadProcurementData(showAll = false) {
   try {
     const response = await api('procurement/requisitions');
     const data = response.requisitions || response;
     const requisitions = Array.isArray(data) ? data : [];
+    
+    // Limit display unless showAll is true
+    const displayRequisitions = showAll ? requisitions : requisitions.slice(0, 10);
 
     // Calculate stats
     const activeRequisitions = requisitions.filter(req => req.status !== 'Completed' && req.status !== 'Cancelled').length;
@@ -48,7 +51,7 @@ async function loadProcurementData() {
     $('#approvedRequests').textContent = approvedRequests;
 
     // Render requisition table
-    renderRequisitionTable(requisitions);
+    renderRequisitionTable(displayRequisitions);
 
     // Render sourcing pipeline
     renderSourcingPipeline(requisitions);
@@ -158,13 +161,16 @@ function renderSourcingPipeline(requisitions) {
   $('#sourcingPipeline').innerHTML = pipelineHTML;
 }
 
-async function loadRecentQuotes() {
+async function loadRecentQuotes(showAll = false) {
   try {
     const response = await api('procurement/quotes');
     const data = response.quotes || response;
     const quotes = Array.isArray(data) ? data : [];
+    
+    // Limit display unless showAll is true
+    const displayQuotes = showAll ? quotes : quotes.slice(0, 5);
 
-    const quotesHTML = quotes.map(quote => `
+    const quotesHTML = displayQuotes.map(quote => `
       <div class="row">
         <div>
           <b>${quote.vendor}</b><br>
@@ -235,16 +241,28 @@ if (addRequisitionForm) {
 // View All Requisitions Button
 const viewAllRequisitionsBtn = $('#viewAllRequisitions');
 if (viewAllRequisitionsBtn) {
-  viewAllRequisitionsBtn.onclick = () => {
-    window.location.href = 'documents.html';
+  viewAllRequisitionsBtn.onclick = async () => {
+    // Reload requisitions to show all
+    await loadProcurementData(true);
+    // Scroll to requisitions section
+    const requisitionsTable = $('#requisitionsTable');
+    if (requisitionsTable) {
+      requisitionsTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 }
 
 // View All Quotes Button
 const viewAllQuotesBtn = $('#viewAllQuotes');
 if (viewAllQuotesBtn) {
-  viewAllQuotesBtn.onclick = () => {
-    window.location.href = 'documents.html';
+  viewAllQuotesBtn.onclick = async () => {
+    // Reload quotes to show all
+    await loadRecentQuotes(true);
+    // Scroll to quotes section
+    const quotesTable = $('#quotesTable');
+    if (quotesTable) {
+      quotesTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 }
 
