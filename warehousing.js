@@ -388,5 +388,21 @@ if (scanNow) {
   };
 }
 
+// Refresh button
+const refreshWarehouseBtn = $('#refreshWarehouse');
+if (refreshWarehouseBtn) {
+  refreshWarehouseBtn.onclick = () => {
+    loadWarehouseData();
+  };
+}
+
+// View All button
+const viewAllScansBtn = $('#viewAllScans');
+if (viewAllScansBtn) {
+  viewAllScansBtn.onclick = () => {
+    window.location.href = 'documents.html'; // Or dedicated scans page
+  };
+}
+
 // Load warehouse data on page load
 loadWarehouseData();

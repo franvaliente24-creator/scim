@@ -39,11 +39,10 @@
 }
 
 .logo-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: #4f46e5;
-  color: white;
+  width: 96px;
+  height: 96px;
+  border-radius: 16px;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;

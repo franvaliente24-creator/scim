@@ -150,10 +150,6 @@
                             <p class="text-on-surface-variant text-sm mt-2">Manage vendor relationships and performance metrics.</p>
                         </div>
                         <div class="flex flex-wrap items-center justify-start sm:justify-end gap-3 shrink-0">
-                            <button id="mobileBtn" class="btn-secondary dashboard-action-button m-0">
-                                <span class="material-symbols-outlined">qr_code_scanner</span>
-                                Mobile Scanner
-                            </button>
                             <button id="addSupplier" class="btn-primary dashboard-action-button m-0">
                                 <span class="material-symbols-outlined">add</span>
                                 Add Supplier
@@ -241,34 +237,6 @@
             </form>
         </div>
     </dialog>
-
-    <!-- Scanner Dialog Modal -->
-    <dialog id="scanner">
-        <div class="scanner">
-            <button id="closeScan" class="close">×</button>
-            <p class="live" id="scannerStatus">● Initializing camera...</p>
-            <div class="viewport">
-                <video id="cameraPreview" autoplay playsinline muted></video>
-                <canvas id="qrCanvas" style="display:none;"></canvas>
-                <div id="cameraFallback" class="camera-fallback">
-                    <span>📷</span>
-                    <p>Camera access required</p>
-                    <button id="enableCamera" class="action-btn">Enable Camera</button>
-                </div>
-            </div>
-            <h2>Warehouse Scanner</h2>
-            <div class="modes">
-                <button class="mode-btn active" data-mode="Inventory Intake">Inventory Intake</button>
-                <button class="mode-btn" data-mode="Asset Transfer">Asset Transfer</button>
-                <button class="mode-btn" data-mode="Contractor Check-Out">Contractor Check-Out</button>
-            </div>
-            <label>QR code
-                <input id="qr" placeholder="QR-LAP-001">
-            </label>
-            <button id="scanNow">Record scan</button>
-            <p id="scanResult"></p>
-        </div>
-    
     <script src="layout.js"></script>
     <script src="permissions.js"></script>
     <script src="suppliers.js?v=4"></script>

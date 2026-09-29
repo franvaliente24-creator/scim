@@ -150,10 +150,6 @@
                             <p class="text-on-surface-variant text-sm mt-2">Manage requisitions, supplier quotes, and sourcing pipeline.</p>
                         </div>
                         <div class="flex flex-wrap items-center justify-start sm:justify-end gap-3 shrink-0">
-                            <button id="mobileBtn" class="btn-secondary dashboard-action-button m-0">
-                                <span class="material-symbols-outlined">qr_code_scanner</span>
-                                Mobile Scanner
-                            </button>
                             <button id="addRequisition" class="btn-primary dashboard-action-button m-0">
                                 <span class="material-symbols-outlined">add</span>
                                 New Requisition
@@ -191,7 +187,7 @@
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                         <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
                             <h2 class="text-lg font-headline font-semibold text-on-surface">Requisitions</h2>
-                            <button class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
+                            <button id="viewAllRequisitions" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
                                 View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
                             </button>
                         </div>
@@ -202,7 +198,7 @@
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                         <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
                             <h2 class="text-lg font-headline font-semibold text-on-surface">Supplier Quotes</h2>
-                            <button class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
+                            <button id="viewAllQuotes" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
                                 View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
                             </button>
                         </div>
@@ -256,33 +252,6 @@
                 </label>
                 <button type="submit">Save Requisition</button>
             </form>
-        </div>
-    </dialog>
-
-    <!-- Scanner Dialog Modal -->
-    <dialog id="scanner">
-        <div class="scanner">
-            <button id="closeScan" class="close">×</button>
-            <p class="live" id="scannerStatus">● Initializing camera...</p>
-            <div class="viewport">
-                <video id="cameraPreview" autoplay playsinline muted></video>
-                <canvas id="qrCanvas" style="display:none;"></canvas>
-                <div id="cameraFallback" class="camera-fallback">
-                    <p>Camera access required</p>
-                    <button id="enableCamera" class="action-btn">Enable Camera</button>
-                </div>
-            </div>
-            <h2>Warehouse Scanner</h2>
-            <div class="modes">
-                <button class="mode-btn active" data-mode="Inventory Intake">Inventory Intake</button>
-                <button class="mode-btn" data-mode="Asset Transfer">Asset Transfer</button>
-                <button class="mode-btn" data-mode="Contractor Check-Out">Contractor Check-Out</button>
-            </div>
-            <label>QR code
-                <input id="qr" placeholder="QR-LAP-001">
-            </label>
-            <button id="scanNow">Record scan</button>
-            <p id="scanResult"></p>
         </div>
     </dialog>
     

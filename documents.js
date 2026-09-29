@@ -267,176 +267,6 @@ $('#searchDocuments').oninput = (e) => {
   });
 };
 
-// Scanner Modal Controls
-const mobileBtn = $('#mobileBtn');
-if (mobileBtn) {
-  mobileBtn.onclick = () => {
-    const scanner = $('#scanner');
-    if (scanner) {
-      if (typeof scanner.showModal === 'function') {
-        scanner.showModal();
-      } else {
-        scanner.setAttribute('open', 'open');
-      }
-      initializeCamera();
-    }
-  };
-}
-
-const closeScan = $('#closeScan');
-if (closeScan) {
-  closeScan.onclick = () => {
-    stopCamera();
-    const scanner = $('#scanner');
-    if (scanner) {
-      if (typeof scanner.close === 'function') {
-        scanner.close();
-      } else {
-        scanner.removeAttribute('open');
-      }
-    }
-  };
-}
-
-let currentAction = 'Inventory Intake';
-let cameraStream = null;
-
-async function initializeCamera() {
-  const video = $('#cameraPreview');
-  const fallback = $('#cameraFallback');
-  const status = $('#scannerStatus');
-
-  if (!video || !fallback || !status) return;
-
-  try {
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      });
-      
-      cameraStream = stream;
-      video.srcObject = stream;
-      video.style.display = 'block';
-      fallback.style.display = 'none';
-      status.textContent = '● Camera active';
-      status.style.color = '#059669';
-      
-      startQRDetection();
-    } else {
-      throw new Error('Camera API not available');
-    }
-  } catch (error) {
-    console.error('Camera access error:', error);
-    video.style.display = 'none';
-    fallback.style.display = 'grid';
-    status.textContent = '● Camera unavailable';
-    status.style.color = '#dc2626';
-  }
-}
-
-function stopCamera() {
-  if (cameraStream) {
-    cameraStream.getTracks().forEach(track => track.stop());
-    cameraStream = null;
-  }
-  const video = $('#cameraPreview');
-  const fallback = $('#cameraFallback');
-  const status = $('#scannerStatus');
-  
-  if (video) video.style.display = 'none';
-  if (fallback) fallback.style.display = 'grid';
-  if (status) {
-    status.textContent = '● Camera stopped';
-    status.style.color = '#64748b';
-  }
-}
-
-const enableCamera = $('#enableCamera');
-if (enableCamera) {
-  enableCamera.onclick = () => {
-    initializeCamera();
-  };
-}
-
-const modeButtons = document.querySelectorAll('.mode-btn');
-modeButtons.forEach((btn) => {
-  btn.onclick = () => {
-    modeButtons.forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentAction = btn.dataset.mode;
-  };
-});
-
-function startQRDetection() {
-  const video = $('#cameraPreview');
-  const canvas = $('#qrCanvas');
-  const resultEl = $('#scanResult');
-
-  if (!video || !canvas || !cameraStream || !window.jsQR) {
-    return;
-  }
-
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const detect = () => {
-    if (video.readyState === video.HAVE_CURRENT_DATA) {
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = window.jsQR(imageData.data, imageData.width, imageData.height);
-
-      if (code) {
-        const qrInput = $('#qr');
-        if (qrInput) {
-          qrInput.value = code.data;
-        }
-        if (resultEl) {
-          resultEl.textContent = `QR detected: ${code.data}`;
-        }
-        return;
-      }
-    }
-
-    requestAnimationFrame(detect);
-  };
-
-  requestAnimationFrame(detect);
-}
-
-const scanNow = $('#scanNow');
-if (scanNow) {
-  scanNow.onclick = async () => {
-    const qrInput = $('#qr');
-    const scanResult = $('#scanResult');
-    
-    if (!qrInput) return;
-    
-    const response = await fetch('/api/v1/assets/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        qr_code: qrInput.value,
-        action: currentAction,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (scanResult) {
-      scanResult.textContent = response.ok
-        ? `${data.asset.name} recorded for ${currentAction}.`
-        : data.error;
-    }
-
-    if (response.ok) {
-      loadDocumentData();
-    }
-  };
-}
 
 // Document action functions
 window.viewDocument = async (docId) => {
@@ -498,6 +328,14 @@ window.signDocument = async (docId) => {
   }
 };
 
+
+// View All Receipts Button
+const viewAllReceiptsBtn = $('#viewAllReceipts');
+if (viewAllReceiptsBtn) {
+  viewAllReceiptsBtn.onclick = () => {
+    window.location.href = 'documents.html';
+  };
+}
 
 // Load document data on page load
 document.addEventListener("DOMContentLoaded", function() {

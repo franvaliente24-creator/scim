@@ -3,14 +3,30 @@
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('Layout.js loaded'); // Debug log
+  
   // Sidebar Toggle Functionality
   const sidebarToggle = document.getElementById('desktop-sidebar-toggle');
   const sidebar = document.getElementById('app-sidebar');
   const sidebarBackdrop = document.getElementById('sidebar-backdrop');
   const sidebarToggleIcon = document.getElementById('sidebar-toggle-icon');
+  
+  console.log('Sidebar elements:', { sidebarToggle, sidebar, sidebarBackdrop, sidebarToggleIcon }); // Debug log
+  
+  if (!sidebarToggle) {
+    console.error('Sidebar toggle button not found');
+    return;
+  }
+  
+  if (!sidebar) {
+    console.error('Sidebar element not found');
+    return;
+  }
+  
   let sidebarOpen = false;
 
   function toggleSidebar() {
+    console.log('Toggle sidebar called, current state:', sidebarOpen); // Debug log
     sidebarOpen = !sidebarOpen;
     
     if (sidebarOpen) {
@@ -40,15 +56,14 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // On desktop, toggle collapsed state instead of mobile behavior
-  if (sidebarToggle) {
-    sidebarToggle.addEventListener('click', () => {
-      if (window.innerWidth >= 768) {
-        toggleDesktopSidebar();
-      } else {
-        toggleSidebar();
-      }
-    });
-  }
+  sidebarToggle.addEventListener('click', () => {
+    console.log('Sidebar toggle clicked, window width:', window.innerWidth); // Debug log
+    if (window.innerWidth >= 768) {
+      toggleDesktopSidebar();
+    } else {
+      toggleSidebar();
+    }
+  });
 
   // Close sidebar when clicking backdrop
   if (sidebarBackdrop) {

@@ -194,7 +194,7 @@
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
                         <h2 class="text-lg font-headline font-semibold text-on-surface">Warehouse Occupancy Grid</h2>
-                        <button class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
+                        <button id="refreshWarehouse" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
                             Refresh <span class="material-symbols-outlined text-sm">refresh</span>
                         </button>
                     </div>
@@ -207,7 +207,7 @@
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
                         <h2 class="text-lg font-headline font-semibold text-on-surface">Recent QR Scans</h2>
-                        <button class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
+                        <button id="viewAllScans" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
                             View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
                         </button>
                     </div>
@@ -267,7 +267,6 @@
         </div>
     </dialog>
     
-    <script src="layout.js"></script>
     <script src="warehousing.js?v=5"></script>
     <script src="inactivity.js"></script>
 </body>

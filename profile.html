@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Profile | Great Solomon SCIM</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="layout.js" defer></script>
+    <script src="permissions.js" defer></script>
+    <script src="profile.js" defer></script>
+    <style>
+        .profile-card {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .profile-field {
+            padding: 1rem 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .profile-field:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body class="bg-surface-dim font-body text-on-surface">
+    <!-- Sidebar -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+    <aside id="app-sidebar" class="sidebar">
+        <div class="sidebar-header">
+            <div class="flex items-center justify-center py-4">
+                <img src="img/logo.png" alt="Great Solomon Logo" class="w-12 h-12 object-contain">
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-nav-section">
+                <a id="dashboardLink" class="sidebar-subsystem-link" href="index.html">
+                    <span class="material-symbols-outlined">dashboard</span>
+                    <span>Dashboard</span>
+                </a>
+            </div>
+            <div class="sidebar-nav-section">
+                <a id="warehousingLink" class="sidebar-subsystem-link" href="warehousing.html">
+                    <span class="material-symbols-outlined">warehouse</span>
+                    <span>Smart Warehousing</span>
+                </a>
+            </div>
+            <div class="sidebar-nav-section">
+                <a id="inventoryLink" class="sidebar-subsystem-link" href="inventory.html">
+                    <span class="material-symbols-outlined">inventory_2</span>
+                    <span>Inventory Management</span>
+                </a>
+            </div>
+            <div class="sidebar-nav-section">
+                <a id="procurementLink" class="sidebar-subsystem-link" href="procurement.html">
+                    <span class="material-symbols-outlined">shopping_cart</span>
+                    <span>Procurement & Sourcing</span>
+                </a>
+            </div>
+            <div class="sidebar-nav-section">
+                <a id="suppliersLink" class="sidebar-subsystem-link" href="suppliers.html">
+                    <span class="material-symbols-outlined">groups</span>
+                    <span>Supplier Management</span>
+                </a>
+            </div>
+            <div class="sidebar-nav-section">
+                <a id="purchaseOrdersLink" class="sidebar-subsystem-link" href="purchase-orders.html">
+                    <span class="material-symbols-outlined">receipt_long</span>
+                    <span>Purchase Orders</span>
+                </a>
+            </div>
+            <div class="sidebar-nav-section">
+                <a id="documentsLink" class="sidebar-subsystem-link" href="documents.html">
+                    <span class="material-symbols-outlined">description</span>
+                    <span>Documents & Logistics</span>
+                </a>
+            </div>
+            <div class="sidebar-nav-section">
+                <a id="usersLink" class="sidebar-subsystem-link" href="users.html">
+                    <span class="material-symbols-outlined">manage_accounts</span>
+                    <span>User Management</span>
+                </a>
+            </div>
+            <div class="sidebar-nav-section">
+                <a id="mfaSetupLink" class="sidebar-subsystem-link" href="mfa-setup.html">
+                    <span class="material-symbols-outlined">security</span>
+                    <span>Security & MFA</span>
+                </a>
+            </div>
+        </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Top Header -->
+        <header class="top-header">
+            <button id="desktop-sidebar-toggle" type="button" class="flex items-center justify-center p-2 rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low focus:outline-none transition border border-outline-variant/30 shrink-0 min-w-[2.5rem] min-h-[2.5rem]" title="Toggle Sidebar">
+                <span id="sidebar-toggle-icon" class="material-symbols-outlined">menu</span>
+            </button>
+            <div class="flex items-center gap-3">
+                <img src="img/logo.png" alt="Great Solomon Logo" class="w-12 h-12 object-contain">
+            </div>
+            <div class="flex-1"></div>
+            <button id="profile-dropdown-toggle" type="button" class="flex items-center gap-3 p-1.5 rounded-full hover:bg-surface-container-low transition-colors focus:outline-none border border-transparent hover:border-outline-variant/30 cursor-pointer" aria-expanded="false" title="Account Menu">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center overflow-hidden">
+                        <img id="headerProfileImg" src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
+                    </div>
+                    <div class="hidden md:block text-left">
+                        <div class="text-sm font-medium text-on-surface">User</div>
+                        <div class="text-xs text-on-surface-variant" id="headerUserRole">User</div>
+                    </div>
+                    <span class="material-symbols-outlined text-on-surface-variant">expand_more</span>
+                </div>
+            </button>
+            <!-- Profile Dropdown -->
+            <div id="profile-dropdown-menu" class="profile-dropdown hidden">
+                <div class="profile-dropdown-header">
+                    <div class="w-12 h-12 rounded-full bg-primary flex items-center justify-center overflow-hidden mb-3">
+                        <img id="dropdownProfileImg" src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
+                    </div>
+                    <div class="text-sm font-medium text-on-surface" id="dropdownUserName">User</div>
+                    <div class="text-xs text-on-surface-variant" id="dropdownUserEmail">user@example.com</div>
+                </div>
+                <div class="profile-dropdown-divider"></div>
+                <a href="profile.html" class="profile-dropdown-item">
+                    <span class="material-symbols-outlined">person</span>
+                    <span>My Profile</span>
+                </a>
+                <a href="mfa-setup.html" class="profile-dropdown-item">
+                    <span class="material-symbols-outlined">security</span>
+                    <span>Security & MFA</span>
+                </a>
+                <a href="help.html" class="profile-dropdown-item">
+                    <span class="material-symbols-outlined">help</span>
+                    <span>Help & Documentation</span>
+                </a>
+                <div class="profile-dropdown-divider"></div>
+                <button id="logout" class="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors font-medium cursor-pointer w-full text-left">
+                    <span class="material-symbols-outlined">logout</span>
+                    <span>Sign Out</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Page Content -->
+        <main class="page-content">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">My Profile</h1>
+                    <p class="page-subtitle">Manage your account information and security settings</p>
+                </div>
+            </div>
+
+            <!-- Profile Information Card -->
+            <div class="profile-card">
+                <div class="flex items-center gap-6 mb-6 pb-6 border-b border-outline-variant/30">
+                    <div class="w-24 h-24 rounded-full bg-primary flex items-center justify-center overflow-hidden">
+                        <img id="profileImg" src="img/profile.jpg" alt="User Profile" class="w-full h-full object-cover user-profile-img">
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-headline font-semibold text-on-surface" id="profileName">User Name</h2>
+                        <p class="text-sm text-on-surface-variant" id="profileRole">Role</p>
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    <div class="profile-field">
+                        <label class="text-sm font-medium text-on-surface-variant">Email Address</label>
+                        <div class="text-base text-on-surface" id="profileEmail">user@example.com</div>
+                    </div>
+                    <div class="profile-field">
+                        <label class="text-sm font-medium text-on-surface-variant">Role</label>
+                        <div class="text-base text-on-surface" id="profileUserRole">User</div>
+                    </div>
+                    <div class="profile-field">
+                        <label class="text-sm font-medium text-on-surface-variant">MFA Status</label>
+                        <div class="text-base text-on-surface" id="profileMFAStatus">Disabled</div>
+                    </div>
+                    <div class="profile-field">
+                        <label class="text-sm font-medium text-on-surface-variant">Account Status</label>
+                        <div class="text-base text-on-surface" id="profileStatus">Active</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions Card -->
+            <div class="profile-card mt-6">
+                <h3 class="text-lg font-headline font-semibold text-on-surface mb-4">Account Actions</h3>
+                <div class="space-y-3">
+                    <a href="mfa-setup.html" class="flex items-center gap-3 p-3 rounded-lg border border-outline-variant hover:bg-surface-container-low transition-colors">
+                        <span class="material-symbols-outlined">security</span>
+                        <div class="flex-1">
+                            <div class="font-medium text-on-surface">Security & MFA Settings</div>
+                            <div class="text-sm text-on-surface-variant">Enable or manage two-factor authentication</div>
+                        </div>
+                        <span class="material-symbols-outlined text-on-surface-variant">arrow_forward</span>
+                    </a>
+                    <a href="help.html" class="flex items-center gap-3 p-3 rounded-lg border border-outline-variant hover:bg-surface-container-low transition-colors">
+                        <span class="material-symbols-outlined">help</span>
+                        <div class="flex-1">
+                            <div class="font-medium text-on-surface">Help & Documentation</div>
+                            <div class="text-sm text-on-surface-variant">Get help with using the system</div>
+                        </div>
+                        <span class="material-symbols-outlined text-on-surface-variant">arrow_forward</span>
+                    </a>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
