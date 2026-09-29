@@ -48,6 +48,13 @@ function audit(PDO $d, string $email, bool $ok, ?int $id = null): void {
 // EMAIL / SMTP FUNCTIONS
 // ==========================================
 
+// Read a config value from env var (checks getenv, $_SERVER, $_ENV)
+function envVal(string $key, string $fallback = ''): string {
+    $v = getenv($key);
+    if ($v === false || $v === '') $v = $_SERVER[$key] ?? $_ENV[$key] ?? '';
+    return ($v === false || $v === '') ? $fallback : $v;
+}
+
 // Load SMTP config from environment or config.php
 function smtpConfig(): array {
     static $config = null;
@@ -61,12 +68,12 @@ function smtpConfig(): array {
     }
     
     $config = [
-        'host' => $fileConfig['smtp_host'] ?? getenv('SMTP_HOST') ?: '',
-        'port' => (int)($fileConfig['smtp_port'] ?? getenv('SMTP_PORT') ?: 587),
-        'user' => $fileConfig['smtp_user'] ?? getenv('SMTP_USER') ?: '',
-        'pass' => $fileConfig['smtp_pass'] ?? getenv('SMTP_PASS') ?: '',
-        'from' => $fileConfig['smtp_from'] ?? getenv('SMTP_FROM') ?: '',
-        'from_name' => $fileConfig['smtp_from_name'] ?? 'Great Solomon SCIM',
+        'host' => $fileConfig['smtp_host'] ?? envVal('SMTP_HOST'),
+        'port' => (int)($fileConfig['smtp_port'] ?? envVal('SMTP_PORT', '587')),
+        'user' => $fileConfig['smtp_user'] ?? envVal('SMTP_USER'),
+        'pass' => $fileConfig['smtp_pass'] ?? envVal('SMTP_PASS'),
+        'from' => $fileConfig['smtp_from'] ?? envVal('SMTP_FROM'),
+        'from_name' => $fileConfig['smtp_from_name'] ?? envVal('SMTP_FROM_NAME', 'Great Solomon SCIM'),
     ];
     return $config;
 }

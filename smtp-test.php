@@ -6,20 +6,34 @@
 echo "<pre>";
 echo "=== SCIM SMTP Diagnostic ===\n\n";
 
-// 1. Check config.php exists
-$configFile = __DIR__ . '/config.php';
-if (!file_exists($configFile)) {
-    echo "[FAIL] config.php NOT FOUND at: $configFile\n";
-    echo "       Upload config.php to this folder and retry.\n";
-    exit;
+// 1. Check config sources
+function envVal(string $key, string $fallback = ''): string {
+    $v = getenv($key);
+    if ($v === false || $v === '') $v = $_SERVER[$key] ?? $_ENV[$key] ?? '';
+    return ($v === false || $v === '') ? $fallback : $v;
 }
-echo "[OK] config.php found\n";
 
-$config = require $configFile;
-$host = $config['smtp_host'] ?? '';
-$port = (int)($config['smtp_port'] ?? 587);
-$user = $config['smtp_user'] ?? '';
-$pass = $config['smtp_pass'] ?? '';
+$configFile = __DIR__ . '/config.php';
+$fileConfig = [];
+if (file_exists($configFile)) {
+    $fileConfig = require $configFile;
+    echo "[OK] config.php found\n";
+} else {
+    echo "[--] config.php not found (OK if using env vars)\n";
+}
+
+$host = $fileConfig['smtp_host'] ?? envVal('SMTP_HOST');
+$port = (int)($fileConfig['smtp_port'] ?? envVal('SMTP_PORT', '587'));
+$user = $fileConfig['smtp_user'] ?? envVal('SMTP_USER');
+$pass = $fileConfig['smtp_pass'] ?? envVal('SMTP_PASS');
+
+// Show what env vars PHP can see
+echo "\nEnv vars visible to PHP:\n";
+foreach (['SMTP_HOST','SMTP_PORT','SMTP_USER','SMTP_PASS','SMTP_FROM'] as $k) {
+    $v = envVal($k);
+    echo "     $k = " . ($v ? ($k === 'SMTP_PASS' ? '(set)' : $v) : '(not set)') . "\n";
+}
+echo "\n";
 
 echo "     host: $host  port: $port\n";
 echo "     user: " . ($user ?: '(EMPTY!)') . "\n";
