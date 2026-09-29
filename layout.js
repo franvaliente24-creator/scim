@@ -124,6 +124,104 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // ==========================================
+  // SIDEBAR SUB-MENUS (architecture-aligned groups)
+  // Rebuilds the flat module list into collapsible groups that mirror the
+  // Business Process Architecture boundaries.
+  // ==========================================
+  const navContainer = document.getElementById('sidebar-subsystem-modules-nav');
+  if (navContainer) {
+    const page = window.location.pathname.split('/').pop();
+    const groups = [
+      {
+        label: 'Smart Warehousing & QR', icon: 'warehouse', pages: ['warehousing.html'],
+        items: [
+          { label: 'Live Warehouse Dashboard', href: 'warehousing.html', icon: 'dashboard' },
+          { label: 'QR Scanner Core', href: 'warehousing.html#scan', icon: 'qr_code_scanner' },
+          { label: 'Warehouse Occupancy Grid', href: 'warehousing.html#warehouseGrid', icon: 'grid_view' },
+          { label: 'Aisle & Zone Config', href: 'warehousing.html#zones', icon: 'shelves' },
+        ],
+      },
+      { label: 'Inventory Management', icon: 'inventory', pages: ['inventory.html'],
+        items: [{ label: 'Asset Registry', href: 'inventory.html', icon: 'inventory_2' }] },
+      {
+        label: 'Procurement & Sourcing', icon: 'shopping_cart', pages: ['procurement.html'],
+        items: [
+          { label: 'Purchase Requests', href: 'procurement.html', icon: 'shopping_bag' },
+          { label: 'Sourcing & Vendor Bidding', href: 'procurement.html#quotesTable', icon: 'gavel' },
+          { label: 'Budget Allocation', href: 'procurement.html#sourcingPipeline', icon: 'account_balance' },
+        ],
+      },
+      {
+        label: 'Purchase Order Mgmt.', icon: 'receipt_long', pages: ['purchase-orders.html'],
+        items: [
+          { label: 'Active Purchase Orders', href: 'purchase-orders.html', icon: 'receipt' },
+          { label: 'Disbursement & Invoicing', href: 'purchase-orders.html#poPipeline', icon: 'payments' },
+        ],
+      },
+      {
+        label: 'Supplier/Vendor Mgmt.', icon: 'business', pages: ['suppliers.html'],
+        items: [
+          { label: 'Vendor Directory', href: 'suppliers.html', icon: 'contacts' },
+          { label: 'Performance Ratings', href: 'suppliers.html#attentionNeeded', icon: 'star_rate' },
+        ],
+      },
+      {
+        label: 'Document & Logistics', icon: 'description', pages: ['documents.html'],
+        items: [
+          { label: 'File Repositories', href: 'documents.html', icon: 'folder' },
+          { label: 'Logistics Tracking Logs', href: 'documents.html#documentActivity', icon: 'local_shipping' },
+        ],
+      },
+      { label: 'Equipment Requests', icon: 'request_quote', pages: ['equipment-requests.html'],
+        items: [{ label: 'Request Queue', href: 'equipment-requests.html', icon: 'assignment' }] },
+    ];
+
+    navContainer.innerHTML = groups.map((g, gi) => {
+      const active = g.pages.includes(page);
+      const single = g.items.length === 1;
+      if (single) {
+        const it = g.items[0];
+        return `<a class="sidebar-subsystem-link ${active ? 'active' : ''}" href="${it.href}">
+          <span class="material-symbols-outlined">${g.icon}</span><span>${g.label}</span></a>`;
+      }
+      return `
+        <div class="nav-group" data-open="${active ? '1' : '0'}">
+          <button type="button" class="sidebar-subsystem-link nav-group-toggle ${active ? 'active' : ''}" data-group="${gi}">
+            <span class="material-symbols-outlined">${g.icon}</span>
+            <span class="flex-1 text-left">${g.label}</span>
+            <span class="material-symbols-outlined text-sm nav-group-chevron transition-transform">${active ? 'expand_less' : 'expand_more'}</span>
+          </button>
+          <div class="nav-group-items pl-4 mt-1 space-y-1 ${active ? '' : 'hidden'}">
+            ${g.items.map((it) => `
+              <a class="sidebar-subsystem-link nav-sub-link text-xs" href="${it.href}">
+                <span class="material-symbols-outlined text-base">${it.icon}</span><span>${it.label}</span>
+              </a>`).join('')}
+          </div>
+        </div>`;
+    }).join('');
+
+    navContainer.querySelectorAll('.nav-group-toggle').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const wrap = btn.closest('.nav-group');
+        const items = wrap.querySelector('.nav-group-items');
+        const chev = btn.querySelector('.nav-group-chevron');
+        const open = wrap.getAttribute('data-open') === '1';
+        wrap.setAttribute('data-open', open ? '0' : '1');
+        items.classList.toggle('hidden', open);
+        chev.textContent = open ? 'expand_more' : 'expand_less';
+      });
+    });
+
+    // Hide group headers whose every link was hidden by RBAC
+    window.refreshNavGroups = () => {
+      navContainer.querySelectorAll('.nav-group').forEach((g) => {
+        const links = Array.from(g.querySelectorAll('a.sidebar-subsystem-link'));
+        if (links.length && links.every((l) => l.style.display === 'none')) g.style.display = 'none';
+      });
+    };
+  }
+
   // Active link highlighting based on current page
   const currentPath = window.location.pathname;
   const navLinks = document.querySelectorAll('.sidebar-subsystem-link, .sidebar-main-link');
@@ -522,3 +620,41 @@ document.addEventListener('DOMContentLoaded', () => {
   // Profile dropdown links are handled as regular HTML links (<a href="...">)
   // No JavaScript needed for navigation links in the dropdown
 });
+
+// ==========================================
+// GLOBAL CONFIRMATION MODAL
+// await scimConfirm({ title, message, confirmLabel, danger }) -> bool
+// ==========================================
+window.scimConfirm = function (opts) {
+  opts = opts || {};
+  return new Promise((resolve) => {
+    const id = 'scimConfirmModal';
+    document.getElementById(id)?.remove();
+    const danger = opts.danger !== false;
+    const safeText = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const iconColor = danger ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600';
+    const btnColor = danger ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700';
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="${id}" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[210] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-8 text-center relative" role="dialog" aria-modal="true">
+          <div class="w-16 h-16 rounded-full ${iconColor} flex items-center justify-center mx-auto mb-5">
+            <span class="material-symbols-outlined text-3xl">${opts.icon || (danger ? 'warning' : 'help')}</span>
+          </div>
+          <h2 class="text-xl font-bold text-slate-900 mb-2">${safeText(opts.title || 'Are you sure?')}</h2>
+          <p class="text-sm text-slate-500 leading-relaxed mb-7">${safeText(opts.message || '')}</p>
+          <div class="flex gap-3">
+            <button data-c="no" class="flex-1 px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancel</button>
+            <button data-c="yes" class="flex-1 px-5 py-2.5 rounded-xl ${btnColor} text-white font-semibold text-sm transition-colors">${safeText(opts.confirmLabel || 'Confirm')}</button>
+          </div>
+        </div>
+      </div>`);
+    const modal = document.getElementById(id);
+    const done = (v) => { modal.remove(); resolve(v); };
+    modal.querySelector('[data-c="yes"]').onclick = () => done(true);
+    modal.querySelector('[data-c="no"]').onclick = () => done(false);
+    modal.onclick = (e) => { if (e.target === modal) done(false); };
+    document.addEventListener('keydown', function esc(e) {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', esc); done(false); }
+    });
+  });
+};

@@ -122,6 +122,9 @@ function renderAssetTable(assets) {
             <td>
               <button class="action-btn action-btn-view" type="button" data-asset-action="view" data-qr-code="${escapeHTML(asset.qr_code)}">View</button>
               <button class="action-btn action-btn-edit" type="button" data-asset-action="edit" data-qr-code="${escapeHTML(asset.qr_code)}">Edit</button>
+              ${(typeof currentUserRole === 'undefined' || currentUserRole === 'Admin')
+                ? `<button class="action-btn action-btn-danger" type="button" data-asset-action="delete" data-qr-code="${escapeHTML(asset.qr_code)}" data-asset-name="${escapeHTML(asset.name)}">Delete</button>`
+                : ''}
             </td>
           </tr>
         `).join('')}
@@ -149,7 +152,24 @@ document.addEventListener('click', (event) => {
   const { assetAction, qrCode } = button.dataset;
   if (assetAction === 'view') window.viewAsset(qrCode);
   if (assetAction === 'edit') window.editAsset(qrCode);
+  if (assetAction === 'delete') window.deleteAsset(qrCode, button.dataset.assetName || qrCode);
 });
+
+// Asset deletion — Admin only server-side, compliance-logged.
+// Confirmed through the shared modal before the request fires.
+window.deleteAsset = async (qrCode, name) => {
+  if (typeof currentUserRole !== 'undefined' && currentUserRole !== 'Admin') return;
+  const ok = await (window.scimConfirm ? scimConfirm({
+    title: 'Delete Asset?',
+    message: `"${name}" will be permanently removed from inventory. A compliance record is written to the audit log before deletion. This cannot be undone.`,
+    confirmLabel: 'Delete', icon: 'delete_forever',
+  }) : Promise.resolve(confirm(`Delete asset "${name}"?`)));
+  if (!ok) return;
+  const res = await fetch(`/api/v1/assets/${encodeURIComponent(qrCode)}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) loadInventoryData();
+  else alert(data.error || 'Failed to delete asset');
+};
 
 const assetModal = $('#assetModal');
 const assetForm = $('#assetForm');

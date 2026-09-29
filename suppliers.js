@@ -43,7 +43,7 @@ function renderSupplierTable(suppliers) {
   el.innerHTML = `
     <table class="data-table w-full text-sm">
       <thead>
-        <tr><th>Supplier</th><th>Category</th><th>Rating</th><th>On-Time</th><th>Defects</th><th>Contact</th></tr>
+        <tr><th>Supplier</th><th>Category</th><th>Rating</th><th>On-Time</th><th>Defects</th><th>Contact</th><th>Actions</th></tr>
       </thead>
       <tbody>
         ${suppliers.map((s) => `
@@ -54,6 +54,10 @@ function renderSupplierTable(suppliers) {
             <td>${esc(s.on_time_rate ?? 0)}%</td>
             <td>${esc(s.defect_rate ?? 0)}%</td>
             <td>${esc(s.email || s.phone || '—')}</td>
+            <td class="whitespace-nowrap">
+              <button class="action-btn action-btn-edit" onclick="editSupplier(${s.id})">Edit</button>
+              <button class="action-btn action-btn-danger" onclick="deleteSupplier(${s.id})">Delete</button>
+            </td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -123,6 +127,62 @@ function applySupplierFilters() {
 }
 if (supplierSearch) supplierSearch.oninput = applySupplierFilters;
 if (supplierCategoryFilter) supplierCategoryFilter.onchange = applySupplierFilters;
+
+// ---- Edit / Delete supplier (Admin/Manager actions) --------------------
+const editSupplierModal = $('#editSupplierModal');
+
+window.editSupplier = (id) => {
+  const s = allSuppliers.find((x) => x.id === id);
+  if (!s) return;
+  $('#editSupplierId').value = s.id;
+  $('#editSupplierName').value = s.name || '';
+  $('#editSupplierCategory').value = s.category || '';
+  $('#editSupplierEmail').value = s.email || '';
+  $('#editSupplierPhone').value = s.phone || '';
+  $('#editSupplierAddress').value = s.address || '';
+  editSupplierModal?.showModal();
+};
+
+$('#closeEditSupplierModal')?.addEventListener('click', () => editSupplierModal?.close());
+
+$('#editSupplierForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('#editSupplierId').value;
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  const res = await fetch(`/api/v1/suppliers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: $('#editSupplierName').value.trim(),
+      category: $('#editSupplierCategory').value.trim(),
+      email: $('#editSupplierEmail').value.trim(),
+      phone: $('#editSupplierPhone').value.trim(),
+      address: $('#editSupplierAddress').value.trim(),
+    }),
+  });
+  btn.disabled = false;
+  if (res.ok) { editSupplierModal?.close(); loadSupplierData(); }
+  else {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || 'Failed to update supplier');
+  }
+});
+
+window.deleteSupplier = async (id) => {
+  const s = allSuppliers.find((x) => x.id === id);
+  const ok = await (window.scimConfirm ? scimConfirm({
+    title: 'Delete Supplier?',
+    message: `This will permanently remove ${s ? s.name : 'this supplier'} from the vendor directory. This action cannot be undone.`,
+    confirmLabel: 'Delete',
+    icon: 'business',
+  }) : Promise.resolve(confirm('Delete this supplier?')));
+  if (!ok) return;
+  const res = await fetch(`/api/v1/suppliers/${id}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) { loadSupplierData(); }
+  else alert(data.error || 'Failed to delete supplier');
+};
 
 document.addEventListener('DOMContentLoaded', function () {
   if (typeof initializePermissions === 'function') initializePermissions();

@@ -416,11 +416,24 @@ window.viewPO = async (poId) => {
   try {
     const response = await api(`pos/${poId}`);
     const po = response.po;
-    alert(`PO Details:\nPO #: ${po.po_number}\nVendor: ${po.vendor_name || po.vendor}\nStatus: ${po.status}\nTotal: ${money(po.total)}\nCreated: ${new Date(po.created_at).toLocaleDateString()}\nExpected Delivery: ${new Date(po.expected_delivery).toLocaleDateString()}\nItems: ${po.items}`);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('viewPONumber', po.po_number || '');
+    set('viewPOVendor', po.vendor_name || po.vendor || '—');
+    set('viewPOTotal', money(po.total));
+    set('viewPOCreated', po.created_at ? new Date(po.created_at).toLocaleDateString() : '—');
+    set('viewPODelivery', po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString() : '—');
+    set('viewPOItems', po.items || 'No line items recorded.');
+    const st = document.getElementById('viewPOStatus');
+    if (st) st.innerHTML = `<span class="tag ${getPOStatusClass(po.status)}">${po.status || ''}</span>`;
+    document.getElementById('viewPOModal')?.showModal();
   } catch (error) {
     console.error('Error viewing PO:', error);
   }
 };
+
+document.getElementById('closeViewPOModal')?.addEventListener('click', () => {
+  document.getElementById('viewPOModal')?.close();
+});
 
 window.updatePOStatus = (poId, currentStatus) => {
   $('#poIdInput').value = poId;
@@ -428,35 +441,45 @@ window.updatePOStatus = (poId, currentStatus) => {
   $('#updateStatusModal').showModal();
 };
 
-window.submitForApproval = async (poId) => {
-  if (confirm('Submit this PO for approval?')) {
-    const response = await fetch(`/api/v1/pos/${poId}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'Pending Approval', notes: 'Submitted for approval' }),
-    });
+const confirmStep = (opts) => window.scimConfirm ? scimConfirm(opts) : Promise.resolve(true);
 
-    if (response.ok) {
-      loadPOData();
-    } else {
-      alert('Failed to submit for approval');
-    }
+window.submitForApproval = async (poId) => {
+  const ok = await confirmStep({
+    title: 'Submit for Approval?',
+    message: 'This purchase order will move to Pending Approval and can no longer be edited until reviewed.',
+    confirmLabel: 'Submit', icon: 'send', danger: false,
+  });
+  if (!ok) return;
+  const response = await fetch(`/api/v1/pos/${poId}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'Pending Approval', notes: 'Submitted for approval' }),
+  });
+
+  if (response.ok) {
+    loadPOData();
+  } else {
+    alert('Failed to submit for approval');
   }
 };
 
 window.approvePO = async (poId) => {
-  if (confirm('Approve this purchase order?')) {
-    const response = await fetch(`/api/v1/pos/${poId}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'Sent to Vendor', notes: 'Approved and sent to vendor' }),
-    });
+  const ok = await confirmStep({
+    title: 'Approve Purchase Order?',
+    message: 'Approving sends this PO to the vendor and commits the spend. Continue?',
+    confirmLabel: 'Approve', icon: 'check_circle', danger: false,
+  });
+  if (!ok) return;
+  const response = await fetch(`/api/v1/pos/${poId}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'Sent to Vendor', notes: 'Approved and sent to vendor' }),
+  });
 
-    if (response.ok) {
-      loadPOData();
-    } else {
-      alert('Failed to approve PO');
-    }
+  if (response.ok) {
+    loadPOData();
+  } else {
+    alert('Failed to approve PO');
   }
 };
 

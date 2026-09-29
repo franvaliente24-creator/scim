@@ -958,8 +958,20 @@ dialog#scanner #scanNow {
    DATA TABLE STYLES
    ========================================== */
 
+/* Table containers must scroll horizontally instead of clipping columns */
+.data-table-container,
+[id$="Table"],
+[id$="TableContainer"],
+#users,
+#loginHistory,
+#recentScansList {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .data-table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
 }
 

@@ -272,6 +272,12 @@ function applyRBAC() {
     document.querySelectorAll('.po-reject-section').forEach(el => el.style.display = 'none');
   }
   
+  // Generic role-scoped elements: <any data-requires-role="Admin">
+  document.querySelectorAll('[data-requires-role]').forEach(el => {
+    const allowed = el.getAttribute('data-requires-role').split(',').map(r => r.trim());
+    if (!allowed.includes(currentUserRole)) el.style.display = 'none';
+  });
+
   // Show elements granted by permission
   if (hasPermission('WAREHOUSE_SCAN')) {
     document.querySelectorAll('#heroScanBtn, #mobileBtn').forEach(btn => btn.style.display = '');
@@ -296,6 +302,9 @@ function applyRBAC() {
   if (hasPermission('SYSTEM_SETTINGS')) {
     document.querySelectorAll('.system-settings-section').forEach(el => el.style.display = '');
   }
+
+  // Collapse nav groups whose links were all hidden above
+  if (typeof window.refreshNavGroups === 'function') window.refreshNavGroups();
 }
 
 // Get user-friendly role name

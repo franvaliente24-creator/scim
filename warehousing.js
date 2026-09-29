@@ -204,14 +204,23 @@ addZoneForm?.addEventListener('submit', async (event) => {
 // Scanner Modal Controls — opened from the hero panel (the global FAB also
 // triggers the shared quick-scan modal on every page)
 const heroScanBtn = $('#heroScanBtn');
+const openScanner = () => {
+  const scanner = $('#scanner');
+  if (scanner) {
+    scanner.showModal();
+    initializeCamera();
+  }
+};
 if (heroScanBtn) {
-  heroScanBtn.onclick = () => {
-    const scanner = $('#scanner');
-    if (scanner) {
-      scanner.showModal();
-      initializeCamera();
-    }
-  };
+  heroScanBtn.onclick = openScanner;
+}
+
+// Sidebar deep links: #scan opens the scanner, #zones opens zone config
+if (window.location.hash === '#scan') {
+  setTimeout(openScanner, 400);
+}
+if (window.location.hash === '#zones') {
+  setTimeout(() => addZoneModal?.showModal(), 400);
 }
 
 const closeScan = $('#closeScan');

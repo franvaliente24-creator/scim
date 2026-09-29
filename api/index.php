@@ -1063,6 +1063,31 @@ if ($method === 'PUT' && preg_match('#^/api/v1/assets/([^/]+)$#', $path, $m)) {
     reply(['ok' => true]);
 }
 
+// Asset removal — Admin only. Per the architecture map this crosses into
+// DTRS/Legal & Compliance, so every removal pushes a structured entry into
+// the immutable audit queue before the record is destroyed.
+if ($method === 'DELETE' && preg_match('#^/api/v1/assets/([^/]+)$#', $path, $m)) {
+    $u = auth(['Admin']);
+    $d = db();
+    $q = $d->prepare('SELECT * FROM assets WHERE qr_code = ?');
+    $q->execute([$m[1]]);
+    $a = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$a) {
+        reply(['error' => 'Asset not found.'], 404);
+    }
+    $d->prepare('INSERT INTO scan_logs(asset_id, qr_code, action, details, scanned_by, user_id, ip_address) VALUES(?,?,?,?,?,?,?)')
+      ->execute([
+          $a['id'], $a['qr_code'], 'Asset Deleted',
+          sprintf('Asset "%s" (category: %s, value: %.2f, location: %s) removed from inventory%s',
+              $a['name'], $a['category'], (float)$a['value'], $a['location'],
+              ((float)$a['value'] >= 50000) ? ' — HIGH-VALUE FLAG for compliance review' : ''),
+          $u['name'], $u['id'], $_SERVER['REMOTE_ADDR'] ?? null
+      ]);
+    $d->prepare('DELETE FROM asset_transactions WHERE asset_id = ?')->execute([$a['id']]);
+    $d->prepare('DELETE FROM assets WHERE id = ?')->execute([$a['id']]);
+    reply(['ok' => true]);
+}
+
 if ($method === 'POST' && $path === '/api/v1/assets/scan') {
     $u = auth();
     $x = body();
@@ -1072,17 +1097,56 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
     $zone = $x['zone'] ?? null;
     $autoCreated = false;
 
+    // ---- External boundary: Purchase Order Mgmt -------------------------
+    // Inbound intake against a PO contract requires the PO to exist and be
+    // in a receivable state (sent to vendor / shipped) before stock injects.
+    $poVerified = null;
+    if ($action === 'PO Receipt') {
+        $poNo = trim($x['po_number'] ?? '');
+        if ($poNo === '') {
+            reply(['error' => 'PO Receipt requires the purchase order number from the contract.'], 400);
+        }
+        $pq = $d->prepare('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id = v.id WHERE po.po_number = ? LIMIT 1');
+        $pq->execute([$poNo]);
+        $poVerified = $pq->fetch(PDO::FETCH_ASSOC);
+        if (!$poVerified) {
+            reply(['error' => "Purchase order {$poNo} not found in PO Management."], 404);
+        }
+        if (!in_array($poVerified['status'], ['Sent to Vendor', 'Shipped', 'Received'], true)) {
+            reply(['error' => "PO {$poNo} is '{$poVerified['status']}' — only orders sent to vendor or in transit can be received."], 409);
+        }
+    }
+
+    // ---- External boundary: Core 2 Employee Info ------------------------
+    // Assigning an asset requires the assignee to exist in the personnel
+    // directory (validated against the user registry).
+    if ($action === 'Assign to Staff') {
+        $assignee = trim($x['assignee'] ?? '');
+        if ($assignee === '') {
+            reply(['error' => 'Assign to Staff requires the employee name.'], 400);
+        }
+        $eq = $d->prepare('SELECT id, full_name FROM users WHERE (full_name LIKE ? OR email LIKE ?) AND is_active = 1 LIMIT 1');
+        $eq->execute(["%$assignee%", "%$assignee%"]);
+        $emp = $eq->fetch(PDO::FETCH_ASSOC);
+        if (!$emp) {
+            reply(['error' => "'$assignee' was not found in Employee Info — the asset cannot leave the warehouse grid."], 422);
+        }
+        $x['assignee'] = $emp['full_name'];
+    }
+
     $q = $d->prepare('SELECT * FROM assets WHERE qr_code = ?');
     $q->execute([$qr]);
     $a = $q->fetch(PDO::FETCH_ASSOC);
 
     if (!$a) {
-        // Inbound automation: scan-to-intake auto-registers unknown items
-        if ($action === 'Inventory Intake' && $qr !== '') {
-            $name = trim($x['name'] ?? '') ?: 'New Asset ' . $qr;
+        // Inbound automation: scan-to-intake auto-registers unknown items.
+        // PO Receipt also auto-registers, seeded with the verified contract data.
+        if (in_array($action, ['Inventory Intake', 'PO Receipt'], true) && $qr !== '') {
+            $name = trim($x['name'] ?? '') ?: ($poVerified ? ('PO ' . $poVerified['po_number'] . ' — ' . $poVerified['vendor_name'] ?: 'Vendor') : 'New Asset ' . $qr);
             $category = trim($x['category'] ?? '') ?: 'IT Equipment';
+            $loc = $zone ?: 'Receiving Dock';
             $d->prepare('INSERT INTO assets(qr_code, name, category, value, status, location) VALUES(?,?,?,?,?,?)')
-              ->execute([$qr, $name, $category, (float)($x['value'] ?? 0), 'In Warehouse', $zone ?: 'Receiving Dock']);
+              ->execute([$qr, $name, $category, (float)($poVerified['total'] ?? $x['value'] ?? 0), 'In Warehouse', $loc]);
             $a = ['id' => (int)$d->lastInsertId(), 'name' => $name, 'qr_code' => $qr, 'status' => 'In Warehouse', 'category' => $category];
             $autoCreated = true;
         } else {
@@ -1115,7 +1179,13 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
             break;
         case 'PO Receipt':
             $updates = ['status = ?']; $params[] = 'In Warehouse';
-            if (!empty($x['po_number'])) { $details .= ' — ' . $x['po_number']; }
+            $details .= ' — verified against ' . $poVerified['po_number'];
+            // Mark the contract received once its first item scans in
+            if ($poVerified['status'] !== 'Received') {
+                $d->prepare("UPDATE purchase_orders SET status = 'Received', updated_at = NOW() WHERE id = ?")->execute([$poVerified['id']]);
+                $d->prepare("INSERT INTO po_activity(po_id, action, details) VALUES(?, ?, ?)")
+                  ->execute([$poVerified['id'], 'Received', 'Shipment verified via QR scan ' . $qr . ' by ' . $u['name']]);
+            }
             break;
     }
     if ($updates && !$autoCreated) {
@@ -1149,7 +1219,7 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
         }
     }
 
-    reply(['ok' => true, 'asset' => $a, 'action' => $action, 'auto_created' => $autoCreated, 'auto_requisition' => $requisitionFired]);
+    reply(['ok' => true, 'asset' => $a, 'action' => $action, 'auto_created' => $autoCreated, 'auto_requisition' => $requisitionFired, 'po_verified' => $poVerified ? $poVerified['po_number'] : null]);
 }
 
 // Compliance feed: the immutable scan log
@@ -1882,6 +1952,25 @@ if ($method === 'PUT' && preg_match('#^/api/v1/suppliers/(\d+)$#', $path, $m)) {
     $params[] = $m[1];
     $d->prepare('UPDATE vendors SET ' . implode(', ', $updateFields) . ' WHERE id = ?')->execute($params);
 
+    reply(['ok' => true]);
+}
+
+if ($method === 'DELETE' && preg_match('#^/api/v1/suppliers/(\d+)$#', $path, $m)) {
+    auth(['Admin']);
+    $d = db();
+    $q = $d->prepare('SELECT id, name FROM vendors WHERE id = ?');
+    $q->execute([$m[1]]);
+    $v = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$v) {
+        reply(['error' => 'Supplier not found.'], 404);
+    }
+    // Protect order history: vendors referenced by purchase orders cannot be removed
+    $poCount = (int)$d->query('SELECT COUNT(*) FROM purchase_orders WHERE vendor_id = ' . (int)$v['id'])->fetchColumn();
+    if ($poCount > 0) {
+        reply(['error' => "Cannot delete {$v['name']} — {$poCount} purchase order(s) reference this vendor. Disable the account instead to preserve order history."], 409);
+    }
+    $d->prepare('DELETE FROM supplier_quotes WHERE vendor_id = ?')->execute([$v['id']]);
+    $d->prepare('DELETE FROM vendors WHERE id = ?')->execute([$v['id']]);
     reply(['ok' => true]);
 }
 

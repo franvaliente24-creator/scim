@@ -58,9 +58,10 @@ function renderDocumentTable(documents) {
             <td><span class="tag">${esc(doc.status)}</span></td>
             <td>${doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '—'}</td>
             <td>${doc.due_date ? new Date(doc.due_date).toLocaleDateString() : '—'}</td>
-            <td>
+            <td class="whitespace-nowrap">
               <button class="action-btn action-btn-view" onclick="viewDocument(${doc.id})">View</button>
               <button class="action-btn action-btn-edit" onclick="updateDocStatus(${doc.id}, '${esc(doc.status)}')">Update</button>
+              <button class="action-btn action-btn-ship" title="Download record" onclick="downloadDocument(${doc.id})"><span class="material-symbols-outlined text-sm align-middle">download</span></button>
             </td>
           </tr>`).join('')}
       </tbody>
@@ -207,6 +208,34 @@ $('#updateDocSave')?.addEventListener('click', async () => {
     alert(data.error || 'Failed to update document status');
   }
 });
+
+// Document download — exports the tracked record instantly
+window.downloadDocument = (docId) => {
+  const doc = allDocuments.find((d) => d.id === docId);
+  if (!doc) return;
+  const lines = [
+    'DOCUMENT RECORD — Great Solomon SCIM',
+    '='.repeat(40),
+    `Reference:  ${doc.reference_no}`,
+    `Type:       ${doc.document_type}`,
+    `Owner:      ${doc.owner}`,
+    `Status:     ${doc.status}`,
+    `Related PO: ${doc.related_po || 'N/A'}`,
+    `Due Date:   ${doc.due_date || 'N/A'}`,
+    `Created:    ${doc.created_at || 'N/A'}`,
+    '',
+    'Description:',
+    doc.description || 'None.',
+  ].join('\n');
+  const blob = new Blob([lines], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${doc.reference_no || 'document'}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  URL.revokeObjectURL(a.href);
+  a.remove();
+};
 
 window.signDocument = async (docId) => {
   const signature = prompt('Enter your name as digital signature:');
