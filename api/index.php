@@ -79,7 +79,7 @@ function smtpConfig(): array {
 }
 
 // Minimal SMTP client supporting SSL (465) and STARTTLS (587)
-function sendSmtpMail(string $to, string $subject, string $body): bool {
+function sendSmtpMail(string $to, string $subject, string $body, string $contentType = 'text/plain'): bool {
     $cfg = smtpConfig();
     
     // No SMTP configured - fall back to PHP mail()
@@ -148,7 +148,7 @@ function sendSmtpMail(string $to, string $subject, string $body): bool {
         $headers .= "To: <$to>\r\n";
         $headers .= "Subject: $subject\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
-        $headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
+        $headers .= "Content-Type: $contentType; charset=UTF-8\r\n";
         
         fwrite($socket, $headers . "\r\n" . $body . "\r\n.\r\n");
         $resp = $read();
@@ -169,12 +169,36 @@ function sendSmtpMail(string $to, string $subject, string $body): bool {
 // Send OTP email to user
 function sendOtpEmail(string $toEmail, string $toName, string $otp): bool {
     $subject = 'SCIM Login Verification Code';
-    $body = "Hello {$toName},\n\n"
-          . "Your verification code is: {$otp}\n\n"
-          . "This code expires in 5 minutes.\n\n"
-          . "If you did not attempt to login, please contact your administrator.\n\n"
-          . "- Great Solomon SCIM";
-    return sendSmtpMail($toEmail, $subject, $body);
+    $name = htmlspecialchars($toName, ENT_QUOTES, 'UTF-8');
+    
+    $body = <<<HTML
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;background:#ffffff;border-radius:12px;padding:40px;border:1px solid #e5e7eb;">
+    <p style="font-size:15px;color:#111827;margin:0 0 16px;">Hello {$name},</p>
+    <p style="font-size:15px;color:#374151;line-height:1.6;margin:0 0 24px;">
+      You are receiving this email because a login request was made for your account.
+    </p>
+    <p style="font-size:15px;color:#374151;margin:0 0 8px;">Your verification code is:</p>
+    <div style="text-align:center;margin:0 0 24px;">
+      <span style="display:inline-block;font-size:36px;font-weight:bold;letter-spacing:8px;color:#4f46e5;background:#eef2ff;border:2px dashed #c7d2fe;border-radius:10px;padding:16px 32px;">{$otp}</span>
+    </div>
+    <p style="font-size:15px;color:#374151;line-height:1.6;margin:0 0 24px;">
+      This code is highly sensitive and will expire in <strong>5 minutes</strong>.
+    </p>
+    <p style="font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 24px;">
+      If you did not initiate this login request, please ignore this email or contact your system administrator immediately to secure your account.
+    </p>
+    <p style="font-size:15px;color:#374151;margin:0;">
+      Regards,<br><strong>Great Solomon Manpower Service, Inc.</strong>
+    </p>
+  </div>
+</body>
+</html>
+HTML;
+    
+    return sendSmtpMail($toEmail, $subject, $body, 'text/html');
 }
 
 
