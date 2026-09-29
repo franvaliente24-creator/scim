@@ -93,8 +93,10 @@ form.onsubmit = async (e) => {
 
     // Check if 2FA is required
     if (data.requires_2fa) {
-      // Store email in sessionStorage for OTP page
+      // Per-tab MFA ticket + email for the OTP page (sessionStorage = tab-scoped)
+      if (window.scimSetTicket) scimSetTicket(data.ticket || '');
       sessionStorage.setItem('mfa_email', data.email || '');
+      sessionStorage.setItem('otp_issued_at', Date.now().toString());
       window.location.href = 'otp.html';
       return;
     }

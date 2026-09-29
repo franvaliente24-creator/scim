@@ -120,8 +120,8 @@ function renderAssetTable(assets) {
             <td>${money(asset.value)}</td>
             <td>${escapeHTML(asset.location || 'N/A')}</td>
             <td>
-              <button class="action-btn" type="button" data-asset-action="view" data-qr-code="${escapeHTML(asset.qr_code)}">View</button>
-              <button class="action-btn" type="button" data-asset-action="edit" data-qr-code="${escapeHTML(asset.qr_code)}">Edit</button>
+              <button class="action-btn action-btn-view" type="button" data-asset-action="view" data-qr-code="${escapeHTML(asset.qr_code)}">View</button>
+              <button class="action-btn action-btn-edit" type="button" data-asset-action="edit" data-qr-code="${escapeHTML(asset.qr_code)}">Edit</button>
             </td>
           </tr>
         `).join('')}

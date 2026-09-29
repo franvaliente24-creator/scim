@@ -557,14 +557,33 @@
   border: 1px solid var(--outline-variant);
 }
 
-/* Scanner Modal */
+/* Scanner Modal — the operational centerpiece; sized to dominate the view */
+dialog#scanner,
 dialog.scanner {
   border: none;
   border-radius: 1.5rem;
   padding: 0;
-  max-width: 600px;
-  width: 90%;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  max-width: 720px;
+  width: 94%;
+  box-shadow: 0 25px 60px -12px rgba(30, 27, 75, 0.45);
+}
+
+dialog#scanner .viewport {
+  height: 320px;
+}
+
+dialog#scanner .mode-btn {
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+}
+
+dialog#scanner #scanNow {
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .scanner {
@@ -796,6 +815,49 @@ dialog.scanner {
 .action-btn:hover {
   background: var(--surface-dim);
 }
+
+/* Semantic action button palette — distinct colors per operation type */
+.action-btn-view {
+  background: #eef2ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}
+.action-btn-view:hover { background: #e0e7ff; }
+
+.action-btn-edit {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+.action-btn-edit:hover { background: #fef3c7; }
+
+.action-btn-approve {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+.action-btn-approve:hover { background: #d1fae5; }
+
+.action-btn-danger {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+.action-btn-danger:hover { background: #fee2e2; }
+
+.action-btn-primary {
+  background: #4f46e5;
+  color: #ffffff;
+  border-color: #4f46e5;
+}
+.action-btn-primary:hover { background: #4338ca; }
+
+.action-btn-ship {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+.action-btn-ship:hover { background: #dbeafe; }
 
 /* ==========================================
    BUTTON COMPONENTS (Template Match)
@@ -1077,10 +1139,74 @@ dialog.asset-modal #viewAssetDetails dd {
 }
 
 .scanner h2 {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   color: var(--on-surface);
-  margin: 1rem 0;
+  margin: 0 0 1.25rem;
+}
+
+dialog {
+  border: none;
+  border-radius: 20px;
+  box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.35);
+}
+
+dialog::backdrop {
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.scanner form {
+  text-align: left;
+}
+
+.scanner label {
+  font-weight: 600;
+}
+
+.scanner input,
+.scanner select,
+.scanner textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 14px;
+  margin-top: 6px;
+  background: #f8fafc;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+
+.scanner input:focus,
+.scanner select:focus,
+.scanner textarea:focus {
+  outline: none;
+  border-color: #4f46e5;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.scanner form button[type="submit"],
+.scanner > button[type="submit"],
+.scanner #scanNow {
+  width: 100%;
+  padding: 13px;
+  margin-top: 6px;
+  border: none;
+  border-radius: 12px;
+  background: #4f46e5;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background .15s, transform .15s;
+}
+
+.scanner form button[type="submit"]:hover {
+  background: #4338ca;
+  transform: translateY(-1px);
 }
 
 .scanner .modes {
@@ -1093,17 +1219,8 @@ dialog.asset-modal #viewAssetDetails dd {
   display: block;
   text-align: left;
   margin-bottom: 1rem;
-  font-size: 12px;
-  color: var(--on-surface-variant);
-}
-
-.scanner input {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid var(--outline-variant);
-  border-radius: 8px;
-  font-size: 14px;
-  margin-top: 4px;
+  font-size: 13px;
+  color: var(--on-surface);
 }
 
 /* ==========================================

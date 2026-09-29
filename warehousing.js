@@ -62,74 +62,101 @@ function renderWarehouseGrid(zones) {
   const gridEl = $('#warehouseGrid');
   if (!gridEl) return;
 
-  const gridHTML = zones.map(zone => {
-    const occupancyPercent = Math.round((zone.occupied / zone.capacity) * 100);
-    const alertClass = occupancyPercent > 85 ? 'danger' : occupancyPercent >= 60 ? 'warn' : '';
-    
-    return `
-      <div class="warehouse-zone ${alertClass}" data-zone="${zone.zone}">
-        <div class="zone-header">
-          <b>Zone ${zone.zone}</b>
-          <span>${zone.occupied}/${zone.capacity}</span>
-        </div>
-        <div class="zone-bar">
-          <div class="zone-fill" style="width: ${occupancyPercent}%"></div>
-        </div>
-        <div class="zone-rows">
-          ${renderZoneRows(zone.rows || [])}
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  gridEl.innerHTML = gridHTML;
-}
-
-function renderZoneRows(rows) {
-  if (!rows || rows.length === 0) {
-    return '<div class="zone-rows-placeholder">No row data available</div>';
+  if (!zones.length) {
+    gridEl.innerHTML = `
+      <div class="col-span-full flex flex-col items-center justify-center py-14 text-center">
+        <span class="material-symbols-outlined text-5xl text-slate-300 mb-3">warehouse</span>
+        <p class="text-on-surface-variant text-sm font-medium">No warehouse zones yet</p>
+        <p class="text-slate-400 text-xs mt-1">Click "Add Zone" to map your first storage area.</p>
+      </div>`;
+    return;
   }
 
-  return rows.map(row => {
-    const rowOccupancy = Math.round((row.occupied / row.capacity) * 100);
-    const rowClass = rowOccupancy > 85 ? 'danger' : rowOccupancy >= 60 ? 'warn' : '';
-    
+  const palette = (pct) => pct > 85
+    ? { chip: 'bg-red-100 text-red-700', bar: 'bg-red-500', ring: 'border-red-200', label: 'Critical' }
+    : pct >= 60
+      ? { chip: 'bg-amber-100 text-amber-700', bar: 'bg-amber-500', ring: 'border-amber-200', label: 'Filling' }
+      : { chip: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500', ring: 'border-emerald-200', label: 'Available' };
+
+  gridEl.innerHTML = zones.map(zone => {
+    const pct = zone.capacity > 0 ? Math.round((zone.occupied / zone.capacity) * 100) : 0;
+    const c = palette(pct);
+
+    const rows = (zone.rows || []).map(row => {
+      const rPct = row.capacity > 0 ? Math.round((row.occupied / row.capacity) * 100) : 0;
+      const rc = palette(rPct);
+      return `
+        <div class="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 border border-slate-100">
+          <span class="text-xs font-semibold text-slate-600">Row ${row.row}</span>
+          <span class="text-xs font-bold ${rc.chip.split(' ')[1]}">${row.occupied}/${row.capacity}</span>
+        </div>`;
+    }).join('');
+
     return `
-      <div class="warehouse-row ${rowClass}">
-        <span>Row ${row.row}</span>
-        <span>${row.occupied}/${row.capacity}</span>
-      </div>
-    `;
+      <div class="rounded-2xl border ${c.ring} bg-white p-5 hover:shadow-lg transition-shadow" data-zone="${zone.zone}">
+        <div class="flex items-start justify-between gap-3 mb-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="w-10 h-10 rounded-xl ${c.chip} flex items-center justify-center shrink-0">
+              <span class="material-symbols-outlined text-xl">shelves</span>
+            </span>
+            <div class="min-w-0">
+              <p class="text-base font-bold text-on-surface leading-tight">Zone ${zone.zone}</p>
+              <p class="text-xs text-on-surface-variant">${zone.occupied} of ${zone.capacity} slots</p>
+            </div>
+          </div>
+          <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${c.chip} shrink-0">${c.label}</span>
+        </div>
+        <div class="flex items-center gap-3 mb-4">
+          <div class="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+            <div class="h-full ${c.bar} rounded-full transition-all duration-500" style="width: ${Math.min(pct, 100)}%"></div>
+          </div>
+          <span class="text-sm font-extrabold text-on-surface w-10 text-right">${pct}%</span>
+        </div>
+        <div class="space-y-1.5">${rows || '<p class="text-xs text-slate-400 text-center py-2">No row data</p>'}</div>
+      </div>`;
   }).join('');
 }
+
+let allScans = [];
 
 async function loadRecentScans() {
   try {
     const response = await api('warehouse/scans');
     const scans = response.scans || response;
-
-    const recentScansListEl = $('#recentScansList');
-    if (!recentScansListEl) return;
-
-    const scansHTML = scans.map(scan => `
-      <div class="row">
-        <div>
-          <b>${scan.action}</b><br>
-          <small>${scan.qr_code} · Zone ${scan.zone || 'N/A'}</small>
-        </div>
-        <small>${new Date(scan.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
-      </div>
-    `).join('');
-
-    recentScansListEl.innerHTML = scansHTML || '<p class="text-on-surface-variant text-sm">No recent scans</p>';
-    
-    // Update the counter
-    const recentScansEl = $('#recentScans');
-    if (recentScansEl) recentScansEl.textContent = scans.length;
+    allScans = Array.isArray(scans) ? scans : [];
+    renderScansList();
   } catch (error) {
     console.error('Error loading recent scans:', error);
   }
 }
+
+function renderScansList() {
+  const recentScansListEl = $('#recentScansList');
+  if (!recentScansListEl) return;
+
+  const term = ($('#scanSearch')?.value || '').toLowerCase();
+  const scans = term
+    ? allScans.filter((s) => `${s.action} ${s.qr_code} ${s.zone || ''}`.toLowerCase().includes(term))
+    : allScans;
+
+  const scansHTML = scans.map(scan => `
+    <div class="row">
+      <div>
+        <b>${scan.action}</b><br>
+        <small>${scan.qr_code} · Zone ${scan.zone || 'N/A'}</small>
+      </div>
+      <small>${new Date(scan.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+    </div>
+  `).join('');
+
+  recentScansListEl.innerHTML = scansHTML || '<p class="text-on-surface-variant text-sm">No recent scans</p>';
+
+  // Update the counter
+  const recentScansEl = $('#recentScans');
+  if (recentScansEl) recentScansEl.textContent = scans.length;
+}
+
+$('#scanSearch')?.addEventListener('input', renderScansList);
 
 // ==========================================
 // EVENT LISTENERS & INTERACTION
@@ -174,10 +201,11 @@ addZoneForm?.addEventListener('submit', async (event) => {
   }
 });
 
-// Scanner Modal Controls
-const mobileBtn = $('#mobileBtn');
-if (mobileBtn) {
-  mobileBtn.onclick = () => {
+// Scanner Modal Controls — opened from the hero panel (the global FAB also
+// triggers the shared quick-scan modal on every page)
+const heroScanBtn = $('#heroScanBtn');
+if (heroScanBtn) {
+  heroScanBtn.onclick = () => {
     const scanner = $('#scanner');
     if (scanner) {
       scanner.showModal();

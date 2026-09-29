@@ -18,13 +18,20 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 // ==========================================
 // PROCUREMENT DATA LOADING
 // ==========================================
+let allRequisitions = [];
+
 async function loadProcurementData(showAll = false) {
   const table = $('#requisitionsTable');
   if (table && !showAll) table.innerHTML = '<p class="text-sm text-slate-400 py-4">Loading requisitions...</p>';
   try {
     const response = await api('procurement/requisitions');
     const requisitions = Array.isArray(response.requisitions) ? response.requisitions : [];
-    const displayRequisitions = showAll ? requisitions : requisitions.slice(0, 10);
+    allRequisitions = requisitions;
+    const term = ($('#requisitionSearch')?.value || '').toLowerCase();
+    const filtered = term
+      ? requisitions.filter((r) => `${r.req_number} ${r.title} ${r.department} ${r.status}`.toLowerCase().includes(term))
+      : requisitions;
+    const displayRequisitions = showAll ? filtered : filtered.slice(0, 10);
 
     const active = requisitions.filter((r) => !['Completed', 'Cancelled', 'Closed', 'Rejected'].includes(r.status)).length;
     const pending = requisitions.filter((r) => ['Submitted', 'Pending', 'Pending Quote', 'Under Review'].includes(r.status)).length;
@@ -156,6 +163,14 @@ if (addRequisitionForm) {
     }
   };
 }
+
+$('#requisitionSearch')?.addEventListener('input', () => {
+  const term = ($('#requisitionSearch')?.value || '').toLowerCase();
+  const filtered = term
+    ? allRequisitions.filter((r) => `${r.req_number} ${r.title} ${r.department} ${r.status}`.toLowerCase().includes(term))
+    : allRequisitions.slice(0, 10);
+  renderRequisitionTable(filtered);
+});
 
 const viewAllRequisitionsBtn = $('#viewAllRequisitions');
 if (viewAllRequisitionsBtn) {

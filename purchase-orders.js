@@ -82,7 +82,7 @@ function renderPOTable(purchaseOrders) {
             <td>${new Date(po.created_at).toLocaleDateString()}</td>
             <td>${po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString() : 'N/A'}</td>
             <td>
-              <button class="action-btn" onclick="viewPO('${po.id}')">View</button>
+              <button class="action-btn action-btn-view" onclick="viewPO('${po.id}')">View</button>
               ${getPOActionButtons(po)}
             </td>
           </tr>
@@ -99,23 +99,23 @@ function getPOActionButtons(po) {
   
   switch (po.status) {
     case 'Draft':
-      buttons.push(`<button class="action-btn" onclick="submitForApproval('${po.id}')">Submit</button>`);
+      buttons.push(`<button class="action-btn action-btn-primary" onclick="submitForApproval('${po.id}')">Submit</button>`);
       break;
     case 'Pending Approval':
-      buttons.push(`<button class="action-btn" onclick="approvePO('${po.id}')">Approve</button>`);
-      buttons.push(`<button class="action-btn" onclick="rejectPO('${po.id}', '${po.po_number}')" style="color: #dc2626;">Reject</button>`);
+      buttons.push(`<button class="action-btn action-btn-approve" onclick="approvePO('${po.id}')">Approve</button>`);
+      buttons.push(`<button class="action-btn action-btn-danger" onclick="rejectPO('${po.id}', '${po.po_number}')">Reject</button>`);
       break;
     case 'Sent to Vendor':
-      buttons.push(`<button class="action-btn" onclick="markShipped('${po.id}', '${po.po_number}')">Mark Shipped</button>`);
+      buttons.push(`<button class="action-btn action-btn-ship" onclick="markShipped('${po.id}', '${po.po_number}')">Mark Shipped</button>`);
       break;
     case 'Shipped':
-      buttons.push(`<button class="action-btn" onclick="receivePO('${po.id}', '${po.po_number}')">Receive</button>`);
+      buttons.push(`<button class="action-btn action-btn-approve" onclick="receivePO('${po.id}', '${po.po_number}')">Receive</button>`);
       break;
     case 'Received':
-      buttons.push(`<button class="action-btn" onclick="generateQRPDF('${po.id}')">QR PDF</button>`);
+      buttons.push(`<button class="action-btn action-btn-primary" onclick="generateQRPDF('${po.id}')">QR PDF</button>`);
       break;
     default:
-      buttons.push(`<button class="action-btn" onclick="updatePOStatus('${po.id}', '${po.status}')">Update</button>`);
+      buttons.push(`<button class="action-btn action-btn-edit" onclick="updatePOStatus('${po.id}', '${po.status}')">Update</button>`);
   }
   
   return buttons.join('');

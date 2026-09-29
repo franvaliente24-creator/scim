@@ -185,11 +185,14 @@
                 <!-- Requisitions and Quotes -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                        <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
+                        <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
                             <h2 class="text-lg font-headline font-semibold text-on-surface">Requisitions</h2>
-                            <button id="viewAllRequisitions" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
-                                View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
-                            </button>
+                            <div class="flex items-center gap-3">
+                                <input type="text" id="requisitionSearch" placeholder="Search requisitions..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                                <button id="viewAllRequisitions" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
+                                    View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
+                                </button>
+                            </div>
                         </div>
                         <div id="requisitionsTable" class="p-6">
                             <div class="text-on-surface-variant text-sm">Loading requisitions...</div>
@@ -255,9 +258,10 @@
         </div>
     </dialog>
     
-    <script src="layout.js?v=6"></script>
-    <script src="permissions.js"></script>
-    <script src="procurement.js?v=6"></script>
-    <script src="inactivity.js"></script>
+    <script src="layout.js?v=7"></script>
+    <script src="token.js?v=1"></script>
+    <script src="permissions.js?v=7"></script>
+    <script src="procurement.js?v=7"></script>
+    <script src="inactivity.js?v=2"></script>
 </body>
 </html>

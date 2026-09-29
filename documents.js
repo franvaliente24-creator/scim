@@ -59,8 +59,8 @@ function renderDocumentTable(documents) {
             <td>${doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '—'}</td>
             <td>${doc.due_date ? new Date(doc.due_date).toLocaleDateString() : '—'}</td>
             <td>
-              <button class="action-btn" onclick="viewDocument(${doc.id})">View</button>
-              <button class="action-btn" onclick="updateDocStatus(${doc.id}, '${esc(doc.status)}')">Update</button>
+              <button class="action-btn action-btn-view" onclick="viewDocument(${doc.id})">View</button>
+              <button class="action-btn action-btn-edit" onclick="updateDocStatus(${doc.id}, '${esc(doc.status)}')">Update</button>
             </td>
           </tr>`).join('')}
       </tbody>
@@ -153,26 +153,60 @@ function applyDocFilters() {
 if (docSearch) docSearch.oninput = applyDocFilters;
 if (statusFilter) statusFilter.onchange = applyDocFilters;
 
-// Document action functions
+// Document action functions — dedicated modal cards
+const viewDocModal = $('#viewDocumentModal');
+const updateDocModal = $('#updateDocModal');
+let updateDocId = null;
+
+$('#closeViewDocModal')?.addEventListener('click', () => viewDocModal?.close());
+$('#closeUpdateDocModal')?.addEventListener('click', () => updateDocModal?.close());
+$('#updateDocCancel')?.addEventListener('click', () => updateDocModal?.close());
+
 window.viewDocument = async (docId) => {
   try {
     const doc = await api(`documents/${docId}`);
-    alert(`Document: ${doc.document_type}\nRef: ${doc.reference_no}\nOwner: ${doc.owner}\nStatus: ${doc.status}\nDescription: ${doc.description || 'N/A'}\nRelated PO: ${doc.related_po || 'N/A'}\nSigned by: ${doc.signer_name || 'N/A'}`);
+    setText('viewDocRef', doc.reference_no || '');
+    setText('viewDocType', doc.document_type || '—');
+    setText('viewDocOwner', doc.owner || '—');
+    setText('viewDocPO', doc.related_po || '—');
+    setText('viewDocSigner', doc.signer_name || '—');
+    setText('viewDocDesc', doc.description || 'No description provided.');
+    const statusEl = $('#viewDocStatus');
+    if (statusEl) statusEl.innerHTML = `<span class="tag">${esc(doc.status || '')}</span>`;
+    viewDocModal?.showModal();
   } catch (e) { console.error(e); }
 };
 
 window.updateDocStatus = (docId, currentStatus) => {
-  const newStatus = prompt(`Current status: ${currentStatus}\nNew status (Verified, Pending Verification, Signed, Rejected, Expired):`);
-  if (newStatus) updateDocumentStatus(docId, newStatus);
+  const doc = allDocuments.find((d) => d.id === docId);
+  updateDocId = docId;
+  setText('updateDocRef', doc?.reference_no || '');
+  setText('updateDocCurrent', currentStatus);
+  const sel = $('#updateDocSelect');
+  if (sel) {
+    const opts = Array.from(sel.options).map((o) => o.value);
+    sel.value = opts.includes(currentStatus) ? currentStatus : sel.options[0].value;
+  }
+  updateDocModal?.showModal();
 };
 
-async function updateDocumentStatus(docId, newStatus) {
-  const res = await fetch(`/api/v1/documents/${docId}/status`, {
+$('#updateDocSave')?.addEventListener('click', async () => {
+  const newStatus = $('#updateDocSelect')?.value;
+  if (!newStatus || updateDocId == null) return;
+  const btn = $('#updateDocSave');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  const res = await fetch(`/api/v1/documents/${updateDocId}/status`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }),
   });
-  if (res.ok) loadDocumentData();
-  else alert('Failed to update document status');
-}
+  btn.disabled = false;
+  btn.textContent = 'Save Status';
+  if (res.ok) { updateDocModal?.close(); loadDocumentData(); }
+  else {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || 'Failed to update document status');
+  }
+});
 
 window.signDocument = async (docId) => {
   const signature = prompt('Enter your name as digital signature:');

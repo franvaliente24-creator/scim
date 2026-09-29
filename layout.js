@@ -48,12 +48,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Desktop sidebar collapse (icon-only mode)
+  // Desktop sidebar collapse (icon-only mode) — persisted so the header
+  // state carries across page navigation
   function toggleDesktopSidebar() {
     sidebar.classList.toggle('collapsed');
     const isCollapsed = sidebar.classList.contains('collapsed');
     sidebarToggleIcon.textContent = isCollapsed ? 'menu_open' : 'menu';
+    try { sessionStorage.setItem('scim_sidebar_collapsed', isCollapsed ? '1' : '0'); } catch (e) {}
   }
+  try {
+    if (sessionStorage.getItem('scim_sidebar_collapsed') === '1' && window.innerWidth >= 768) {
+      sidebar.classList.add('collapsed');
+      sidebarToggleIcon.textContent = 'menu_open';
+    }
+  } catch (e) {}
 
   // On desktop, toggle collapsed state instead of mobile behavior
   sidebarToggle.addEventListener('click', () => {
@@ -195,6 +203,8 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (error) {
         console.error('Logout error:', error);
       }
+      if (window.scimClearToken) scimClearToken();
+      if (window.scimClearTicket) scimClearTicket();
       window.location.href = 'login.html';
     });
   }
@@ -235,8 +245,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     
-    async function loadNotifications() {
-      notifList.innerHTML = '<p class="text-sm text-slate-400 text-center py-6">Loading...</p>';
+    let lastItems = [];
+
+    async function loadNotifications(renderList) {
+      if (renderList) notifList.innerHTML = '<p class="text-sm text-slate-400 text-center py-6">Loading...</p>';
       const items = [];
 
       try {
@@ -251,7 +263,8 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (err) {
         console.error('Notifications error:', err);
       }
-      
+      lastItems = items;
+
       notifCountLabel.textContent = items.length ? `${items.length} new` : '';
       if (items.length) {
         notifBadge.textContent = items.length;
@@ -259,22 +272,29 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         notifBadge.classList.add('hidden');
       }
-      
-      notifList.innerHTML = items.length
-        ? items.map((n) => `
-            <a href="${n.href}" class="flex items-start gap-3 px-4 py-3 hover:bg-surface-container-low transition-colors">
-              <span class="w-9 h-9 rounded-full ${n.color} flex items-center justify-center shrink-0">
-                <span class="material-symbols-outlined text-lg">${n.icon}</span>
-              </span>
-              <span class="min-w-0">
-                <span class="block text-sm font-medium text-on-surface truncate">${n.title}</span>
-                <span class="block text-xs text-on-surface-variant truncate">${n.sub}</span>
-              </span>
-            </a>
-          `).join('')
-        : '<p class="text-sm text-slate-400 text-center py-8">No new notifications</p>';
+
+      if (renderList || notifMenuOpen) {
+        notifList.innerHTML = items.length
+          ? items.map((n) => `
+              <a href="${n.href}" class="flex items-start gap-3 px-4 py-3 hover:bg-surface-container-low transition-colors">
+                <span class="w-9 h-9 rounded-full ${n.color} flex items-center justify-center shrink-0">
+                  <span class="material-symbols-outlined text-lg">${n.icon}</span>
+                </span>
+                <span class="min-w-0">
+                  <span class="block text-sm font-medium text-on-surface truncate">${n.title}</span>
+                  <span class="block text-xs text-on-surface-variant truncate">${n.sub}</span>
+                </span>
+              </a>
+            `).join('')
+          : '<p class="text-sm text-slate-400 text-center py-8">No new notifications</p>';
+      }
     }
-    
+
+    // Poll the badge immediately on page load, then every 60 seconds, so the
+    // unread count is correct without the user ever opening the menu.
+    loadNotifications(false);
+    setInterval(() => loadNotifications(false), 60000);
+
     notifToggle.addEventListener('click', (e) => {
       e.stopPropagation();
       closeProfileMenu();
@@ -282,7 +302,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (notifMenuOpen) {
         notifMenu.classList.remove('hidden');
         setTimeout(() => notifMenu.classList.remove('opacity-0', 'scale-95'), 10);
-        if (!notifLoaded) { loadNotifications(); notifLoaded = true; }
+        if (lastItems.length) {
+          loadNotifications(true);
+        } else {
+          notifList.innerHTML = '<p class="text-sm text-slate-400 text-center py-8">No new notifications</p>';
+          loadNotifications(false); // refresh quietly in case data arrived late
+        }
       } else {
         closeNotifMenu();
       }

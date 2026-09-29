@@ -112,11 +112,17 @@
 
                     <div class="divide-y divide-outline-variant/20">
                         <div class="py-4 flex items-center justify-between gap-4">
-                            <div>
+                            <div class="flex-1 min-w-0">
                                 <label class="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Full Name</label>
                                 <div class="text-base text-on-surface mt-0.5" id="profileFullName">—</div>
+                                <div id="nameEditRow" class="hidden mt-1.5 flex gap-2">
+                                    <input id="nameEditInput" type="text" maxlength="120" class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+                                    <button id="nameEditSave" class="action-btn action-btn-approve">Save</button>
+                                    <button id="nameEditCancel" class="action-btn">Cancel</button>
+                                </div>
                             </div>
-                            <span class="material-symbols-outlined text-slate-300" title="Managed by administrator">lock</span>
+                            <button id="nameEditBtn" type="button" class="hidden material-symbols-outlined text-slate-400 hover:text-primary transition-colors" title="Edit name" style="border:none;background:none;cursor:pointer;">edit</button>
+                            <span id="nameLockIcon" class="material-symbols-outlined text-slate-300" title="Managed by administrator">lock</span>
                         </div>
                         <div class="py-4 flex items-center justify-between gap-4">
                             <div>
@@ -171,9 +177,10 @@
         </main>
     </div>
 
-    <script src="permissions.js"></script>
-    <script src="layout.js"></script>
-    <script src="profile.js"></script>
-    <script src="inactivity.js"></script>
+    <script src="token.js?v=1"></script>
+    <script src="permissions.js?v=7"></script>
+    <script src="layout.js?v=7"></script>
+    <script src="profile.js?v=2"></script>
+    <script src="inactivity.js?v=2"></script>
 </body>
 </html>

@@ -44,13 +44,16 @@ async function requireAdmin() {
 // ==========================================
 // 3. USER MANAGEMENT FUNCTIONS
 // ==========================================
+let allUsers = [];
+
 async function loadUsers() {
   const response = await api('users');
   const users = await response.json();
+  allUsers = Array.isArray(users) ? users : [];
   const list = $('#users');
   if (!list) return;
 
-  list.innerHTML = users.map((u) => `
+  list.innerHTML = allUsers.map((u) => `
     <div class="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
       <div class="flex items-center gap-3 min-w-0">
         <div class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm overflow-hidden shrink-0">
@@ -64,19 +67,31 @@ async function loadUsers() {
       <div class="flex items-center gap-2 shrink-0">
         <span class="role ${esc(u.role.toLowerCase())}">${esc(u.role)}</span>
         <span class="text-xs ${u.is_active ? 'text-emerald-600' : 'text-slate-400'}">${u.is_active ? 'Active' : 'Disabled'}</span>
-        <button class="text-button" onclick="editUser(${u.id})">Edit</button>
-        <button class="text-button" onclick="deleteUser(${u.id})" style="color:#dc2626;">Delete</button>
+        <button class="action-btn action-btn-edit" onclick="editUser(${u.id})">Edit</button>
+        <button class="action-btn action-btn-danger" onclick="deleteUser(${u.id})">Delete</button>
       </div>
     </div>`).join('');
 }
 
-// Login history — paginated
+// Login history — paginated + filterable
 let historyPage = 1;
+function historyQuery(page) {
+  const p = new URLSearchParams({ page, per_page: 10 });
+  const s = $('#historySearch')?.value.trim();
+  const r = $('#historyResult')?.value;
+  const f = $('#historyDateFrom')?.value;
+  const t = $('#historyDateTo')?.value;
+  if (s) p.set('search', s);
+  if (r) p.set('result', r);
+  if (f) p.set('date_from', f);
+  if (t) p.set('date_to', t);
+  return p.toString();
+}
 async function loadLoginHistory(page = 1) {
   const el = $('#loginHistory');
   if (!el) return;
   try {
-    const res = await api(`login-history?page=${page}&per_page=10`);
+    const res = await api(`login-history?${historyQuery(page)}`);
     const data = await res.json();
     const items = data.items || [];
     historyPage = data.page || 1;
@@ -202,9 +217,13 @@ if (userForm) userForm.onsubmit = async (e) => {
   }
 };
 
-// Pagination controls
+// Pagination + filter controls
 $('#historyPrev')?.addEventListener('click', () => loadLoginHistory(historyPage - 1));
 $('#historyNext')?.addEventListener('click', () => loadLoginHistory(historyPage + 1));
+$('#historySearch')?.addEventListener('input', () => loadLoginHistory(1));
+$('#historyResult')?.addEventListener('change', () => loadLoginHistory(1));
+$('#historyDateFrom')?.addEventListener('change', () => loadLoginHistory(1));
+$('#historyDateTo')?.addEventListener('change', () => loadLoginHistory(1));
 
 // NOTE: logout is handled centrally by layout.js (confirmation modal)
 
@@ -221,39 +240,83 @@ requireAdmin().then((isAuthorized) => {
   }
 });
 
-// Edit User Function
-window.editUser = async (userId) => {
-  const fullName = prompt('Enter new full name:');
-  if (fullName === null) return;
-  const email = prompt('Enter new email:');
-  if (email === null) return;
-  const role = prompt('Enter new role (Admin, Manager, WarehouseStaff):');
-  if (role === null) return;
-  const isActive = confirm('Is this user active?');
+// Edit User — modal card (prefilled from the cached user list)
+const editUserModal = $('#editUserModal');
+const deleteUserModal = $('#deleteUserModal');
+let deleteTargetId = null;
 
+window.editUser = (userId) => {
+  const u = allUsers.find((x) => x.id === userId);
+  if (!u) return;
+  $('#editUserId').value = u.id;
+  $('#editUserName').value = u.full_name || '';
+  $('#editUserEmail').value = u.email || '';
+  $('#editUserRole').value = u.role || 'WarehouseStaff';
+  $('#editUserActive').checked = !!Number(u.is_active);
+  const sub = $('#editUserSubtitle');
+  if (sub) sub.textContent = maskEmail(u.email || '');
+  editUserModal?.showModal();
+};
+
+$('#closeEditUserModal')?.addEventListener('click', () => editUserModal?.close());
+$('#editUserCancel')?.addEventListener('click', () => editUserModal?.close());
+
+$('#editUserForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const userId = $('#editUserId').value;
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
   try {
     const response = await api(`users/${userId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: fullName, email, role, is_active: isActive ? 1 : 0 }),
+      body: JSON.stringify({
+        full_name: $('#editUserName').value.trim(),
+        email: $('#editUserEmail').value.trim(),
+        role: $('#editUserRole').value,
+        is_active: $('#editUserActive').checked ? 1 : 0,
+      }),
     });
-    if (response.ok) loadUsers();
-    else alert('Failed to update user');
+    if (response.ok) { editUserModal?.close(); loadUsers(); }
+    else {
+      const data = await response.json().catch(() => ({}));
+      alert(data.error || 'Failed to update user');
+    }
   } catch (error) {
     console.error('Error updating user:', error);
     alert('Error updating user');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
   }
+});
+
+// Delete User — confirmation card
+window.deleteUser = (userId) => {
+  const u = allUsers.find((x) => x.id === userId);
+  deleteTargetId = userId;
+  const nameEl = $('#deleteUserName');
+  if (nameEl) nameEl.textContent = u ? u.full_name : 'this user';
+  deleteUserModal?.showModal();
 };
 
-// Delete User Function
-window.deleteUser = async (userId) => {
-  if (!confirm('Delete this user? This cannot be undone.')) return;
+$('#deleteUserCancel')?.addEventListener('click', () => { deleteTargetId = null; deleteUserModal?.close(); });
+$('#deleteUserConfirm')?.addEventListener('click', async () => {
+  if (deleteTargetId == null) return;
+  const btn = $('#deleteUserConfirm');
+  btn.disabled = true;
+  btn.textContent = 'Deleting...';
   try {
-    const response = await api(`users/${userId}`, { method: 'DELETE' });
-    if (response.ok) loadUsers();
+    const response = await api(`users/${deleteTargetId}`, { method: 'DELETE' });
+    if (response.ok) { deleteUserModal?.close(); loadUsers(); }
     else alert('Failed to delete user');
   } catch (error) {
     console.error('Error deleting user:', error);
     alert('Error deleting user');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Delete';
+    deleteTargetId = null;
   }
-};
+});

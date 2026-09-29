@@ -1,6 +1,20 @@
 <?php
 declare(strict_types=1);
 
+// Never leak PHP warnings/notices as raw HTML — the frontend expects JSON.
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+ob_start();
+register_shutdown_function(function () {
+    $e = error_get_last();
+    if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        while (ob_get_level() > 0) { ob_end_clean(); }
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => 'Server error. Please try again.']);
+    }
+});
+
 session_name('scim_session');
 session_set_cookie_params([
     'httponly' => true,
@@ -25,7 +39,13 @@ function body(): array {
 }
 
 function currentUser(): ?array {
-    return $_SESSION['user'] ?? null;
+    // Per-tab bearer token takes precedence — isolates concurrent logins in the
+    // same browser. The PHP session cookie is only a legacy fallback.
+    static $cached;
+    if ($cached === null) {
+        $cached = tokenUser(db()) ?? ($_SESSION['user'] ?? null) ?? false;
+    }
+    return $cached ?: null;
 }
 
 function auth(array $roles = []): array {
@@ -738,6 +758,40 @@ function migrate(PDO $d): void {
     )");
     $d->exec("INSERT IGNORE INTO stock_thresholds(category, min_quantity) VALUES
         ('Laptop', 5), ('Monitor', 5), ('Peripheral', 8), ('Office Supplies', 10), ('IT Equipment', 5)");
+    
+    // Per-tab session tokens (sessionStorage-held, isolates concurrent logins)
+    $d->exec("CREATE TABLE IF NOT EXISTS session_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        token VARCHAR(64) UNIQUE NOT NULL,
+        user_id INT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NOT NULL
+    )");
+    
+    // Per-tab pending OTP tickets (replaces shared $_SESSION MFA state)
+    $d->exec("CREATE TABLE IF NOT EXISTS otp_tickets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        ticket VARCHAR(64) UNIQUE NOT NULL,
+        user_id INT NOT NULL,
+        otp VARCHAR(6) NOT NULL,
+        expires_at INT NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+}
+
+// Look up an authenticated user from a per-tab bearer token
+function tokenUser(PDO $d): ?array {
+    $t = $_SERVER['HTTP_X_SCIM_TOKEN'] ?? '';
+    if (!preg_match('/^[a-f0-9]{64}$/', $t)) return null;
+    $q = $d->prepare("SELECT u.id, u.full_name AS name, u.email, u.role, u.avatar
+                      FROM session_tokens st JOIN users u ON u.id = st.user_id
+                      WHERE st.token = ? AND st.expires_at > NOW() AND u.is_active = 1");
+    $q->execute([$t]);
+    $u = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$u) return null;
+    $u['id'] = (int)$u['id'];
+    $u['initials'] = strtoupper(substr($u['name'], 0, 1));
+    return $u;
 }
 
 function db(): PDO {
@@ -791,14 +845,15 @@ if ($method === 'POST' && $path === '/api/v1/auth/login') {
         reply(['error' => 'Invalid email or password.'], 401);
     }
 
-    // Mandatory 2FA: every login requires email OTP verification
+    // Mandatory 2FA: every login requires email OTP verification.
+    // The pending OTP lives in a DB ticket keyed per-tab (not the shared
+    // session cookie), so two concurrent logins in one browser stay isolated.
     $otp = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-
-    $_SESSION['mfa_user_id'] = (int)$u['id'];
-    $_SESSION['mfa_email'] = $u['email'];
-    $_SESSION['mfa_otp'] = $otp;
-    $_SESSION['mfa_otp_expires'] = time() + 300;
-    session_write_close();
+    $ticket = bin2hex(random_bytes(32));
+    $d = db();
+    $d->prepare('DELETE FROM otp_tickets WHERE expires_at < ?')->execute([time() - 600]);
+    $d->prepare('INSERT INTO otp_tickets(ticket, user_id, otp, expires_at) VALUES(?, ?, ?, ?)')
+      ->execute([$ticket, (int)$u['id'], $otp, time() + 300]);
 
     // Respond instantly, then send the email in the background so the
     // user reaches the OTP page without waiting for SMTP.
@@ -806,6 +861,7 @@ if ($method === 'POST' && $path === '/api/v1/auth/login') {
         'requires_2fa' => true,
         'message' => 'Verification code sent to your email',
         'email' => $u['email'],
+        'ticket' => $ticket,
     ]);
     http_response_code(200);
     header('Content-Length: ' . strlen($payload));
@@ -828,6 +884,13 @@ if ($method === 'POST' && $path === '/api/v1/auth/login') {
 }
 
 if ($method === 'POST' && $path === '/api/v1/auth/logout') {
+    $t = $_SERVER['HTTP_X_SCIM_TOKEN'] ?? '';
+    if (preg_match('/^[a-f0-9]{64}$/', $t)) {
+        try {
+            db()->prepare('DELETE FROM session_tokens WHERE token = ?')->execute([$t]);
+        } catch (Throwable) {}
+    }
+    $_SESSION = [];
     session_destroy();
     reply(['ok' => true]);
 }
@@ -850,10 +913,20 @@ if ($method === 'GET' && $path === '/api/v1/auth/me') {
 
 // Profile picture upload (multipart form, field name "avatar")
 if ($method === 'POST' && $path === '/api/v1/profile/avatar') {
-    $u = auth();
-    if (empty($_FILES['avatar']) || $_FILES['avatar']['error'] !== UPLOAD_ERR_OK) {
-        reply(['error' => 'No image uploaded.'], 400);
-    }
+    try {
+        $u = auth();
+        if (empty($_FILES['avatar']) || !isset($_FILES['avatar']['error'])) {
+            reply(['error' => 'No image uploaded.'], 400);
+        }
+        if ($_FILES['avatar']['error'] !== UPLOAD_ERR_OK) {
+            $msgs = [
+                UPLOAD_ERR_INI_SIZE => 'Image exceeds the server upload limit.',
+                UPLOAD_ERR_FORM_SIZE => 'Image exceeds the allowed size.',
+                UPLOAD_ERR_PARTIAL => 'Upload was interrupted — please try again.',
+                UPLOAD_ERR_NO_FILE => 'No image uploaded.',
+            ];
+            reply(['error' => $msgs[$_FILES['avatar']['error']] ?? 'Upload failed — please try again.'], 400);
+        }
     if ($_FILES['avatar']['size'] > 2 * 1024 * 1024) {
         reply(['error' => 'Image must be under 2 MB.'], 400);
     }
@@ -874,10 +947,32 @@ if ($method === 'POST' && $path === '/api/v1/profile/avatar') {
     if (!move_uploaded_file($_FILES['avatar']['tmp_name'], $dest)) {
         reply(['error' => 'Could not save the image.'], 500);
     }
-    $path = 'img/avatars/' . $file;
-    db()->prepare('UPDATE users SET avatar = ? WHERE id = ?')->execute([$path, $u['id']]);
-    $_SESSION['user']['avatar'] = $path;
-    reply(['ok' => true, 'avatar' => $path]);
+        $path = 'img/avatars/' . $file;
+        db()->prepare('UPDATE users SET avatar = ? WHERE id = ?')->execute([$path, $u['id']]);
+        if (isset($_SESSION['user'])) { $_SESSION['user']['avatar'] = $path; }
+        reply(['ok' => true, 'avatar' => $path]);
+    } catch (Throwable $e) {
+        error_log('Avatar upload error: ' . $e->getMessage());
+        reply(['error' => 'Upload failed — please try again.'], 500);
+    }
+}
+
+// Authenticated profile update — Admin can edit own display name; standard
+// users may only change accessory fields (avatar). Role/email/username are
+// immutable for everyone except via the User Management admin endpoint.
+if ($method === 'PUT' && $path === '/api/v1/profile') {
+    $u = auth();
+    if ($u['role'] !== 'Admin') {
+        reply(['error' => 'Only administrators can edit profile details.'], 403);
+    }
+    $x = body();
+    $name = trim($x['full_name'] ?? '');
+    if ($name === '' || mb_strlen($name) > 120) {
+        reply(['error' => 'Please provide a valid display name.'], 400);
+    }
+    db()->prepare('UPDATE users SET full_name = ? WHERE id = ?')->execute([$name, $u['id']]);
+    if (isset($_SESSION['user'])) { $_SESSION['user']['name'] = $name; }
+    reply(['ok' => true, 'name' => $name]);
 }
 
 // Public: user requests an admin-assisted credential reset
@@ -1164,10 +1259,38 @@ if ($method === 'GET' && $path === '/api/v1/login-history') {
     $page = max(1, (int)($_GET['page'] ?? 1));
     $per = min(100, max(5, (int)($_GET['per_page'] ?? 10)));
     $d = db();
-    $total = (int)$d->query('SELECT COUNT(*) FROM login_history')->fetchColumn();
-    $q = $d->prepare('SELECT lh.*, u.full_name FROM login_history lh LEFT JOIN users u ON lh.user_id = u.id ORDER BY lh.created_at DESC LIMIT ? OFFSET ?');
-    $q->bindValue(1, $per, PDO::PARAM_INT);
-    $q->bindValue(2, ($page - 1) * $per, PDO::PARAM_INT);
+
+    $where = [];
+    $params = [];
+    if (($search = trim($_GET['search'] ?? '')) !== '') {
+        $where[] = '(lh.email LIKE ? OR u.full_name LIKE ?)';
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+    }
+    if (isset($_GET['result']) && in_array($_GET['result'], ['success', 'failed'], true)) {
+        $where[] = 'lh.success = ?';
+        $params[] = $_GET['result'] === 'success' ? 1 : 0;
+    }
+    if (($from = trim($_GET['date_from'] ?? '')) !== '') {
+        $where[] = 'lh.created_at >= ?';
+        $params[] = $from . ' 00:00:00';
+    }
+    if (($to = trim($_GET['date_to'] ?? '')) !== '') {
+        $where[] = 'lh.created_at <= ?';
+        $params[] = $to . ' 23:59:59';
+    }
+    $wsql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+    $join = 'FROM login_history lh LEFT JOIN users u ON lh.user_id = u.id';
+
+    $c = $d->prepare("SELECT COUNT(*) $join $wsql");
+    $c->execute($params);
+    $total = (int)$c->fetchColumn();
+
+    $q = $d->prepare("SELECT lh.*, u.full_name, u.role $join $wsql ORDER BY lh.created_at DESC LIMIT ? OFFSET ?");
+    $i = 1;
+    foreach ($params as $p) { $q->bindValue($i++, $p); }
+    $q->bindValue($i++, $per, PDO::PARAM_INT);
+    $q->bindValue($i, ($page - 1) * $per, PDO::PARAM_INT);
     $q->execute();
     reply([
         'items' => $q->fetchAll(PDO::FETCH_ASSOC),
@@ -1305,83 +1428,112 @@ if ($method === 'POST' && $path === '/api/v1/mfa/disable') {
 
 if ($method === 'POST' && $path === '/api/v1/mfa/login-verify') {
     $x = body();
+    $ticket = $x['ticket'] ?? '';
+    $code = $x['code'] ?? '';
     
-    if (empty($x['code'])) {
+    if (empty($code) || empty($ticket)) {
         reply(['error' => 'Verification code required'], 400);
     }
     
-    // Check session for pending MFA verification
-    $userId = $_SESSION['mfa_user_id'] ?? null;
-    $storedOtp = $_SESSION['mfa_otp'] ?? null;
-    $expires = $_SESSION['mfa_otp_expires'] ?? 0;
+    $d = db();
+    $q = $d->prepare('SELECT * FROM otp_tickets WHERE ticket = ? LIMIT 1');
+    $q->execute([$ticket]);
+    $pending = $q->fetch(PDO::FETCH_ASSOC);
     
-    if (!$userId || !$storedOtp) {
+    if (!$pending) {
         reply(['error' => 'No verification pending. Please login again.'], 401);
     }
     
-    if (time() > $expires) {
-        unset($_SESSION['mfa_otp'], $_SESSION['mfa_otp_expires']);
-        reply(['error' => 'Verification code expired. Please login again.'], 401);
+    $userId = (int)$pending['user_id'];
+    
+    if (time() > (int)$pending['expires_at']) {
+        $d->prepare('DELETE FROM otp_tickets WHERE id = ?')->execute([$pending['id']]);
+        reply(['error' => 'Verification code expired. Please request a new code.', 'expired' => true], 401);
     }
     
-    if ($x['code'] !== $storedOtp) {
+    if (!hash_equals($pending['otp'], (string)$code)) {
         reply(['error' => 'Invalid verification code'], 401);
     }
     
-    $d = db();
+    // OTP verified — consume the ticket and issue a per-tab session token
+    $d->prepare('DELETE FROM otp_tickets WHERE id = ?')->execute([$pending['id']]);
     $q = $d->prepare('SELECT * FROM users WHERE id = ?');
     $q->execute([$userId]);
     $user = $q->fetch(PDO::FETCH_ASSOC);
     
-    if (!$user) {
+    if (!$user || !$user['is_active']) {
         reply(['error' => 'User not found'], 401);
     }
     
-    // OTP verified - create session
+    $token = bin2hex(random_bytes(32));
+    $d->prepare('DELETE FROM session_tokens WHERE expires_at < NOW()')->execute();
+    $d->prepare('INSERT INTO session_tokens(token, user_id, expires_at) VALUES(?, ?, DATE_ADD(NOW(), INTERVAL 8 HOUR))')
+      ->execute([$token, $userId]);
+    
+    // Also set the cookie session for legacy endpoints
     session_regenerate_id(true);
     $_SESSION['user'] = [
-        'id' => (int)$user['id'],
+        'id' => $userId,
         'name' => $user['full_name'],
         'email' => $user['email'],
         'role' => $user['role'],
+        'avatar' => $user['avatar'] ?? null,
         'initials' => strtoupper(substr($user['full_name'], 0, 1))
     ];
     
-    // Clear MFA session data
-    unset($_SESSION['mfa_user_id'], $_SESSION['mfa_email'], $_SESSION['mfa_otp'], $_SESSION['mfa_otp_expires']);
+    audit($d, $user['email'], true, $userId);
     
-    // Log successful login
-    audit($d, $user['email'], true, (int)$user['id']);
-    
-    reply(['ok' => true, 'user' => currentUser()]);
+    reply(['ok' => true, 'token' => $token, 'user' => $_SESSION['user']]);
 }
 
 if ($method === 'POST' && $path === '/api/v1/mfa/resend-otp') {
-    $userId = $_SESSION['mfa_user_id'] ?? null;
-    if (!$userId) {
+    $x = body();
+    $ticket = $x['ticket'] ?? '';
+    
+    $d = db();
+    $q = $d->prepare('SELECT * FROM otp_tickets WHERE ticket = ? LIMIT 1');
+    $q->execute([$ticket]);
+    $pending = $q->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$pending) {
         reply(['error' => 'No verification pending. Please login again.'], 401);
     }
     
-    $d = db();
     $q = $d->prepare('SELECT * FROM users WHERE id = ?');
-    $q->execute([$userId]);
+    $q->execute([(int)$pending['user_id']]);
     $user = $q->fetch(PDO::FETCH_ASSOC);
     
     if (!$user) {
         reply(['error' => 'User not found'], 401);
     }
     
-    // Generate new OTP
+    // Generate new OTP — issues a fresh ticket so the old code is fully dead
     $otp = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-    $_SESSION['mfa_otp'] = $otp;
-    $_SESSION['mfa_otp_expires'] = time() + 300;
+    $newTicket = bin2hex(random_bytes(32));
+    $d->prepare('DELETE FROM otp_tickets WHERE id = ?')->execute([$pending['id']]);
+    $d->prepare('INSERT INTO otp_tickets(ticket, user_id, otp, expires_at) VALUES(?, ?, ?, ?)')
+      ->execute([$newTicket, (int)$user['id'], $otp, time() + 300]);
     
-    $mailSent = sendOtpEmail($user['email'], $user['full_name'], $otp);
-    if (!$mailSent) {
-        error_log("OTP resend email failed for {$user['email']}. Code: $otp");
+    // Respond first, send email in background
+    $payload = json_encode(['ok' => true, 'ticket' => $newTicket]);
+    http_response_code(200);
+    header('Content-Length: ' . strlen($payload));
+    echo $payload;
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    } else {
+        while (ob_get_level() > 0) { ob_end_flush(); }
+        flush();
     }
     
-    reply(['ok' => true, 'mail_sent' => $mailSent]);
+    try {
+        if (!sendOtpEmail($user['email'], $user['full_name'], $otp)) {
+            error_log("OTP resend email failed for {$user['email']}. Code: $otp");
+        }
+    } catch (Throwable $e) {
+        error_log('OTP resend error: ' . $e->getMessage());
+    }
+    exit;
 }
 
 // Encode hex secret to Base32 for authenticator-app compatibility

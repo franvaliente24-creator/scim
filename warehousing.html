@@ -150,15 +150,42 @@
                             <p class="text-on-surface-variant text-sm mt-2">Real-time warehouse occupancy and QR scanning operations.</p>
                         </div>
                         <div class="flex flex-wrap items-center justify-start sm:justify-end gap-3 shrink-0">
-                            <button id="mobileBtn" class="btn-secondary dashboard-action-button m-0">
-                                <span class="material-symbols-outlined">qr_code_scanner</span>
-                                Mobile Scanner
-                            </button>
-                            <button id="addZone" class="btn-primary dashboard-action-button m-0">
+                            <button id="addZone" class="btn-secondary dashboard-action-button m-0">
                                 <span class="material-symbols-outlined">add</span>
                                 Add Zone
                             </button>
                         </div>
+                    </div>
+                </div>
+                
+                <!-- QR Scanner Hero — the operational center of the system -->
+                <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-700 via-indigo-600 to-violet-700 shadow-2xl shadow-indigo-600/30">
+                    <div class="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-white/10 blur-2xl pointer-events-none"></div>
+                    <div class="absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-indigo-900/40 blur-3xl pointer-events-none"></div>
+                    <div class="relative p-8 md:p-10 flex flex-col md:flex-row md:items-center gap-8">
+                        <div class="flex-1 min-w-0">
+                            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 text-white/90 text-xs font-bold uppercase tracking-wider mb-4">
+                                <span class="material-symbols-outlined text-sm">qr_code_2</span> QR Operations Center
+                            </div>
+                            <h2 class="text-2xl md:text-3xl font-headline font-extrabold text-white leading-tight">Scan. Track. Automate.</h2>
+                            <p class="text-indigo-100/90 text-sm md:text-base mt-3 max-w-lg leading-relaxed">Every physical movement — inbound PO receipts, zone transfers, staff assignments, and outbound dispatches — starts with a single QR scan.</p>
+                            <div class="flex flex-wrap gap-2 mt-5">
+                                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-white/85 text-xs font-medium"><span class="material-symbols-outlined text-sm">download</span> Inbound Intake</span>
+                                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-white/85 text-xs font-medium"><span class="material-symbols-outlined text-sm">swap_horiz</span> Zone Transfer</span>
+                                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-white/85 text-xs font-medium"><span class="material-symbols-outlined text-sm">person_add</span> Staff Assignment</span>
+                                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-white/85 text-xs font-medium"><span class="material-symbols-outlined text-sm">upload</span> Outbound</span>
+                            </div>
+                        </div>
+                        <button id="heroScanBtn" type="button" class="group shrink-0 flex flex-col items-center gap-4 p-8 rounded-3xl bg-white text-indigo-700 shadow-xl hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 transition-all duration-300">
+                            <span class="relative flex items-center justify-center w-24 h-24 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 group-hover:bg-indigo-700 transition-colors">
+                                <span class="material-symbols-outlined text-5xl">qr_code_scanner</span>
+                                <span class="absolute inset-0 rounded-2xl border-2 border-white/30 animate-ping opacity-20"></span>
+                            </span>
+                            <span class="text-center">
+                                <span class="block text-lg font-extrabold">Open Scanner</span>
+                                <span class="block text-xs font-medium text-indigo-500 mt-0.5">Camera or manual entry</span>
+                            </span>
+                        </button>
                     </div>
                 </div>
                 
@@ -188,24 +215,37 @@
                 
                 <!-- Warehouse Occupancy Grid -->
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Warehouse Occupancy Grid</h2>
-                        <button id="refreshWarehouse" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
-                            Refresh <span class="material-symbols-outlined text-sm">refresh</span>
-                        </button>
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
+                            <span class="material-symbols-outlined text-primary">grid_view</span>
+                            Warehouse Occupancy Grid
+                        </h2>
+                        <div class="flex items-center gap-4">
+                            <div class="hidden sm:flex items-center gap-3 text-xs text-on-surface-variant">
+                                <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>Available</span>
+                                <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>Filling</span>
+                                <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>Critical</span>
+                            </div>
+                            <button id="refreshWarehouse" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
+                                Refresh <span class="material-symbols-outlined text-sm">refresh</span>
+                            </button>
+                        </div>
                     </div>
-                    <div id="warehouseGrid" class="p-6">
-                        <div class="warehouse-grid"></div>
+                    <div id="warehouseGrid" class="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                        <p class="text-on-surface-variant text-sm col-span-full">Loading zones...</p>
                     </div>
                 </div>
                 
                 <!-- Recent QR Scans -->
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
                         <h2 class="text-lg font-headline font-semibold text-on-surface">Recent QR Scans</h2>
-                        <button id="viewAllScans" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
-                            View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
-                        </button>
+                        <div class="flex items-center gap-3">
+                            <input type="text" id="scanSearch" placeholder="Search scans..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            <button id="viewAllScans" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
+                                View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
+                            </button>
+                        </div>
                     </div>
                     <div id="recentScansList" class="p-6">
                         <div class="text-on-surface-variant text-sm">Loading recent scans...</div>
@@ -263,9 +303,10 @@
         </div>
     </dialog>
     
-    <script src="permissions.js"></script>
-    <script src="layout.js?v=6"></script>
-    <script src="warehousing.js?v=6"></script>
-    <script src="inactivity.js"></script>
+    <script src="token.js?v=1"></script>
+    <script src="permissions.js?v=7"></script>
+    <script src="layout.js?v=7"></script>
+    <script src="warehousing.js?v=7"></script>
+    <script src="inactivity.js?v=2"></script>
 </body>
 </html>

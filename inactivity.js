@@ -140,9 +140,10 @@ class InactivityTimer {
     this.isLocked = true;
     this.hideWarning();
     
-    // Server-side logout
+    // Server-side logout + clear this tab's token
     fetch('/api/v1/auth/logout', { method: 'POST' })
       .finally(() => {
+        if (window.scimClearToken) scimClearToken();
         if (this.inactivityModal) {
           this.inactivityModal.style.display = 'flex';
         }

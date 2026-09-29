@@ -59,6 +59,10 @@ const PERMISSIONS = {
   DOCUMENT_VERIFY: ['Admin', 'Manager'],
   DOCUMENT_DELETE: ['Admin'],
   
+  // Equipment Request Permissions
+  EQUIPMENT_VIEW: ['Admin', 'Manager'],
+  EQUIPMENT_MANAGE: ['Admin', 'Manager'],
+  
   // User Management Permissions
   USER_VIEW: ['Admin'],
   USER_ADD: ['Admin'],
@@ -84,6 +88,14 @@ async function initializePermissions() {
   try {
     const response = await fetch('/api/v1/auth/me');
     const data = await response.json();
+    
+    // Unauthenticated visitors on protected pages get bounced to login.
+    // (login/otp pages are exempt — they load this script too.)
+    const isAuthPage = /login\.html|otp\.html/i.test(window.location.pathname);
+    if (!data.user && !isAuthPage) {
+      window.location.href = 'login.html';
+      return null;
+    }
     
     if (data.user && data.user.role) {
       currentUserRole = data.user.role;
@@ -176,6 +188,8 @@ function applyRBAC() {
     'users.html': 'USER_VIEW',
     'warehousing.html': 'WAREHOUSE_VIEW',
     'inventory.html': 'INVENTORY_VIEW',
+    'equipment-requests.html': 'EQUIPMENT_VIEW',
+    'mfa-setup.html': 'SECURITY_VIEW',
   };
   
   Object.entries(modulePermissions).forEach(([href, permission]) => {
@@ -208,6 +222,8 @@ function applyRBAC() {
     'purchase-orders.html': 'PO_VIEW',
     'documents.html': 'DOCUMENT_VIEW',
     'users.html': 'USER_VIEW',
+    'equipment-requests.html': 'EQUIPMENT_VIEW',
+    'mfa-setup.html': 'SECURITY_VIEW',
   };
   
   if (pageGuards[pageFile] && !hasPermission(pageGuards[pageFile])) {
@@ -258,7 +274,7 @@ function applyRBAC() {
   
   // Show elements granted by permission
   if (hasPermission('WAREHOUSE_SCAN')) {
-    document.querySelectorAll('#mobileBtn').forEach(btn => btn.style.display = '');
+    document.querySelectorAll('#heroScanBtn, #mobileBtn').forEach(btn => btn.style.display = '');
   }
   
   if (hasPermission('PO_RECEIVE')) {

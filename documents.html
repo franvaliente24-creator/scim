@@ -259,9 +259,70 @@
         </div>
     </dialog>
     
-    <script src="layout.js?v=6"></script>
-    <script src="permissions.js"></script>
-    <script src="documents.js?v=6"></script>
-    <script src="inactivity.js"></script>
+    <!-- View Document Modal -->
+    <dialog id="viewDocumentModal" class="rounded-2xl border-0 shadow-2xl p-0 w-[94%] max-w-lg backdrop:bg-slate-900/50">
+        <div class="p-6">
+            <div class="flex items-start justify-between mb-5">
+                <div class="flex items-center gap-3">
+                    <span class="w-11 h-11 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                        <span class="material-symbols-outlined">description</span>
+                    </span>
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-900">Document Details</h2>
+                        <p id="viewDocRef" class="text-xs text-slate-500 font-medium"></p>
+                    </div>
+                </div>
+                <button id="closeViewDocModal" class="text-slate-400 hover:text-slate-600 transition-colors" aria-label="Close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <dl class="space-y-3 text-sm">
+                <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Type</dt><dd id="viewDocType" class="font-semibold text-slate-800 text-right"></dd></div>
+                <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Owner</dt><dd id="viewDocOwner" class="font-semibold text-slate-800 text-right"></dd></div>
+                <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Status</dt><dd id="viewDocStatus" class="text-right"></dd></div>
+                <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Related PO</dt><dd id="viewDocPO" class="font-semibold text-slate-800 text-right"></dd></div>
+                <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Signed By</dt><dd id="viewDocSigner" class="font-semibold text-slate-800 text-right"></dd></div>
+                <div class="pt-1"><dt class="text-slate-500 mb-1">Description</dt><dd id="viewDocDesc" class="text-slate-700 bg-slate-50 rounded-xl p-3 leading-relaxed"></dd></div>
+            </dl>
+        </div>
+    </dialog>
+
+    <!-- Update Document Status Modal -->
+    <dialog id="updateDocModal" class="rounded-2xl border-0 shadow-2xl p-0 w-[94%] max-w-md backdrop:bg-slate-900/50">
+        <div class="p-6">
+            <div class="flex items-start justify-between mb-5">
+                <div class="flex items-center gap-3">
+                    <span class="w-11 h-11 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                        <span class="material-symbols-outlined">edit_document</span>
+                    </span>
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-900">Update Status</h2>
+                        <p id="updateDocRef" class="text-xs text-slate-500 font-medium"></p>
+                    </div>
+                </div>
+                <button id="closeUpdateDocModal" class="text-slate-400 hover:text-slate-600 transition-colors" aria-label="Close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <p class="text-sm text-slate-500 mb-3">Current status: <span id="updateDocCurrent" class="font-bold text-slate-800"></span></p>
+            <select id="updateDocSelect" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 mb-5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+                <option value="Pending Verification">Pending Verification</option>
+                <option value="Verified">Verified</option>
+                <option value="Signed">Signed</option>
+                <option value="Rejected">Rejected</option>
+                <option value="Expired">Expired</option>
+            </select>
+            <div class="flex gap-3">
+                <button id="updateDocCancel" class="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-colors">Cancel</button>
+                <button id="updateDocSave" class="flex-1 px-4 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition-colors">Save Status</button>
+            </div>
+        </div>
+    </dialog>
+
+    <script src="layout.js?v=7"></script>
+    <script src="token.js?v=1"></script>
+    <script src="permissions.js?v=7"></script>
+    <script src="documents.js?v=7"></script>
+    <script src="inactivity.js?v=2"></script>
 </body>
 </html>
