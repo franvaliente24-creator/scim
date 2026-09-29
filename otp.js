@@ -47,6 +47,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   
+  // Resend OTP
+  const resendButton = document.querySelector('.resend-otp');
+  if (resendButton) {
+    resendButton.addEventListener('click', async (e) => {
+      e.preventDefault();
+      otpError.textContent = '';
+      
+      try {
+        const response = await fetch('/api/v1/mfa/resend-otp', {
+          method: 'POST',
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.ok) {
+          otpError.style.color = '#059669';
+          otpError.textContent = 'A new code has been sent to your email.';
+          setTimeout(() => { otpError.textContent = ''; otpError.style.color = ''; }, 5000);
+        } else {
+          otpError.style.color = '#dc2626';
+          otpError.textContent = data.error || 'Failed to resend code.';
+        }
+      } catch (error) {
+        console.error('Resend OTP error:', error);
+        otpError.textContent = 'An error occurred. Please try again.';
+      }
+    });
+  }
+  
   // Back to login link
   const backToLogin = document.querySelector('.back-to-login');
   if (backToLogin) {

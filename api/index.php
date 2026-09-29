@@ -596,14 +596,34 @@ if ($method === 'POST' && $path === '/api/v1/auth/login') {
 
     // Check if MFA is enabled
     if ($u['mfa_enabled']) {
-        // Store user ID in session for MFA verification
+        // Generate 6-digit OTP
+        $otp = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        
+        // Store OTP in session with 5-minute expiry
         $_SESSION['mfa_user_id'] = (int)$u['id'];
         $_SESSION['mfa_email'] = $u['email'];
+        $_SESSION['mfa_otp'] = $otp;
+        $_SESSION['mfa_otp_expires'] = time() + 300;
+        
+        // Send OTP via email
+        $subject = 'SCIM Login Verification Code';
+        $message = "Hello {$u['full_name']},\n\nYour verification code is: $otp\n\nThis code expires in 5 minutes.\n\nIf you did not attempt to login, please contact your administrator.\n\n- Great Solomon SCIM";
+        $headers = "From: noreply@greatsolomonmpservices.com\r\n" .
+                   "Reply-To: noreply@greatsolomonmpservices.com\r\n" .
+                   "X-Mailer: PHP/" . phpversion();
+        
+        $mailSent = @mail($u['email'], $subject, $message, $headers);
+        
+        // Log OTP for debugging if mail fails (check server error log)
+        if (!$mailSent) {
+            error_log("OTP email failed for {$u['email']}. Code: $otp");
+        }
         
         reply([
             'requires_2fa' => true,
-            'message' => 'Please enter your verification code',
-            'email' => $u['email']
+            'message' => 'Verification code sent to your email',
+            'email' => $u['email'],
+            'mail_sent' => $mailSent
         ]);
     }
 
@@ -890,10 +910,22 @@ if ($method === 'POST' && $path === '/api/v1/mfa/login-verify') {
         reply(['error' => 'Verification code required'], 400);
     }
     
-    // Check if user_id is in session (from login attempt)
+    // Check session for pending MFA verification
     $userId = $_SESSION['mfa_user_id'] ?? null;
-    if (!$userId) {
-        reply(['error' => 'Invalid session. Please login again.'], 401);
+    $storedOtp = $_SESSION['mfa_otp'] ?? null;
+    $expires = $_SESSION['mfa_otp_expires'] ?? 0;
+    
+    if (!$userId || !$storedOtp) {
+        reply(['error' => 'No verification pending. Please login again.'], 401);
+    }
+    
+    if (time() > $expires) {
+        unset($_SESSION['mfa_otp'], $_SESSION['mfa_otp_expires']);
+        reply(['error' => 'Verification code expired. Please login again.'], 401);
+    }
+    
+    if ($x['code'] !== $storedOtp) {
+        reply(['error' => 'Invalid verification code'], 401);
     }
     
     $d = db();
@@ -901,15 +933,11 @@ if ($method === 'POST' && $path === '/api/v1/mfa/login-verify') {
     $q->execute([$userId]);
     $user = $q->fetch(PDO::FETCH_ASSOC);
     
-    if (!$user || empty($user['mfa_secret'])) {
-        reply(['error' => 'MFA not enabled for this user'], 400);
+    if (!$user) {
+        reply(['error' => 'User not found'], 401);
     }
     
-    if (!verifyTOTP($x['code'], $user['mfa_secret'])) {
-        reply(['error' => 'Invalid MFA code'], 401);
-    }
-    
-    // MFA verified - create session
+    // OTP verified - create session
     session_regenerate_id(true);
     $_SESSION['user'] = [
         'id' => (int)$user['id'],
@@ -920,12 +948,44 @@ if ($method === 'POST' && $path === '/api/v1/mfa/login-verify') {
     ];
     
     // Clear MFA session data
-    unset($_SESSION['mfa_user_id'], $_SESSION['mfa_email']);
+    unset($_SESSION['mfa_user_id'], $_SESSION['mfa_email'], $_SESSION['mfa_otp'], $_SESSION['mfa_otp_expires']);
     
     // Log successful login
     audit($d, $user['email'], true, (int)$user['id']);
     
     reply(['ok' => true, 'user' => currentUser()]);
+}
+
+if ($method === 'POST' && $path === '/api/v1/mfa/resend-otp') {
+    $userId = $_SESSION['mfa_user_id'] ?? null;
+    if (!$userId) {
+        reply(['error' => 'No verification pending. Please login again.'], 401);
+    }
+    
+    $d = db();
+    $q = $d->prepare('SELECT * FROM users WHERE id = ?');
+    $q->execute([$userId]);
+    $user = $q->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$user) {
+        reply(['error' => 'User not found'], 401);
+    }
+    
+    // Generate new OTP
+    $otp = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+    $_SESSION['mfa_otp'] = $otp;
+    $_SESSION['mfa_otp_expires'] = time() + 300;
+    
+    $subject = 'SCIM Login Verification Code';
+    $message = "Hello {$user['full_name']},\n\nYour verification code is: $otp\n\nThis code expires in 5 minutes.\n\n- Great Solomon SCIM";
+    $headers = "From: noreply@greatsolomonmpservices.com\r\n";
+    
+    $mailSent = @mail($user['email'], $subject, $message, $headers);
+    if (!$mailSent) {
+        error_log("OTP resend email failed for {$user['email']}. Code: $otp");
+    }
+    
+    reply(['ok' => true, 'mail_sent' => $mailSent]);
 }
 
 // Simplified TOTP verification (in production, use a proper library like Spomky-Labs/otphp)
