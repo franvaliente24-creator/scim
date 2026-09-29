@@ -29,7 +29,7 @@
         <p class="auth-subtitle">Great Solomon Manpower Services, Inc.</p>
         
         <form id="loginForm" novalidate>
-            <label>Email
+            <label>Email Address
                 <span class="field">
                     <span class="material-symbols-outlined">email</span>
                     <input name="email" type="email" placeholder="you@company.com" autocomplete="email" required>
@@ -58,6 +58,18 @@
             <button class="signin-button" type="submit">Sign In</button>
         </form>
     </main>
+    
+    <!-- Forgot Password Modal -->
+    <div id="forgotModal" class="auth-modal-backdrop hidden">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="forgotTitle">
+            <div style="width:56px;height:56px;border-radius:50%;background:#eef2ff;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;">
+                <span class="material-symbols-outlined" style="color:#4f46e5;font-size:28px;">lock_reset</span>
+            </div>
+            <h2 id="forgotTitle">Password Reset Required</h2>
+            <p>For security reasons, password resets must be authorized by an administrator. Please contact your system administrator or IT helpdesk to reset your credentials.</p>
+            <button type="button" id="forgotModalClose">Got it</button>
+        </div>
+    </div>
     
     <!-- Permissions System -->
     <script src="permissions.js"></script>

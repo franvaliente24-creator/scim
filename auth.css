@@ -79,7 +79,11 @@
 
 .auth-card h1 {
   margin: 0;
-  font-size: 31px;
+  font-size: 28px;
+  font-weight: 800;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  letter-spacing: -0.02em;
+  color: #15233b;
 }
 
 .auth-subtitle {
@@ -189,6 +193,99 @@
 .signin-button:disabled {
   opacity: 0.65;
   cursor: wait;
+}
+
+
+/* ==========================================
+   5b. OTP DIGIT BOXES & MODALS
+   ========================================== */
+.otp-boxes {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 24px 0 6px;
+}
+
+.otp-boxes input {
+  width: 52px;
+  height: 58px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #15233b;
+  border: 1px solid #c7c2df;
+  border-radius: 10px;
+  background: #fff;
+  outline: 0;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.otp-boxes input:focus {
+  border-color: #5046e5;
+  box-shadow: 0 0 0 3px rgba(80, 70, 229, .15);
+}
+
+.otp-expiry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #667085;
+  font-size: 13px;
+  margin: 8px 0 22px;
+}
+
+.otp-expiry .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.auth-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(21, 35, 59, .45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.auth-modal {
+  background: #fff;
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .18);
+}
+
+.auth-modal h2 {
+  font-size: 19px;
+  font-weight: 700;
+  color: #15233b;
+  margin: 0 0 10px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.auth-modal p {
+  font-size: 14px;
+  color: #55617a;
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+
+.auth-modal button {
+  background: #5046e5;
+  color: #fff;
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 28px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 

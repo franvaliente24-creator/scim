@@ -11,15 +11,33 @@ const password = document.querySelector('#password');
 // ==========================================
 
 // Toggle Password Visibility
-document.querySelector('#togglePassword').onclick = () => {
-  password.type = password.type === 'password' ? 'text' : 'password';
-};
+const togglePasswordBtn = document.querySelector('#togglePassword');
+if (togglePasswordBtn) {
+  togglePasswordBtn.onclick = () => {
+    const isPassword = password.type === 'password';
+    password.type = isPassword ? 'text' : 'password';
+    togglePasswordBtn.querySelector('.material-symbols-outlined').textContent =
+      isPassword ? 'visibility_off' : 'visibility';
+    togglePasswordBtn.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+  };
+}
 
-// Forgot Password Notice
-document.querySelector('#forgotPassword').onclick = (e) => {
-  e.preventDefault();
-  error.textContent = 'Please contact your system administrator to reset your password.';
-};
+// Forgot Password Modal
+const forgotLink = document.querySelector('#forgotPassword');
+const forgotModal = document.querySelector('#forgotModal');
+const forgotModalClose = document.querySelector('#forgotModalClose');
+
+if (forgotLink && forgotModal) {
+  forgotLink.onclick = (e) => {
+    e.preventDefault();
+    forgotModal.classList.remove('hidden');
+  };
+  
+  const closeModal = () => forgotModal.classList.add('hidden');
+  forgotModalClose.onclick = closeModal;
+  forgotModal.onclick = (e) => { if (e.target === forgotModal) closeModal(); };
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+}
 
 // Form Submission / Sign In Handler
 form.onsubmit = async (e) => {

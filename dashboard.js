@@ -13,6 +13,8 @@ const $ = (selector) => {
 
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 
+let lastDashboardData = null;
+
 // Initialize permissions on page load
 document.addEventListener('DOMContentLoaded', async () => {
   await initializePermissions();
@@ -55,6 +57,9 @@ async function load() {
     const documentList = Array.isArray(docs.documents) ? docs.documents : [];
     const zones = Array.isArray(dash.zones) ? dash.zones : [];
     const scans = Array.isArray(dash.scans) ? dash.scans : [];
+    
+    // Store for export
+    lastDashboardData = { stats, purchaseOrders, vendorList, documentList, zones, scans };
 
     // Render Stats - Show 0 if no data
     const statsEl = $('#stats');
@@ -217,6 +222,50 @@ const newAssetBtn = $('#new-transaction');
 if (newAssetBtn) {
   newAssetBtn.onclick = () => {
     window.location.href = 'inventory.html';
+  };
+}
+
+// Export Report Button — downloads dashboard data as CSV
+const exportBtn = $('#export-report');
+if (exportBtn) {
+  exportBtn.onclick = () => {
+    const d = lastDashboardData;
+    if (!d) {
+      alert('Data is still loading. Please try again in a moment.');
+      return;
+    }
+    
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = [['SCIM Dashboard Report', new Date().toLocaleString()], []];
+    
+    rows.push(['== Summary =='], ['Total Assets', d.stats.total || 0],
+      ['Deployed Assets', d.stats.deployed || 0],
+      ['Total Inventory Value', d.stats.value || 0],
+      ['Active Purchase Orders', d.purchaseOrders.filter((x) => x.status !== 'Received').length],
+      ['Compliance Alerts', d.documentList.filter((x) => x.status !== 'Verified').length], []);
+    
+    rows.push(['== Warehouse Zones =='], ['Zone', 'Occupied', 'Capacity', 'Percent']);
+    d.zones.forEach((z) => rows.push([z.zone, z.occupied, z.capacity, `${z.pct}%`]));
+    rows.push([]);
+    
+    rows.push(['== Purchase Orders =='], ['PO Number', 'Vendor', 'Status', 'Updated']);
+    d.purchaseOrders.forEach((p) => rows.push([p.po_number, p.vendor_name || p.vendor, p.status, p.updated_at || '']));
+    rows.push([]);
+    
+    rows.push(['== Suppliers =='], ['Name', 'Email', 'Status']);
+    d.vendorList.forEach((s) => rows.push([s.name, s.email || '', s.status || '']));
+    rows.push([]);
+    
+    rows.push(['== Recent Activity =='], ['Action', 'Asset', 'QR Code', 'Time']);
+    d.scans.forEach((s) => rows.push([s.action, s.name, s.qr_code, s.created_at]));
+    
+    const csv = rows.map((r) => r.map(esc).join(',')).join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `scim-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
   };
 }
 
