@@ -44,6 +44,132 @@ function audit(PDO $d, string $email, bool $ok, ?int $id = null): void {
     $q->execute([$id, $email, $ok ? 1 : 0, $_SERVER['REMOTE_ADDR'] ?? null]);
 }
 
+// ==========================================
+// EMAIL / SMTP FUNCTIONS
+// ==========================================
+
+// Load SMTP config from environment or config.php
+function smtpConfig(): array {
+    static $config = null;
+    if ($config !== null) return $config;
+    
+    // Try config.php first (create this file on the server with SMTP credentials)
+    $configFile = __DIR__ . '/../config.php';
+    $fileConfig = [];
+    if (file_exists($configFile)) {
+        $fileConfig = require $configFile;
+    }
+    
+    $config = [
+        'host' => $fileConfig['smtp_host'] ?? getenv('SMTP_HOST') ?: '',
+        'port' => (int)($fileConfig['smtp_port'] ?? getenv('SMTP_PORT') ?: 587),
+        'user' => $fileConfig['smtp_user'] ?? getenv('SMTP_USER') ?: '',
+        'pass' => $fileConfig['smtp_pass'] ?? getenv('SMTP_PASS') ?: '',
+        'from' => $fileConfig['smtp_from'] ?? getenv('SMTP_FROM') ?: '',
+        'from_name' => $fileConfig['smtp_from_name'] ?? 'Great Solomon SCIM',
+    ];
+    return $config;
+}
+
+// Minimal SMTP client supporting SSL (465) and STARTTLS (587)
+function sendSmtpMail(string $to, string $subject, string $body): bool {
+    $cfg = smtpConfig();
+    
+    // No SMTP configured - fall back to PHP mail()
+    if (empty($cfg['host']) || empty($cfg['user']) || empty($cfg['pass'])) {
+        $from = $cfg['from'] ?: 'noreply@greatsolomonmpservices.com';
+        $headers = "From: {$cfg['from_name']} <{$from}>\r\n";
+        return @mail($to, $subject, $body, $headers);
+    }
+    
+    try {
+        $useSsl = ($cfg['port'] === 465);
+        $remote = ($useSsl ? 'ssl://' : '') . $cfg['host'];
+        $socket = fsockopen($remote, $cfg['port'], $errno, $errstr, 20);
+        if (!$socket) {
+            error_log("SMTP connect failed: $errstr ($errno)");
+            return false;
+        }
+        
+        $read = function() use ($socket) {
+            $data = '';
+            while ($line = fgets($socket, 515)) {
+                $data .= $line;
+                if (isset($line[3]) && $line[3] === ' ') break;
+            }
+            return $data;
+        };
+        
+        $send = function($cmd) use ($socket, $read) {
+            fwrite($socket, $cmd . "\r\n");
+            return $read();
+        };
+        
+        $read(); // greeting
+        $send('EHLO ' . ($_SERVER['SERVER_NAME'] ?? 'localhost'));
+        
+        if (!$useSsl) {
+            $send('STARTTLS');
+            if (!stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                fclose($socket);
+                error_log('SMTP STARTTLS failed');
+                return false;
+            }
+            $send('EHLO ' . ($_SERVER['SERVER_NAME'] ?? 'localhost'));
+        }
+        
+        $send('AUTH LOGIN');
+        $send(base64_encode($cfg['user']));
+        $resp = $send(base64_encode($cfg['pass']));
+        if (strpos($resp, '235') === false) {
+            fclose($socket);
+            error_log("SMTP auth failed: $resp");
+            return false;
+        }
+        
+        $from = $cfg['from'] ?: $cfg['user'];
+        $send("MAIL FROM: <$from>");
+        $send("RCPT TO: <$to>");
+        $resp = $send('DATA');
+        if (strpos($resp, '354') === false) {
+            fclose($socket);
+            error_log("SMTP DATA failed: $resp");
+            return false;
+        }
+        
+        $headers = "From: {$cfg['from_name']} <$from>\r\n";
+        $headers .= "To: <$to>\r\n";
+        $headers .= "Subject: $subject\r\n";
+        $headers .= "MIME-Version: 1.0\r\n";
+        $headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
+        
+        fwrite($socket, $headers . "\r\n" . $body . "\r\n.\r\n");
+        $resp = $read();
+        $send('QUIT');
+        fclose($socket);
+        
+        if (strpos($resp, '250') === false) {
+            error_log("SMTP send failed: $resp");
+            return false;
+        }
+        return true;
+    } catch (Throwable $e) {
+        error_log('SMTP error: ' . $e->getMessage());
+        return false;
+    }
+}
+
+// Send OTP email to user
+function sendOtpEmail(string $toEmail, string $toName, string $otp): bool {
+    $subject = 'SCIM Login Verification Code';
+    $body = "Hello {$toName},\n\n"
+          . "Your verification code is: {$otp}\n\n"
+          . "This code expires in 5 minutes.\n\n"
+          . "If you did not attempt to login, please contact your administrator.\n\n"
+          . "- Great Solomon SCIM";
+    return sendSmtpMail($toEmail, $subject, $body);
+}
+
 
 // ==========================================
 // 2. DATABASE MIGRATION & CONNECTION
@@ -605,14 +731,8 @@ if ($method === 'POST' && $path === '/api/v1/auth/login') {
         $_SESSION['mfa_otp'] = $otp;
         $_SESSION['mfa_otp_expires'] = time() + 300;
         
-        // Send OTP via email
-        $subject = 'SCIM Login Verification Code';
-        $message = "Hello {$u['full_name']},\n\nYour verification code is: $otp\n\nThis code expires in 5 minutes.\n\nIf you did not attempt to login, please contact your administrator.\n\n- Great Solomon SCIM";
-        $headers = "From: noreply@greatsolomonmpservices.com\r\n" .
-                   "Reply-To: noreply@greatsolomonmpservices.com\r\n" .
-                   "X-Mailer: PHP/" . phpversion();
-        
-        $mailSent = @mail($u['email'], $subject, $message, $headers);
+        // Send OTP via SMTP
+        $mailSent = sendOtpEmail($u['email'], $u['full_name'], $otp);
         
         // Log OTP for debugging if mail fails (check server error log)
         if (!$mailSent) {
@@ -976,11 +1096,7 @@ if ($method === 'POST' && $path === '/api/v1/mfa/resend-otp') {
     $_SESSION['mfa_otp'] = $otp;
     $_SESSION['mfa_otp_expires'] = time() + 300;
     
-    $subject = 'SCIM Login Verification Code';
-    $message = "Hello {$user['full_name']},\n\nYour verification code is: $otp\n\nThis code expires in 5 minutes.\n\n- Great Solomon SCIM";
-    $headers = "From: noreply@greatsolomonmpservices.com\r\n";
-    
-    $mailSent = @mail($user['email'], $subject, $message, $headers);
+    $mailSent = sendOtpEmail($user['email'], $user['full_name'], $otp);
     if (!$mailSent) {
         error_log("OTP resend email failed for {$user['email']}. Code: $otp");
     }
