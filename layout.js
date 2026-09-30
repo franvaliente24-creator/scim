@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const isCollapsed = sidebar.classList.contains('collapsed');
     sidebarToggleIcon.textContent = isCollapsed ? 'menu_open' : 'menu';
     try { sessionStorage.setItem('scim_sidebar_collapsed', isCollapsed ? '1' : '0'); } catch (e) {}
+    updateSidebarTooltips();
   }
   try {
     if (sessionStorage.getItem('scim_sidebar_collapsed') === '1' && window.innerWidth >= 768) {
@@ -143,19 +144,48 @@ document.addEventListener('DOMContentLoaded', () => {
         ],
       },
       {
-        label: 'Smart Warehousing & Inventory', icon: 'warehouse',
+        label: 'Smart Warehousing & QR', icon: 'warehouse',
         items: [
+          { label: 'Warehouse Dashboard', href: 'warehouse-dashboard.html', icon: 'dashboard' },
           { label: 'Warehouse Layout Mapping', href: 'warehousing.html', icon: 'grid_on' },
+          { label: 'QR Scanner', href: 'warehouse-qr.html', icon: 'qr_code_scanner' },
+          { label: 'QR Scan & Generate Portal', href: 'warehousing.html#qrPortal', icon: 'qr_code_2' },
+          { label: 'Asset Registration', href: 'warehouse-assets.html', icon: 'inventory_2' },
+          { label: 'Asset Allocation', href: 'warehouse-allocation.html', icon: 'person_add' },
+          { label: 'Live Asset Tracking', href: 'warehouse-tracking.html', icon: 'my_location' },
+          { label: 'Low Stock Alerts', href: 'warehouse-low-stock.html', icon: 'warning' },
+          { label: 'Asset Returns', href: 'warehouse-returns.html', icon: 'keyboard_return' },
+          { label: 'Asset History', href: 'warehouse-history.html', icon: 'history' },
+          { label: 'Cost Reports', href: 'warehouse-cost-reports.html', icon: 'analytics' },
+          { label: 'Warranty Alerts', href: 'warehouse-warranty.html', icon: 'verified_user' },
+        ],
+      },
+      {
+        label: 'Inventory Management', icon: 'inventory',
+        items: [
+          { label: 'Inventory Dashboard', href: 'inventory-dashboard.html', icon: 'dashboard' },
           { label: 'Consumable Stock Ledger', href: 'inventory.html', icon: 'inventory_2' },
+          { label: 'Asset Search', href: 'inventory-search.html', icon: 'search' },
+          { label: 'QR Lookup', href: 'inventory-qr-lookup.html', icon: 'qr_code' },
+          { label: 'Stock Adjustments', href: 'inventory-adjustments.html', icon: 'tune' },
+          { label: 'Purchase Requisitions', href: 'inventory-requisitions.html', icon: 'shopping_bag' },
+          { label: 'Requisition Approvals', href: 'inventory-requisition-approvals.html', icon: 'fact_check' },
+          { label: 'Reorder Points', href: 'inventory-reorder.html', icon: 'production_quantity_limits' },
+          { label: 'Valuation Report', href: 'inventory-valuation.html', icon: 'request_quote' },
+          { label: 'Data Synchronization', href: 'inventory-sync.html', icon: 'sync' },
+          { label: 'Inventory History', href: 'inventory-history.html', icon: 'history' },
           { label: 'Asset Tracking & Assignment', href: 'equipment-requests.html', icon: 'assignment_ind' },
-          { label: 'QR Scan & Generate Portal', href: 'warehousing.html#qrPortal', icon: 'qr_code_scanner' },
         ],
       },
       {
         label: 'Procurement & Sourcing', icon: 'shopping_cart',
         items: [
+          { label: 'Procurement Dashboard', href: 'procurement-dashboard.html', icon: 'dashboard' },
           { label: 'Purchase Requisitions', href: 'procurement.html', icon: 'shopping_bag' },
+          { label: 'Sourcing & Vendor Bidding', href: 'procurement.html#quotesTable', icon: 'gavel' },
+          { label: 'RFP Management', href: 'procurement-rfp.html', icon: 'campaign' },
           { label: 'Purchase Orders (PO)', href: 'purchase-orders.html', icon: 'receipt_long' },
+          { label: 'PO Receiving', href: 'po-receiving.html', icon: 'local_shipping' },
           { label: 'Inbound Delivery Simulation', href: 'purchase-orders.html#deliverySim', icon: 'rocket_launch' },
           { label: 'Procurement Cost Settlement', href: 'purchase-orders.html#settlement', icon: 'payments' },
         ],
@@ -205,7 +235,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
 
     navContainer.querySelectorAll('.nav-group-toggle').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        // In collapsed mode, navigate to the first item instead of expanding
+        if (sidebar.classList.contains('collapsed')) {
+          const wrap = btn.closest('.nav-group');
+          const firstLink = wrap.querySelector('.nav-sub-link');
+          if (firstLink) {
+            window.location.href = firstLink.getAttribute('href');
+            return;
+          }
+        }
+        
+        // Normal expanded mode behavior
         const wrap = btn.closest('.nav-group');
         const items = wrap.querySelector('.nav-group-items');
         const chev = btn.querySelector('.nav-group-chevron');
@@ -234,6 +275,31 @@ document.addEventListener('DOMContentLoaded', () => {
         if (links.length && links.every((l) => l.style.display === 'none')) g.style.display = 'none';
       });
     };
+
+    // Add tooltips to sidebar links in collapsed mode
+    function updateSidebarTooltips() {
+      const isCollapsed = sidebar.classList.contains('collapsed');
+      const links = sidebar.querySelectorAll('.sidebar-main-link, .sidebar-subsystem-link, .nav-group-toggle');
+      
+      links.forEach(link => {
+        if (isCollapsed) {
+          // Get the label text for tooltip
+          const labelSpan = link.querySelector('span:not(.material-symbols-outlined):not(.nav-group-chevron)');
+          const label = labelSpan ? labelSpan.textContent.trim() : link.textContent.trim();
+          if (label) {
+            link.setAttribute('title', label);
+          }
+        } else {
+          link.removeAttribute('title');
+        }
+      });
+    }
+
+    // Initialize tooltips on load
+    updateSidebarTooltips();
+    
+    // Expose function for external calls
+    window.updateSidebarTooltips = updateSidebarTooltips;
   }
 
   // Active link highlighting based on current page
