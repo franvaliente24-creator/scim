@@ -13,7 +13,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="styles.css?v=4">
+    <link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body class="bg-background text-on-background font-body h-screen flex flex-row overflow-hidden">
     
@@ -51,7 +51,7 @@
                         <span class="material-symbols-outlined">business</span>
                         <span>Supplier Management</span>
                     </a>
-                    <a class="sidebar-subsystem-link" href="purchase-orders.html">
+                    <a class="sidebar-subsystem-link" href="procurement.html#orders">
                         <span class="material-symbols-outlined">receipt_long</span>
                         <span>Purchase Orders</span>
                     </a>
@@ -155,7 +155,24 @@
                         </div>
                     </div>
                 </div>
-                
+
+                <!-- Module Tabs -->
+                <nav class="hub-tabs" aria-label="Inventory modules">
+                    <button class="hub-tab-btn active" data-tab-target="ledger"><span class="material-symbols-outlined">inventory_2</span>Stock Ledger</button>
+                    <button class="hub-tab-btn" data-tab-target="dashboard"><span class="material-symbols-outlined">dashboard</span>Dashboard</button>
+                    <button class="hub-tab-btn" data-tab-target="search"><span class="material-symbols-outlined">search</span>Asset Search</button>
+                    <button class="hub-tab-btn" data-tab-target="qrlookup"><span class="material-symbols-outlined">qr_code</span>QR Lookup</button>
+                    <button class="hub-tab-btn" data-tab-target="adjustments"><span class="material-symbols-outlined">tune</span>Adjustments</button>
+                    <button class="hub-tab-btn" data-tab-target="requisitions"><span class="material-symbols-outlined">shopping_bag</span>Requisitions</button>
+                    <button class="hub-tab-btn" data-tab-target="approvals"><span class="material-symbols-outlined">fact_check</span>Approvals</button>
+                    <button class="hub-tab-btn" data-tab-target="reorder"><span class="material-symbols-outlined">production_quantity_limits</span>Reorder Points</button>
+                    <button class="hub-tab-btn" data-tab-target="valuation"><span class="material-symbols-outlined">request_quote</span>Valuation</button>
+                    <button class="hub-tab-btn" data-tab-target="sync"><span class="material-symbols-outlined">sync</span>Data Sync</button>
+                    <button class="hub-tab-btn" data-tab-target="history"><span class="material-symbols-outlined">history</span>History</button>
+                </nav>
+
+                <section class="hub-section active" data-tab="ledger">
+
                 <!-- Stats Grid -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
@@ -209,6 +226,128 @@
                         <div class="text-on-surface-variant text-sm">Loading transactions...</div>
                     </div>
                 </div>
+                </section>
+
+                <!-- Inventory Dashboard -->
+                <section class="hub-section" data-tab="dashboard">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6"><p class="text-on-surface-variant text-sm mb-2">Total Assets</p><strong class="text-2xl font-headline font-bold text-on-surface" id="invDashTotal">0</strong></div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6"><p class="text-on-surface-variant text-sm mb-2">Deployed</p><strong class="text-2xl font-headline font-bold text-on-surface" id="invDashDeployed">0</strong></div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6"><p class="text-on-surface-variant text-sm mb-2">Inbound Pipeline</p><strong class="text-2xl font-headline font-bold text-on-surface" id="invDashInbound">0</strong></div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6"><p class="text-on-surface-variant text-sm mb-2">Stock Value</p><strong class="text-2xl font-headline font-bold text-on-surface" id="invDashValue">₱0</strong></div>
+                </div>
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30"><h2 class="text-lg font-headline font-semibold text-on-surface">Status Distribution</h2></div>
+                    <div id="invDashDist" class="p-6 space-y-4"></div>
+                </div>
+                </section>
+
+                <!-- Asset Search -->
+                <section class="hub-section" data-tab="search">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Asset Search</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Search across serials, names, categories, locations, and assignees.</p>
+                    </div>
+                    <div class="p-6 border-b border-slate-100">
+                        <input type="text" id="invSearchInput" placeholder="Type to search all asset fields..." class="w-full px-4 py-3 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                    </div>
+                    <div id="invSearchResults" class="data-table-container"></div>
+                </div>
+                </section>
+
+                <!-- QR Lookup -->
+                <section class="hub-section" data-tab="qrlookup">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2"><span class="material-symbols-outlined text-indigo-600">qr_code</span>QR Serial Lookup</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Enter or scan a serialized QR tag to pull the asset's full record.</p>
+                    </div>
+                    <div class="p-6">
+                        <form id="qrLookupForm" class="flex flex-col sm:flex-row gap-3 mb-6">
+                            <input name="qr" required placeholder="AGENCY-ASSET-LAPTOP-000001" class="flex-1 px-4 py-3 border border-outline-variant rounded-xl text-sm font-mono focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            <button type="submit" class="btn-primary m-0 flex items-center gap-2"><span class="material-symbols-outlined">search</span>Lookup</button>
+                        </form>
+                        <div id="qrLookupResult"></div>
+                    </div>
+                </div>
+                </section>
+
+                <!-- Stock Adjustments -->
+                <section class="hub-section" data-tab="adjustments">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Pending Stock Adjustments</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Serialized placeholders awaiting intake scans — scan each tag to move it into stock.</p>
+                    </div>
+                    <div id="adjustmentsList" class="data-table-container"></div>
+                </div>
+                </section>
+
+                <!-- Purchase Requisitions -->
+                <section class="hub-section" data-tab="requisitions">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Inventory Purchase Requisitions</h2>
+                        <input type="text" id="invReqSearch" placeholder="Search requisitions..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                    </div>
+                    <div id="invRequisitionsTable" class="data-table-container"></div>
+                </div>
+                </section>
+
+                <!-- Requisition Approvals -->
+                <section class="hub-section" data-tab="approvals">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Requisition Approvals</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Pending requests awaiting managerial sign-off.</p>
+                    </div>
+                    <div id="invApprovalsTable" class="data-table-container"></div>
+                </div>
+                </section>
+
+                <!-- Reorder Points -->
+                <section class="hub-section" data-tab="reorder">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Reorder Point Configuration</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Minimum safety thresholds that trigger automatic requisitions on check-out.</p>
+                    </div>
+                    <div id="reorderList" class="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+                </div>
+                </section>
+
+                <!-- Valuation Report -->
+                <section class="hub-section" data-tab="valuation">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Inventory Valuation</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Asset value grouped by category and lifecycle status.</p>
+                    </div>
+                    <div id="valuationList" class="p-6 overflow-x-auto"></div>
+                </div>
+                </section>
+
+                <!-- Data Synchronization -->
+                <section class="hub-section" data-tab="sync">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Subsystem Synchronization</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Live status of cross-boundary data streams.</p>
+                    </div>
+                    <div id="invSyncList" class="p-6 space-y-3"></div>
+                </div>
+                </section>
+
+                <!-- Inventory History -->
+                <section class="hub-section" data-tab="history">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Complete Inventory History</h2>
+                    </div>
+                    <div id="invHistoryList" class="p-6 overflow-x-auto"></div>
+                </div>
+                </section>
             </div>
         </main>
     </div>
@@ -255,9 +394,9 @@
     </dialog>
     
     <script src="token.js?v=1"></script>
-    <script src="permissions.js?v=8"></script>
+    <script src="permissions.js?v=9"></script>
     <script src="layout.js?v=9"></script>
-    <script src="inventory.js?v=8"></script>
+    <script src="inventory.js?v=9"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

@@ -354,3 +354,6 @@ if (auditSearchEl) auditSearchEl.oninput = renderAudit;
 
 loadClearances();
 loadAudit();
+
+
+if (window.initHubTabs) initHubTabs('repository');

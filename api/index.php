@@ -1512,7 +1512,7 @@ if ($method === 'GET' && $path === '/api/v1/notifications') {
 
     $q = $d->query("SELECT po.po_number, COALESCE(v.name, po.vendor) AS vendor_name, po.created_at FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id = v.id WHERE po.status IN ('Pending','Submitted','Pending Approval') ORDER BY po.created_at DESC LIMIT 10");
     foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        $items[] = ['icon' => 'receipt_long', 'title' => 'PO awaiting approval: ' . $r['po_number'], 'sub' => $r['vendor_name'] ?: 'Vendor TBD', 'time' => $r['created_at'], 'href' => 'purchase-orders.html'];
+        $items[] = ['icon' => 'receipt_long', 'title' => 'PO awaiting approval: ' . $r['po_number'], 'sub' => $r['vendor_name'] ?: 'Vendor TBD', 'time' => $r['created_at'], 'href' => 'procurement.html#orders'];
     }
     $q = $d->query("SELECT req_number, title, created_at FROM requisitions WHERE status IN ('Submitted','Pending') ORDER BY created_at DESC LIMIT 10");
     foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {

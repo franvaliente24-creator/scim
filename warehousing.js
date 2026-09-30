@@ -201,35 +201,20 @@ addZoneForm?.addEventListener('submit', async (event) => {
   }
 });
 
-// Scanner Modal Controls — opened from the hero panel (the global FAB also
-// triggers the shared quick-scan modal on every page)
+// Scanner is now an inline hub tab — the hero button switches to it and
+// starts the camera (the global FAB still opens the shared quick-scan modal).
 const heroScanBtn = $('#heroScanBtn');
 const openScanner = () => {
-  const scanner = $('#scanner');
-  if (scanner) {
-    scanner.showModal();
-    initializeCamera();
-  }
+  if (typeof window.switchModuleTab === 'function') window.switchModuleTab('scanner');
+  initializeCamera();
 };
 if (heroScanBtn) {
   heroScanBtn.onclick = openScanner;
 }
 
-// Sidebar deep links: #scan opens the scanner, #zones opens zone config
-if (window.location.hash === '#scan') {
-  setTimeout(openScanner, 400);
-}
-if (window.location.hash === '#zones') {
-  setTimeout(() => addZoneModal?.showModal(), 400);
-}
-
 const closeScan = $('#closeScan');
 if (closeScan) {
-  closeScan.onclick = () => {
-    stopCamera();
-    const scanner = $('#scanner');
-    if (scanner) scanner.close();
-  };
+  closeScan.onclick = () => stopCamera();
 }
 
 let currentAction = 'Inventory Intake';
@@ -314,11 +299,28 @@ if (enableCamera) {
 
 // Mode selection
 const modeButtons = document.querySelectorAll('.mode-btn');
+const updateScanExtraFields = () => {
+  const wrap = $('#extraFields');
+  const input = $('#extraInput');
+  if (!wrap || !input) return;
+  const labels = {
+    'Assign to Staff': 'Employee name (validated against Employee Info)…',
+    'Move to Zone': 'Zone / aisle (e.g. A-02)…',
+    'PO Receipt': 'PO number — required (e.g. PO-2026-001)…',
+  };
+  if (labels[currentAction]) {
+    wrap.classList.remove('hidden');
+    input.placeholder = labels[currentAction];
+  } else {
+    wrap.classList.add('hidden');
+  }
+};
 modeButtons.forEach((btn) => {
   btn.onclick = () => {
     modeButtons.forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     currentAction = btn.dataset.mode;
+    updateScanExtraFields();
   };
 });
 
@@ -403,18 +405,29 @@ if (scanNow) {
       return;
     }
 
+    const extraVal = ($('#extraInput')?.value || '').trim();
+    const payload = { qr_code: qrInput.value.trim(), action: currentAction };
+    if (currentAction === 'Assign to Staff') payload.assignee = extraVal;
+    if (currentAction === 'Move to Zone') payload.zone = extraVal;
+    if (currentAction === 'PO Receipt') payload.po_number = extraVal;
+    if (currentAction === 'Check-In' && extraVal) payload.zone = extraVal;
+
     try {
       const response = await fetch('/api/v1/assets/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qr_code: qrInput.value.trim(), action: currentAction }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
 
       if (scanResult) {
-        scanResult.textContent = response.ok
-          ? `${data.asset.name} recorded for ${currentAction}.`
-          : data.error || 'Unable to record scan.';
+        let msg = response.ok
+          ? `${data.asset?.name || payload.qr_code} recorded for ${currentAction}.`
+          : (data.collision ? '⚠ ' : '') + (data.error || 'Unable to record scan.');
+        if (data.clearance_token) msg += ` Clearance token ${data.clearance_token} issued to Core 3.`;
+        if (data.auto_requisition) msg += ` Auto-requisition ${data.auto_requisition} dispatched.`;
+        scanResult.textContent = msg;
+        scanResult.style.color = response.ok ? '#059669' : '#dc2626';
       }
 
       if (response.ok) await loadWarehouseData();
@@ -514,3 +527,207 @@ if (printQrSheetBtn) {
     w.document.close();
   };
 }
+
+// ==========================================
+// MASTER-HUB TAB SYSTEM + LAZY LOADERS
+// ==========================================
+const whLoadedTabs = new Set();
+
+async function loadTabAssets() {
+  const res = await fetch('/api/v1/assets');
+  const data = await res.json().catch(() => ({}));
+  return Array.isArray(data.assets) ? data.assets : (Array.isArray(data) ? data : []);
+}
+
+// --- Registration tab (ported from warehouse-assets) ---
+const whAssetForm = $('#assetForm');
+if (whAssetForm) {
+  whAssetForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = $('#formError');
+    const res = await fetch('/api/v1/assets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.fromEntries(new FormData(whAssetForm))),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (err) {
+      err.hidden = false;
+      err.textContent = res.ok ? 'Asset registered successfully!' : (data.error || 'Unable to register asset.');
+      err.classList.toggle('text-emerald-600', res.ok);
+      err.classList.toggle('text-red-600', !res.ok);
+    }
+    if (res.ok) { whAssetForm.reset(); loadRecentRegistered(); }
+  });
+}
+async function loadRecentRegistered() {
+  const el = $('#recentAssets');
+  if (!el) return;
+  const assets = await loadTabAssets();
+  el.innerHTML = assets.slice(-10).reverse().map((a) => `
+    <div class="flex justify-between items-center py-2.5 border-b border-slate-100 last:border-0">
+      <div><b class="text-sm text-slate-900">${a.name}</b><br><small class="text-xs text-slate-500">${a.category || ''} · <code class="font-mono">${a.qr_code}</code></small></div>
+      <span class="px-2 py-1 rounded-full text-xs font-semibold ${a.status === 'Deployed' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}">${a.status}</span>
+    </div>`).join('') || '<p class="text-slate-500 text-sm">No assets registered yet.</p>';
+}
+const refreshAssetsBtn2 = $('#refreshAssets');
+if (refreshAssetsBtn2) refreshAssetsBtn2.onclick = loadRecentRegistered;
+
+// --- Tracking tab (ported from warehouse-tracking) ---
+let trackAssets = [];
+function renderTrackingTable() {
+  const el = $('#assetTrackingTable');
+  if (!el) return;
+  const term = ($('#trackSearch')?.value || '').toLowerCase();
+  const status = $('#trackStatusFilter')?.value || '';
+  const rows = trackAssets.filter((a) =>
+    (!status || a.status === status) &&
+    (!term || `${a.name} ${a.qr_code} ${a.location || ''}`.toLowerCase().includes(term)));
+  el.innerHTML = rows.length === 0
+    ? '<p class="text-slate-500 text-sm text-center py-8">No assets match.</p>'
+    : `<table class="w-full text-sm min-w-[640px]"><thead><tr class="border-b border-slate-200 text-left">
+        <th class="py-2 px-4 font-medium text-slate-600">Serial</th><th class="py-2 px-4 font-medium text-slate-600">Asset</th>
+        <th class="py-2 px-4 font-medium text-slate-600">Category</th><th class="py-2 px-4 font-medium text-slate-600">Location</th>
+        <th class="py-2 px-4 font-medium text-slate-600">Status</th></tr></thead>
+        <tbody>${rows.map((a) => `<tr class="border-b border-slate-100 hover:bg-slate-50">
+          <td class="py-2.5 px-4 font-mono text-xs">${a.qr_code}</td>
+          <td class="py-2.5 px-4 font-semibold text-slate-900">${a.name}</td>
+          <td class="py-2.5 px-4 text-slate-600">${a.category || '—'}</td>
+          <td class="py-2.5 px-4 text-slate-600">${a.location || '—'}</td>
+          <td class="py-2.5 px-4"><span class="px-2 py-1 rounded-full text-xs font-semibold ${a.status === 'Deployed' ? 'bg-blue-100 text-blue-700' : a.status === 'In Warehouse' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${a.status}</span></td>
+        </tr>`).join('')}</tbody></table>`;
+}
+async function loadTracking() {
+  trackAssets = await loadTabAssets();
+  const today = new Date().toDateString();
+  const tx = await api('inventory/transactions').catch(() => ({}));
+  const txList = Array.isArray(tx.transactions) ? tx.transactions : (Array.isArray(tx) ? tx : []);
+  const set = (id, v) => { const n = $(id); if (n) n.textContent = v; };
+  set('#trackTotalAssets', trackAssets.length);
+  set('#trackDeployed', trackAssets.filter((a) => a.status === 'Deployed').length);
+  set('#trackInbound', trackAssets.filter((a) => ['Inbound/Receiving', 'Awaiting Print'].includes(a.status)).length);
+  set('#todayMovements', txList.filter((t) => new Date(t.created_at).toDateString() === today).length);
+  renderTrackingTable();
+}
+const trackSearchEl = $('#trackSearch');
+if (trackSearchEl) trackSearchEl.oninput = renderTrackingTable;
+const trackStatusEl = $('#trackStatusFilter');
+if (trackStatusEl) trackStatusEl.onchange = renderTrackingTable;
+const refreshTrackingBtn = $('#refreshTracking');
+if (refreshTrackingBtn) refreshTrackingBtn.onclick = loadTracking;
+
+// --- Low stock tab ---
+async function loadWhLowStock() {
+  const el = $('#whLowStockList');
+  if (!el) return;
+  const data = await api('stock-alerts').catch(() => ({}));
+  const items = Array.isArray(data.items) ? data.items : [];
+  el.innerHTML = items.length === 0
+    ? '<p class="text-slate-500 text-sm col-span-full text-center py-8">No threshold categories configured.</p>'
+    : items.map((i) => {
+        const pct = i.min_quantity > 0 ? Math.min(100, Math.round((i.on_hand / i.min_quantity) * 100)) : 100;
+        return `<div class="p-4 rounded-xl border ${i.deficit ? 'border-red-200 bg-red-50/60' : 'border-slate-200'}">
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-semibold text-slate-800">${i.category}</span>
+            <span class="text-xs font-bold ${i.deficit ? 'text-red-600' : 'text-slate-500'}">${i.on_hand} / ${i.min_quantity} min</span>
+          </div>
+          <div class="w-full bg-slate-200 rounded-full h-2"><div class="${i.deficit ? 'bg-red-500' : 'bg-emerald-500'} h-2 rounded-full" style="width:${pct}%"></div></div>
+        </div>`;
+      }).join('');
+}
+
+// --- Returns tab ---
+async function loadReturns() {
+  const el = $('#returnsList');
+  if (!el) return;
+  const assets = (await loadTabAssets()).filter((a) => a.status === 'Deployed');
+  el.innerHTML = assets.length === 0
+    ? '<p class="text-slate-500 text-sm text-center py-8">No deployed assets — nothing is out for return.</p>'
+    : `<table class="w-full text-sm min-w-[560px]"><thead><tr class="border-b border-slate-200 text-left">
+        <th class="py-2 pr-4 font-medium text-slate-600">Serial</th><th class="py-2 pr-4 font-medium text-slate-600">Asset</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">Assigned To</th><th class="py-2 font-medium text-slate-600">Action</th></tr></thead>
+        <tbody>${assets.map((a) => `<tr class="border-b border-slate-100">
+          <td class="py-2.5 pr-4 font-mono text-xs">${a.qr_code}</td>
+          <td class="py-2.5 pr-4 font-semibold text-slate-900">${a.name}</td>
+          <td class="py-2.5 pr-4 text-slate-600">${a.external_employee_name || '—'}</td>
+          <td class="py-2.5"><button class="action-btn action-btn-receive" onclick="returnAsset('${a.qr_code}')">Return</button></td>
+        </tr>`).join('')}</tbody></table>`;
+}
+window.returnAsset = async (qr) => {
+  const ok = await (window.scimConfirm ? scimConfirm({ title: 'Process Return?', message: `Check ${qr} back into warehouse stock?`, confirmLabel: 'Return', icon: 'keyboard_return', danger: false }) : Promise.resolve(true));
+  if (!ok) return;
+  const res = await fetch('/api/v1/assets/scan', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ qr_code: qr, action: 'Check-In' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || 'Return failed.'); return; }
+  if (data.clearance_token) alert(`Exit clearance issued — token ${data.clearance_token} dispatched to Core 3.`);
+  loadReturns();
+};
+
+// --- History tab ---
+async function loadAssetHistory() {
+  const el = $('#assetHistoryList');
+  if (!el) return;
+  const data = await api('inventory/transactions').catch(() => ({}));
+  const tx = Array.isArray(data.transactions) ? data.transactions : (Array.isArray(data) ? data : []);
+  el.innerHTML = tx.length === 0
+    ? '<p class="text-slate-500 text-sm text-center py-8">No movement history yet.</p>'
+    : `<table class="w-full text-sm min-w-[560px]"><thead><tr class="border-b border-slate-200 text-left">
+        <th class="py-2 pr-4 font-medium text-slate-600">Time</th><th class="py-2 pr-4 font-medium text-slate-600">Asset</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">Serial</th><th class="py-2 pr-4 font-medium text-slate-600">Action</th>
+        <th class="py-2 font-medium text-slate-600">Zone</th></tr></thead>
+        <tbody>${tx.map((t) => `<tr class="border-b border-slate-100">
+          <td class="py-2.5 pr-4 text-slate-500 text-xs whitespace-nowrap">${new Date(t.created_at).toLocaleString()}</td>
+          <td class="py-2.5 pr-4 font-semibold text-slate-900">${t.asset_name || t.name || '—'}</td>
+          <td class="py-2.5 pr-4 font-mono text-xs">${t.qr_code || '—'}</td>
+          <td class="py-2.5 pr-4 text-slate-800">${t.action}</td>
+          <td class="py-2.5 text-slate-600">${t.zone || '—'}</td>
+        </tr>`).join('')}</tbody></table>`;
+}
+
+// --- Cost reports tab ---
+async function loadCostReports() {
+  const el = $('#costReportList');
+  if (!el) return;
+  const assets = await loadTabAssets();
+  const byCat = {};
+  assets.forEach((a) => {
+    const c = a.category || 'Uncategorized';
+    byCat[c] = byCat[c] || { count: 0, value: 0 };
+    byCat[c].count++; byCat[c].value += parseFloat(a.value) || 0;
+  });
+  const rows = Object.entries(byCat).sort((a, b) => b[1].value - a[1].value);
+  const total = rows.reduce((s, [, v]) => s + v.value, 0);
+  el.innerHTML = rows.length === 0
+    ? '<p class="text-slate-500 text-sm text-center py-8">No assets to value.</p>'
+    : `<table class="w-full text-sm min-w-[480px]"><thead><tr class="border-b border-slate-200 text-left">
+        <th class="py-2 pr-4 font-medium text-slate-600">Category</th><th class="py-2 pr-4 font-medium text-slate-600">Units</th>
+        <th class="py-2 font-medium text-slate-600">Total Value</th></tr></thead>
+        <tbody>${rows.map(([c, v]) => `<tr class="border-b border-slate-100">
+          <td class="py-2.5 pr-4 font-semibold text-slate-900">${c}</td>
+          <td class="py-2.5 pr-4 text-slate-600">${v.count}</td>
+          <td class="py-2.5 text-slate-900 font-medium">₱${v.value.toLocaleString()}</td>
+        </tr>`).join('')}
+        <tr class="font-bold"><td class="py-3 pr-4">TOTAL</td><td class="py-3 pr-4">${assets.length}</td><td class="py-3">₱${total.toLocaleString()}</td></tr></tbody></table>`;
+}
+
+const whTabLoaders = {
+  register: loadRecentRegistered,
+  tracking: loadTracking,
+  lowstock: loadWhLowStock,
+  returns: loadReturns,
+  history: loadAssetHistory,
+  costs: loadCostReports,
+};
+document.addEventListener('hub:tab', (e) => {
+  const tab = e.detail.tab;
+  if (tab === 'scanner' && !cameraStream) initializeCamera();
+  if (tab !== 'scanner' && cameraStream) stopCamera();
+  if (whTabLoaders[tab] && !whLoadedTabs.has(tab)) {
+    whLoadedTabs.add(tab);
+    whTabLoaders[tab]();
+  }
+});
+
+if (window.initHubTabs) initHubTabs('overview');

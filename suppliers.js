@@ -234,3 +234,6 @@ function renderCatalog() {
 const catalogSearchEl = document.getElementById('catalogSearch');
 if (catalogSearchEl) catalogSearchEl.oninput = renderCatalog;
 loadCatalog();
+
+
+if (window.initHubTabs) initHubTabs('directory');

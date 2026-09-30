@@ -146,48 +146,46 @@ document.addEventListener('DOMContentLoaded', () => {
       {
         label: 'Smart Warehousing & QR', icon: 'warehouse',
         items: [
-          { label: 'Warehouse Dashboard', href: 'warehouse-dashboard.html', icon: 'dashboard' },
-          { label: 'Warehouse Layout Mapping', href: 'warehousing.html', icon: 'grid_on' },
-          { label: 'QR Scanner', href: 'warehouse-qr.html', icon: 'qr_code_scanner' },
-          { label: 'QR Scan & Generate Portal', href: 'warehousing.html#qrPortal', icon: 'qr_code_2' },
-          { label: 'Asset Registration', href: 'warehouse-assets.html', icon: 'inventory_2' },
-          { label: 'Asset Allocation', href: 'warehouse-allocation.html', icon: 'person_add' },
-          { label: 'Live Asset Tracking', href: 'warehouse-tracking.html', icon: 'my_location' },
-          { label: 'Low Stock Alerts', href: 'warehouse-low-stock.html', icon: 'warning' },
-          { label: 'Asset Returns', href: 'warehouse-returns.html', icon: 'keyboard_return' },
-          { label: 'Asset History', href: 'warehouse-history.html', icon: 'history' },
-          { label: 'Cost Reports', href: 'warehouse-cost-reports.html', icon: 'analytics' },
-          { label: 'Warranty Alerts', href: 'warehouse-warranty.html', icon: 'verified_user' },
+          { label: 'Warehouse Dashboard', href: 'warehousing.html', icon: 'dashboard' },
+          { label: 'QR Scanner', href: 'warehousing.html#scanner', icon: 'qr_code_scanner' },
+          { label: 'QR Scan & Generate Portal', href: 'warehousing.html#generate', icon: 'qr_code_2' },
+          { label: 'Asset Registration', href: 'warehousing.html#register', icon: 'inventory_2' },
+          { label: 'Live Asset Tracking', href: 'warehousing.html#tracking', icon: 'my_location' },
+          { label: 'Low Stock Alerts', href: 'warehousing.html#lowstock', icon: 'warning' },
+          { label: 'Asset Returns', href: 'warehousing.html#returns', icon: 'keyboard_return' },
+          { label: 'Asset History', href: 'warehousing.html#history', icon: 'history' },
+          { label: 'Cost Reports', href: 'warehousing.html#costs', icon: 'analytics' },
+          { label: 'Warranty Alerts', href: 'warehousing.html#warranty', icon: 'verified_user' },
         ],
       },
       {
         label: 'Inventory Management', icon: 'inventory',
         items: [
-          { label: 'Inventory Dashboard', href: 'inventory-dashboard.html', icon: 'dashboard' },
+          { label: 'Inventory Dashboard', href: 'inventory.html#dashboard', icon: 'dashboard' },
           { label: 'Consumable Stock Ledger', href: 'inventory.html', icon: 'inventory_2' },
-          { label: 'Asset Search', href: 'inventory-search.html', icon: 'search' },
-          { label: 'QR Lookup', href: 'inventory-qr-lookup.html', icon: 'qr_code' },
-          { label: 'Stock Adjustments', href: 'inventory-adjustments.html', icon: 'tune' },
-          { label: 'Purchase Requisitions', href: 'inventory-requisitions.html', icon: 'shopping_bag' },
-          { label: 'Requisition Approvals', href: 'inventory-requisition-approvals.html', icon: 'fact_check' },
-          { label: 'Reorder Points', href: 'inventory-reorder.html', icon: 'production_quantity_limits' },
-          { label: 'Valuation Report', href: 'inventory-valuation.html', icon: 'request_quote' },
-          { label: 'Data Synchronization', href: 'inventory-sync.html', icon: 'sync' },
-          { label: 'Inventory History', href: 'inventory-history.html', icon: 'history' },
+          { label: 'Asset Search', href: 'inventory.html#search', icon: 'search' },
+          { label: 'QR Lookup', href: 'inventory.html#qrlookup', icon: 'qr_code' },
+          { label: 'Stock Adjustments', href: 'inventory.html#adjustments', icon: 'tune' },
+          { label: 'Purchase Requisitions', href: 'inventory.html#requisitions', icon: 'shopping_bag' },
+          { label: 'Requisition Approvals', href: 'inventory.html#approvals', icon: 'fact_check' },
+          { label: 'Reorder Points', href: 'inventory.html#reorder', icon: 'production_quantity_limits' },
+          { label: 'Valuation Report', href: 'inventory.html#valuation', icon: 'request_quote' },
+          { label: 'Data Synchronization', href: 'inventory.html#sync', icon: 'sync' },
+          { label: 'Inventory History', href: 'inventory.html#history', icon: 'history' },
           { label: 'Asset Tracking & Assignment', href: 'equipment-requests.html', icon: 'assignment_ind' },
         ],
       },
       {
         label: 'Procurement & Sourcing', icon: 'shopping_cart',
         items: [
-          { label: 'Procurement Dashboard', href: 'procurement-dashboard.html', icon: 'dashboard' },
+          { label: 'Procurement Dashboard', href: 'procurement.html#sourcing', icon: 'dashboard' },
           { label: 'Purchase Requisitions', href: 'procurement.html', icon: 'shopping_bag' },
-          { label: 'Sourcing & Vendor Bidding', href: 'procurement.html#quotesTable', icon: 'gavel' },
-          { label: 'RFP Management', href: 'procurement-rfp.html', icon: 'campaign' },
-          { label: 'Purchase Orders (PO)', href: 'purchase-orders.html', icon: 'receipt_long' },
-          { label: 'PO Receiving', href: 'po-receiving.html', icon: 'local_shipping' },
-          { label: 'Inbound Delivery Simulation', href: 'purchase-orders.html#deliverySim', icon: 'rocket_launch' },
-          { label: 'Procurement Cost Settlement', href: 'purchase-orders.html#settlement', icon: 'payments' },
+          { label: 'Sourcing & Vendor Bidding', href: 'procurement.html#sourcing', icon: 'gavel' },
+          { label: 'RFP Management', href: 'procurement.html#rfp', icon: 'campaign' },
+          { label: 'Purchase Orders (PO)', href: 'procurement.html#orders', icon: 'receipt_long' },
+          { label: 'PO Receiving', href: 'procurement.html#receiving', icon: 'local_shipping' },
+          { label: 'Inbound Delivery Simulation', href: 'procurement.html#receiving', icon: 'rocket_launch' },
+          { label: 'Procurement Cost Settlement', href: 'procurement.html#settlement', icon: 'payments' },
         ],
       },
       {
@@ -202,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         items: [
           { label: 'Live Document Tracking', href: 'documents.html', icon: 'folder_open' },
           { label: 'Compliance Asset Clearance', href: 'documents.html#clearance', icon: 'verified_user' },
-          { label: 'Immutable Audit History', href: 'documents.html#auditTrail', icon: 'history' },
+          { label: 'Immutable Audit History', href: 'documents.html#audit', icon: 'history' },
         ],
       },
     ];
@@ -255,6 +253,22 @@ document.addEventListener('DOMContentLoaded', () => {
         items.classList.toggle('hidden', open);
         chev.textContent = open ? 'expand_more' : 'expand_less';
       });
+    });
+
+    // Same-page tab navigation: sidebar hash links on the active hub page
+    // switch internal tabs instantly instead of reloading.
+    navContainer.addEventListener('click', (e) => {
+      const a = e.target.closest('a[href*="#"]');
+      if (!a) return;
+      const [base, hash] = a.getAttribute('href').split('#');
+      if (base === page && hash) {
+        e.preventDefault();
+        if (typeof window.switchModuleTab === 'function') {
+          window.switchModuleTab(hash);
+        } else {
+          document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
     });
 
     // Anchor links inherit the visibility of their base page link
@@ -700,6 +714,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // Profile dropdown links are handled as regular HTML links (<a href="...">)
   // No JavaScript needed for navigation links in the dropdown
 });
+
+// ==========================================
+// SPA MASTER-HUB TAB SYSTEM
+// window.initHubTabs(defaultTab) — call once per hub page.
+// Sections are <section class="hub-section" data-tab="name"> and buttons are
+// .hub-tab-btn[data-tab-target="name"]. Emits 'hub:tab' for lazy loaders and
+// exposes window.switchModuleTab(hash) for the sidebar.
+// ==========================================
+window.initHubTabs = function (defaultTab) {
+  const btns = document.querySelectorAll('.hub-tab-btn[data-tab-target]');
+  const sections = document.querySelectorAll('.hub-section[data-tab]');
+  window.switchModuleTab = (name) => {
+    if (!name || ![...sections].some((s) => s.dataset.tab === name)) return;
+    sections.forEach((s) => s.classList.toggle('active', s.dataset.tab === name));
+    btns.forEach((b) => b.classList.toggle('active', b.dataset.tabTarget === name));
+    if (('#' + name) !== window.location.hash) history.replaceState(null, '', '#' + name);
+    window.scrollTo({ top: 0 });
+    document.dispatchEvent(new CustomEvent('hub:tab', { detail: { tab: name } }));
+  };
+  btns.forEach((b) => { b.onclick = () => window.switchModuleTab(b.dataset.tabTarget); });
+  const initial = (window.location.hash || '').replace(/^#/, '');
+  window.switchModuleTab(initial || defaultTab);
+};
 
 // ==========================================
 // GLOBAL CONFIRMATION MODAL

@@ -15,7 +15,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="styles.css?v=6">
+    <link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body class="bg-background text-on-background font-body h-screen flex flex-row overflow-hidden">
     
@@ -53,7 +53,7 @@
                         <span class="material-symbols-outlined">business</span>
                         <span>Supplier Management</span>
                     </a>
-                    <a class="sidebar-subsystem-link" href="purchase-orders.html">
+                    <a class="sidebar-subsystem-link" href="procurement.html#orders">
                         <span class="material-symbols-outlined">receipt_long</span>
                         <span>Purchase Orders</span>
                     </a>
@@ -157,7 +157,19 @@
                         </div>
                     </div>
                 </div>
-                
+
+                <!-- Module Tabs -->
+                <nav class="hub-tabs" aria-label="Procurement modules">
+                    <button class="hub-tab-btn active" data-tab-target="sourcing"><span class="material-symbols-outlined">shopping_bag</span>Sourcing</button>
+                    <button class="hub-tab-btn" data-tab-target="orders"><span class="material-symbols-outlined">receipt_long</span>Purchase Orders</button>
+                    <button class="hub-tab-btn" data-tab-target="pipeline"><span class="material-symbols-outlined">account_tree</span>Lifecycle &amp; Activity</button>
+                    <button class="hub-tab-btn" data-tab-target="receiving"><span class="material-symbols-outlined">local_shipping</span>Delivery &amp; Receiving</button>
+                    <button class="hub-tab-btn" data-tab-target="settlement"><span class="material-symbols-outlined">payments</span>Settlements</button>
+                    <button class="hub-tab-btn" data-tab-target="rfp"><span class="material-symbols-outlined">gavel</span>RFP &amp; Bids</button>
+                </nav>
+
+                <section class="hub-section active" data-tab="sourcing">
+
                 <!-- Stats Grid -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
@@ -220,6 +232,118 @@
                         <div class="text-on-surface-variant text-sm">Loading pipeline...</div>
                     </div>
                 </div>
+                </section>
+
+                <!-- Purchase Orders -->
+                <section class="hub-section" data-tab="orders">
+                <div class="flex flex-wrap items-center justify-end gap-3">
+                    <button id="createPO" class="btn-primary dashboard-action-button m-0">
+                        <span class="material-symbols-outlined">add</span>
+                        Create PO
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                        <p class="text-on-surface-variant text-sm mb-2">Total POs</p>
+                        <strong class="text-2xl font-headline font-bold text-on-surface" id="totalPOs">0</strong>
+                        <small class="text-on-surface-variant text-xs">All purchase orders</small>
+                    </div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                        <p class="text-on-surface-variant text-sm mb-2">Active Pipeline</p>
+                        <strong class="text-2xl font-headline font-bold text-on-surface" id="activePipeline">0</strong>
+                        <small class="text-on-surface-variant text-xs">In process</small>
+                    </div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                        <p class="text-on-surface-variant text-sm mb-2">Pending Approval</p>
+                        <strong class="text-2xl font-headline font-bold text-on-surface" id="pendingApproval">0</strong>
+                        <small class="text-on-surface-variant text-xs">Awaiting review</small>
+                    </div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
+                        <p class="text-on-surface-variant text-sm mb-2">Total Value</p>
+                        <strong class="text-2xl font-headline font-bold text-on-surface" id="totalPOValue">₱0</strong>
+                        <small class="text-on-surface-variant text-xs">PO valuation</small>
+                    </div>
+                </div>
+
+                <!-- PO Table -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Purchase Orders</h2>
+                        <div class="flex gap-3">
+                            <input type="text" id="poSearch" placeholder="Search POs..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            <select id="statusFilter" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                                <option value="">All Status</option>
+                                <option value="Draft">Draft</option>
+                                <option value="Pending Approval">Pending Approval</option>
+                                <option value="Sent to Vendor">Sent to Vendor</option>
+                                <option value="Shipped">Shipped</option>
+                                <option value="Received">Received</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="poTable" class="data-table-container"></div>
+                </div>
+                </section>
+
+                <!-- Lifecycle & Activity -->
+                <section class="hub-section" data-tab="pipeline">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">PO Lifecycle Pipeline</h2>
+                    </div>
+                    <div id="poPipeline" class="p-6"></div>
+                </div>
+                <section class="card">
+                    <h2>PO Activity Log</h2>
+                    <div id="poActivityLog"></div>
+                </section>
+                </section>
+
+                <!-- Delivery & Receiving -->
+                <section class="hub-section" data-tab="receiving">
+                <div id="deliverySim" class="dashboard-card bg-white shadow-sm border border-slate-200 scroll-mt-24">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
+                            <span class="material-symbols-outlined text-indigo-600">rocket_launch</span>
+                            Inbound Delivery Simulation
+                        </h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Mock supplier arrivals — an order marked arrived auto-stages serialized assets at the Receiving Dock for QR intake.</p>
+                    </div>
+                    <div id="deliverySimList" class="p-6"></div>
+                </div>
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Awaiting Receipt</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Arrived orders pending physical verification — receive them from the Purchase Orders tab to generate QR serials.</p>
+                    </div>
+                    <div id="receivingList" class="p-6"></div>
+                </div>
+                </section>
+
+                <!-- Settlements -->
+                <section class="hub-section" data-tab="settlement">
+                <div id="settlement" class="dashboard-card bg-white shadow-sm border border-slate-200 scroll-mt-24">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
+                            <span class="material-symbols-outlined text-emerald-600">payments</span>
+                            Procurement Cost Settlement
+                        </h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Verified orders forwarded to Financial Management / Accounts Payable for balance payout.</p>
+                    </div>
+                    <div id="settlementList" class="p-6 overflow-x-auto"></div>
+                </div>
+                </section>
+
+                <!-- RFP & Bid Comparison -->
+                <section class="hub-section" data-tab="rfp">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Request for Proposal — Bid Comparison</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Open requisitions and the supplier quotes competing for each award.</p>
+                    </div>
+                    <div id="rfpList" class="p-6 space-y-4"></div>
+                </div>
+                </section>
             </div>
         </main>
     </div>
@@ -258,10 +382,182 @@
         </div>
     </dialog>
     
+    <!-- Create PO Modal -->
+    <dialog id="createPOModal">
+      <div class="scanner">
+        <button id="closeCreatePO" class="close">×</button>
+        <h2>Create Purchase Order</h2>
+        <form id="createPOForm">
+          <label>Vendor
+            <input type="text" name="vendor" required placeholder="Supplier name">
+          </label>
+          <label>Vendor ID
+            <input type="number" name="vendor_id" min="1" placeholder="Optional">
+          </label>
+          <label>Items
+            <textarea name="items" rows="3" required placeholder="Describe purchase items"></textarea>
+          </label>
+          <label>Total Amount
+            <input type="number" name="total" min="0" step="0.01" required placeholder="50000">
+          </label>
+          <label>Expected Delivery
+            <input type="date" name="expected_delivery">
+          </label>
+          <label>Notes
+            <textarea name="notes" rows="2" placeholder="Optional notes"></textarea>
+          </label>
+          <button type="submit">Create PO</button>
+        </form>
+      </div>
+    </dialog>
+
+
+    <!-- Update PO Status Modal -->
+    <dialog id="updateStatusModal">
+      <div class="scanner">
+        <button id="closeStatus" class="close">×</button>
+        <h2>Update PO Status</h2>
+        <form id="updateStatusForm">
+          <input type="hidden" name="po_id" id="poIdInput">
+          <label>Current Status
+            <input type="text" id="currentStatus" disabled>
+          </label>
+          <label>New Status
+            <select name="status" required>
+              <option value="Draft">Draft</option>
+              <option value="Pending Approval">Pending Approval</option>
+              <option value="Sent to Vendor">Sent to Vendor</option>
+              <option value="Shipped">Shipped</option>
+              <option value="Received">Received</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+          </label>
+          <label>Notes
+            <textarea name="notes" rows="2"></textarea>
+          </label>
+          <button type="submit">Update Status</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Reject PO Modal -->
+    <dialog id="rejectPOModal">
+      <div class="scanner">
+        <button id="closeReject" class="close">×</button>
+        <h2>Reject Purchase Order</h2>
+        <form id="rejectPOForm">
+          <input type="hidden" name="po_id" id="rejectPoIdInput">
+          <label>PO Number
+            <input type="text" id="rejectPoNumber" disabled>
+          </label>
+          <label>Rejection Reason
+            <textarea name="reason" rows="3" required placeholder="Please provide a reason for rejection..."></textarea>
+          </label>
+          <button type="submit" style="background: #dc2626;">Reject PO</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Mark Shipped Modal -->
+    <dialog id="shippedModal">
+      <div class="scanner">
+        <button id="closeShipped" class="close">×</button>
+        <h2>Mark as Shipped</h2>
+        <form id="shippedForm">
+          <input type="hidden" name="po_id" id="shippedPoIdInput">
+          <label>PO Number
+            <input type="text" id="shippedPoNumber" disabled>
+          </label>
+          <label>Tracking Number
+            <input type="text" name="tracking_number" placeholder="Enter tracking number if available">
+          </label>
+          <label>Carrier
+            <select name="carrier">
+              <option value="">Select carrier</option>
+              <option value="FedEx">FedEx</option>
+              <option value="UPS">UPS</option>
+              <option value="DHL">DHL</option>
+              <option value="LBC">LBC</option>
+              <option value="Other">Other</option>
+            </select>
+          </label>
+          <label>Estimated Delivery
+            <input type="date" name="estimated_delivery">
+          </label>
+          <label>Notes
+            <textarea name="notes" rows="2"></textarea>
+          </label>
+          <button type="submit">Mark as Shipped</button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Receive PO Modal -->
+    <dialog id="receiveModal">
+      <div class="scanner">
+        <button id="closeReceive" class="close">×</button>
+        <h2>Receive Purchase Order</h2>
+        <form id="receiveForm">
+          <input type="hidden" name="po_id" id="receivePoIdInput">
+          <label>PO Number
+            <input type="text" id="receivePoNumber" disabled>
+          </label>
+          <label>Items Received
+            <textarea name="items_received" rows="3" placeholder="List items received and their quantities..."></textarea>
+          </label>
+          <label>Condition
+            <select name="condition">
+              <option value="Good">Good Condition</option>
+              <option value="Some Damage">Some Damage</option>
+              <option value="Damaged">Damaged</option>
+            </select>
+          </label>
+          <label>Notes
+            <textarea name="notes" rows="2"></textarea>
+          </label>
+          <div style="margin: 16px 0; padding: 12px; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
+            <p style="margin: 0; color: #0369a1; font-size: 13px;">
+              <strong>QR Generation:</strong> After receiving, QR codes will be automatically generated for all items in this PO.
+            </p>
+          </div>
+          <button type="submit">Receive & Generate QR Codes</button>
+        </form>
+      </div>
+    </dialog>
+    
+    <!-- View PO Modal -->
+    <dialog id="viewPOModal" class="rounded-2xl border-0 shadow-2xl p-0 w-[94%] max-w-lg backdrop:bg-slate-900/50">
+      <div class="p-6">
+        <div class="flex items-start justify-between mb-5">
+          <div class="flex items-center gap-3">
+            <span class="w-11 h-11 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+              <span class="material-symbols-outlined">receipt_long</span>
+            </span>
+            <div>
+              <h2 class="text-lg font-bold text-slate-900">Purchase Order</h2>
+              <p id="viewPONumber" class="text-xs text-slate-500 font-medium"></p>
+            </div>
+          </div>
+          <button id="closeViewPOModal" class="text-slate-400 hover:text-slate-600 transition-colors" aria-label="Close">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <dl class="space-y-3 text-sm">
+          <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Vendor</dt><dd id="viewPOVendor" class="font-semibold text-slate-800 text-right"></dd></div>
+          <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Status</dt><dd id="viewPOStatus" class="text-right"></dd></div>
+          <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Total</dt><dd id="viewPOTotal" class="font-bold text-slate-900 text-right"></dd></div>
+          <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Created</dt><dd id="viewPOCreated" class="font-semibold text-slate-800 text-right"></dd></div>
+          <div class="flex justify-between gap-4 py-2 border-b border-slate-100"><dt class="text-slate-500">Expected Delivery</dt><dd id="viewPODelivery" class="font-semibold text-slate-800 text-right"></dd></div>
+          <div class="pt-1"><dt class="text-slate-500 mb-1">Items</dt><dd id="viewPOItems" class="text-slate-700 bg-slate-50 rounded-xl p-3 leading-relaxed"></dd></div>
+        </dl>
+      </div>
+    </dialog>
+
+
         <script src="token.js?v=1"></script>
         <script src="layout.js?v=9"></script>
-    <script src="permissions.js?v=8"></script>
-    <script src="procurement.js?v=7"></script>
+    <script src="permissions.js?v=9"></script>
+    <script src="procurement.js?v=9"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>
