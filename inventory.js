@@ -462,7 +462,6 @@ async function loadQrLookup() {
         <div><dt class="text-xs text-on-surface-variant">Assigned To</dt><dd class="font-medium">${a.assigned_to || '—'}</dd></div>
         <div><dt class="text-xs text-on-surface-variant">Purchase Price</dt><dd class="font-medium">₱${parseFloat(a.purchase_price || 0).toLocaleString()}</dd></div>
         <div><dt class="text-xs text-on-surface-variant">PO Reference</dt><dd class="font-mono">${a.po_number || '—'}</dd></div>
-        <div><dt class="text-xs text-on-surface-variant">Warranty Until</dt><dd class="font-medium">${a.warranty_until ? new Date(a.warranty_until).toLocaleDateString() : '—'}</dd></div>
       </dl></div>`;
   });
 }

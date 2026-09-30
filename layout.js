@@ -134,62 +134,36 @@ document.addEventListener('DOMContentLoaded', () => {
   if (navContainer) {
     const page = window.location.pathname.split('/').pop();
     // Section 2 architecture schema — parents mirror the subsystem boundaries
+    // Section 2 architecture schema — parents mirror the subsystem boundaries
     const groups = [
       {
-        label: 'Dashboard & Data Sync', icon: 'monitoring',
+        label: 'Dashboard & Real-Time Data Sync', icon: 'monitoring',
         items: [
           { label: 'Real-Time Metrics Overview', href: 'index.html', icon: 'dashboard' },
-          { label: 'System Sync Engine', href: 'index.html#syncEngine', icon: 'sync' },
+          { label: 'System Synchronization Engine', href: 'index.html#syncEngine', icon: 'sync' },
           { label: 'Analytics & Low-Stock Alerts', href: 'index.html#lowStockAlerts', icon: 'stacked_line_chart' },
         ],
       },
       {
-        label: 'Smart Warehousing & QR', icon: 'warehouse',
+        label: 'Smart Warehousing & Inventory Mgmt.', icon: 'warehouse',
         items: [
-          { label: 'Warehouse Dashboard', href: 'warehousing.html', icon: 'dashboard' },
-          { label: 'QR Scanner', href: 'warehousing.html#scanner', icon: 'qr_code_scanner' },
-          { label: 'QR Scan & Generate Portal', href: 'warehousing.html#generate', icon: 'qr_code_2' },
-          { label: 'Asset Registration', href: 'warehousing.html#register', icon: 'inventory_2' },
-          { label: 'Live Asset Tracking', href: 'warehousing.html#tracking', icon: 'my_location' },
-          { label: 'Low Stock Alerts', href: 'warehousing.html#lowstock', icon: 'warning' },
-          { label: 'Asset Returns', href: 'warehousing.html#returns', icon: 'keyboard_return' },
-          { label: 'Asset History', href: 'warehousing.html#history', icon: 'history' },
-          { label: 'Cost Reports', href: 'warehousing.html#costs', icon: 'analytics' },
-          { label: 'Warranty Alerts', href: 'warehousing.html#warranty', icon: 'verified_user' },
-        ],
-      },
-      {
-        label: 'Inventory Management', icon: 'inventory',
-        items: [
-          { label: 'Inventory Dashboard', href: 'inventory.html#dashboard', icon: 'dashboard' },
+          { label: 'Warehouse Layout Mapping', href: 'warehousing.html', icon: 'grid_view' },
           { label: 'Consumable Stock Ledger', href: 'inventory.html', icon: 'inventory_2' },
-          { label: 'Asset Search', href: 'inventory.html#search', icon: 'search' },
-          { label: 'QR Lookup', href: 'inventory.html#qrlookup', icon: 'qr_code' },
-          { label: 'Stock Adjustments', href: 'inventory.html#adjustments', icon: 'tune' },
-          { label: 'Purchase Requisitions', href: 'inventory.html#requisitions', icon: 'shopping_bag' },
-          { label: 'Requisition Approvals', href: 'inventory.html#approvals', icon: 'fact_check' },
-          { label: 'Reorder Points', href: 'inventory.html#reorder', icon: 'production_quantity_limits' },
-          { label: 'Valuation Report', href: 'inventory.html#valuation', icon: 'request_quote' },
-          { label: 'Data Synchronization', href: 'inventory.html#sync', icon: 'sync' },
-          { label: 'Inventory History', href: 'inventory.html#history', icon: 'history' },
           { label: 'Asset Tracking & Assignment', href: 'equipment-requests.html', icon: 'assignment_ind' },
+          { label: 'QR Code Scan & Generate Portal', href: 'warehousing.html#generate', icon: 'qr_code_scanner' },
         ],
       },
       {
-        label: 'Procurement & Sourcing', icon: 'shopping_cart',
+        label: 'Procurement & Sourcing Logistics', icon: 'shopping_cart',
         items: [
-          { label: 'Procurement Dashboard', href: 'procurement.html#sourcing', icon: 'dashboard' },
-          { label: 'Purchase Requisitions', href: 'procurement.html', icon: 'shopping_bag' },
-          { label: 'Sourcing & Vendor Bidding', href: 'procurement.html#sourcing', icon: 'gavel' },
-          { label: 'RFP Management', href: 'procurement.html#rfp', icon: 'campaign' },
+          { label: 'Purchase Requisitions', href: 'procurement.html#sourcing', icon: 'shopping_bag' },
           { label: 'Purchase Orders (PO)', href: 'procurement.html#orders', icon: 'receipt_long' },
-          { label: 'PO Receiving', href: 'procurement.html#receiving', icon: 'local_shipping' },
           { label: 'Inbound Delivery Simulation', href: 'procurement.html#receiving', icon: 'rocket_launch' },
           { label: 'Procurement Cost Settlement', href: 'procurement.html#settlement', icon: 'payments' },
         ],
       },
       {
-        label: 'Supplier & Vendor Mgmt.', icon: 'business',
+        label: 'Supplier & Vendor Management', icon: 'business',
         items: [
           { label: 'Vendor Profile Directory', href: 'suppliers.html', icon: 'contacts' },
           { label: 'Supplier Item Catalogs', href: 'suppliers.html#catalog', icon: 'list_alt' },
