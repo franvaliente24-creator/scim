@@ -256,3 +256,101 @@ document.addEventListener('DOMContentLoaded', function () {
   if (typeof initializePermissions === 'function') initializePermissions();
   loadDocumentData();
 });
+
+// ==========================================
+// COMPLIANCE ASSET CLEARANCE (outbound → Core 3)
+// ==========================================
+async function loadClearances() {
+  const el = $('#clearanceList');
+  if (!el) return;
+  const res = await fetch('/api/v1/clearances');
+  const data = await res.json().catch(() => ({}));
+  const checklist = Array.isArray(data.checklist) ? data.checklist : [];
+  const tokens = Array.isArray(data.tokens) ? data.tokens : [];
+
+  el.innerHTML = `
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Pending Clearances — unreturned assets</p>
+    ${checklist.length === 0
+      ? '<p class="text-slate-500 text-sm py-2">No employees hold unreturned assets.</p>'
+      : checklist.map((c) => `
+        <div class="p-3.5 rounded-xl border border-amber-200 bg-amber-50/50 mb-2">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-semibold text-slate-800">${c.employee}</span>
+            <span class="text-xs font-bold text-amber-700">${c.unreturned} item(s) out</span>
+          </div>
+          <p class="text-xs text-slate-500 mt-1 break-all">${c.items || ''}</p>
+        </div>`).join('')}
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-6 mb-3">Issued Clearance Tokens</p>
+    ${tokens.length === 0
+      ? '<p class="text-slate-500 text-sm py-2">No clearance tokens issued yet.</p>'
+      : tokens.map((t) => `
+        <div class="flex items-center justify-between gap-3 p-3 rounded-xl border border-emerald-200 bg-emerald-50/50 mb-2">
+          <div>
+            <p class="text-sm font-semibold text-emerald-900">${t.employee_name}</p>
+            <code class="text-[11px] font-mono text-emerald-700">${t.token}</code>
+          </div>
+          <div class="text-right">
+            <span class="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">${t.status}</span>
+            <p class="text-[11px] text-slate-500 mt-1">${t.issued_at ? new Date(t.issued_at).toLocaleString() : ''}</p>
+          </div>
+        </div>`).join('')}`;
+}
+
+// ==========================================
+// IMMUTABLE AUDIT HISTORY — append-only scan ledger
+// ==========================================
+let auditPage = 1;
+let auditItems = [];
+let auditTotal = 0;
+let auditPages = 1;
+
+async function loadAudit() {
+  const res = await fetch(`/api/v1/scan-logs?page=${auditPage}&per_page=15`);
+  const data = await res.json().catch(() => ({}));
+  auditItems = Array.isArray(data.items) ? data.items : [];
+  auditTotal = data.total || 0;
+  auditPages = data.pages || 1;
+  renderAudit();
+}
+
+function renderAudit() {
+  const el = $('#auditList');
+  if (!el) return;
+  const term = ($('#auditSearch')?.value || '').toLowerCase();
+  const rows = auditItems.filter((s) =>
+    !term || `${s.qr_code} ${s.action} ${s.scanned_by} ${s.details || ''}`.toLowerCase().includes(term));
+  el.innerHTML = rows.length === 0
+    ? '<p class="text-slate-500 text-sm text-center py-6">No audit entries recorded.</p>'
+    : `<table class="w-full text-sm min-w-[640px]">
+        <thead><tr class="border-b border-slate-200 text-left">
+          <th class="py-2 pr-4 font-medium text-slate-600">Timestamp</th>
+          <th class="py-2 pr-4 font-medium text-slate-600">Serial / QR</th>
+          <th class="py-2 pr-4 font-medium text-slate-600">Action</th>
+          <th class="py-2 pr-4 font-medium text-slate-600">Details</th>
+          <th class="py-2 font-medium text-slate-600">Actor</th>
+        </tr></thead>
+        <tbody>${rows.map((s) => `
+          <tr class="border-b border-slate-100 ${Number(s.collision) ? 'bg-red-50/60' : ''}">
+            <td class="py-2.5 pr-4 text-slate-500 text-xs whitespace-nowrap">${new Date(s.created_at).toLocaleString()}</td>
+            <td class="py-2.5 pr-4 font-mono text-xs text-slate-800">${s.qr_code || '—'}</td>
+            <td class="py-2.5 pr-4 font-semibold ${Number(s.collision) ? 'text-red-600' : 'text-slate-900'}">${s.action}${Number(s.collision) ? ' ⚠' : ''}</td>
+            <td class="py-2.5 pr-4 text-slate-500 text-xs">${s.details || ''}</td>
+            <td class="py-2.5 text-slate-600 text-xs">${s.scanned_by || '—'}</td>
+          </tr>`).join('')}</tbody>
+      </table>`;
+  const pager = $('#auditPager');
+  if (pager) {
+    pager.innerHTML = `
+      <span class="text-xs text-slate-500">${auditTotal} entries — page ${auditPage} of ${auditPages}</span>
+      <div class="flex gap-2">
+        <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${auditPage <= 1 ? 'disabled' : ''} onclick="auditPage--; loadAudit();">Prev</button>
+        <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${auditPage >= auditPages ? 'disabled' : ''} onclick="auditPage++; loadAudit();">Next</button>
+      </div>`;
+  }
+}
+
+const auditSearchEl = document.getElementById('auditSearch');
+if (auditSearchEl) auditSearchEl.oninput = renderAudit;
+
+loadClearances();
+loadAudit();

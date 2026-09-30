@@ -47,6 +47,10 @@ async function loadPOData() {
 
     // Load PO activity log
     loadPOActivityLog();
+
+    // Inbound delivery simulation + finance settlement panels
+    renderDeliverySim(purchaseOrders);
+    loadSettlements();
   } catch (error) {
     console.error('Error loading PO data:', error);
   }
@@ -526,6 +530,85 @@ window.generateQRPDF = async (poId) => {
   }
 };
 
+
+// ==========================================
+// INBOUND DELIVERY SIMULATION (Digital Twin)
+// + PROCUREMENT COST SETTLEMENT (outbound → AP)
+// ==========================================
+function renderDeliverySim(purchaseOrders) {
+  const el = $('#deliverySimList');
+  if (!el) return;
+  const simulatable = purchaseOrders.filter((po) => ['Sent to Vendor', 'Ordered', 'Shipped'].includes(po.status));
+  const arrived = purchaseOrders.filter((po) => po.status === 'Arrived');
+  if (!simulatable.length && !arrived.length) {
+    el.innerHTML = '<p class="text-slate-500 text-sm text-center py-6">No orders are in transit. Send a PO to its vendor first.</p>';
+    return;
+  }
+  el.innerHTML = `
+    ${simulatable.map((po) => `
+      <div class="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl border border-slate-200 mb-3">
+        <div>
+          <p class="text-sm font-bold text-slate-900">${po.po_number}</p>
+          <p class="text-xs text-slate-500">${po.vendor_name || po.vendor} · ${po.status}</p>
+        </div>
+        <button class="action-btn action-btn-ship" onclick="simulateArrival(${po.id}, '${po.po_number}')">
+          <span class="material-symbols-outlined text-sm align-middle">rocket_launch</span> Simulate Arrival
+        </button>
+      </div>`).join('')}
+    ${arrived.length ? `<p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-5 mb-2">Arrived — assets staged at Receiving Dock</p>` : ''}
+    ${arrived.map((po) => `
+      <div class="flex items-center justify-between gap-3 p-3 rounded-xl border border-emerald-200 bg-emerald-50/50 mb-2">
+        <p class="text-sm font-semibold text-emerald-800">${po.po_number}</p>
+        <span class="text-xs text-emerald-600 font-medium">Arrived${po.arrived_at ? ' · ' + new Date(po.arrived_at).toLocaleString() : ''}</span>
+      </div>`).join('')}`;
+}
+
+window.simulateArrival = async (poId, poNumber) => {
+  const ok = await confirmStep({
+    title: 'Simulate Supplier Arrival?',
+    message: `This marks ${poNumber} as Arrived and generates serialized asset placeholders at the Receiving Dock.`,
+    confirmLabel: 'Simulate Arrival', icon: 'rocket_launch', danger: false,
+  });
+  if (!ok) return;
+  const res = await fetch(`/api/v1/pos/${poId}/simulate-arrival`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.error || 'Simulation failed.');
+    return;
+  }
+  alert(`${data.count} serialized asset(s) staged for ${data.po_number}. Print their QR labels or scan to stock them.`);
+  loadPOData();
+};
+
+async function loadSettlements() {
+  const el = $('#settlementList');
+  if (!el) return;
+  const res = await fetch('/api/v1/finance-settlements');
+  const data = await res.json().catch(() => ({}));
+  const items = Array.isArray(data.items) ? data.items : [];
+  if (!items.length) {
+    el.innerHTML = '<p class="text-slate-500 text-sm text-center py-6">No settlements yet — verified orders are forwarded here automatically.</p>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="w-full text-sm min-w-[560px]">
+      <thead><tr class="border-b border-slate-200 text-left">
+        <th class="py-2 pr-4 font-medium text-slate-600">PO</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">Vendor</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">Amount</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">Verified</th>
+        <th class="py-2 font-medium text-slate-600">Status</th>
+      </tr></thead>
+      <tbody>${items.map((s) => `
+        <tr class="border-b border-slate-100">
+          <td class="py-2.5 pr-4 font-semibold text-slate-900">${s.po_number}</td>
+          <td class="py-2.5 pr-4 text-slate-600">${s.vendor_name || ''}</td>
+          <td class="py-2.5 pr-4 text-slate-900 font-medium">${money(parseFloat(s.amount) || 0)}</td>
+          <td class="py-2.5 pr-4 text-slate-500 text-xs">${s.verification_timestamp ? new Date(s.verification_timestamp).toLocaleString() : ''}</td>
+          <td class="py-2.5"><span class="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">${s.status}</span></td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
 
 // Load PO data on page load
 document.addEventListener("DOMContentLoaded", function() {

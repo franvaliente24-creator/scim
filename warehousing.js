@@ -444,3 +444,73 @@ if (viewAllScansBtn) {
 
 // Load warehouse data on page load
 loadWarehouseData();
+
+// ==========================================
+// QR SCAN & GENERATE PORTAL (blueprint §5)
+// Batch-serializes assets as AGENCY-ASSET-CAT-000000 and renders a
+// print-ready label sheet via QRious.
+// ==========================================
+let lastSerialBatch = [];
+
+const qrBatchForm = $('#qrBatchForm');
+if (qrBatchForm) {
+  qrBatchForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(qrBatchForm));
+    const res = await fetch('/api/v1/assets/generate-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Batch generation failed.');
+      return;
+    }
+    lastSerialBatch = data.serials || [];
+    const grid = $('#qrBatchGrid');
+    if (grid) {
+      grid.innerHTML = lastSerialBatch.map((s) => `
+        <div class="border border-slate-200 rounded-xl p-3 flex flex-col items-center gap-2 bg-slate-50">
+          <canvas class="qr-cell" data-serial="${s}" width="96" height="96"></canvas>
+          <code class="text-[10px] font-mono text-slate-700 text-center break-all">${s}</code>
+        </div>`).join('');
+      grid.querySelectorAll('.qr-cell').forEach((cv) => {
+        if (typeof QRious !== 'undefined') {
+          new QRious({ element: cv, value: cv.dataset.serial, size: 96 });
+        }
+      });
+    }
+    $('#qrBatchResult')?.classList.remove('hidden');
+    const printBtn = $('#printQrSheet');
+    if (printBtn) printBtn.disabled = lastSerialBatch.length === 0;
+    loadWarehouseData();
+  };
+}
+
+const printQrSheetBtn = $('#printQrSheet');
+if (printQrSheetBtn) {
+  printQrSheetBtn.onclick = () => {
+    if (!lastSerialBatch.length || typeof QRious === 'undefined') return;
+    const cells = lastSerialBatch.map((s) => {
+      const q = new QRious({ value: s, size: 160 });
+      return `<div class="cell"><img src="${q.toDataURL()}" alt="${s}"><span>${s}</span></div>`;
+    }).join('');
+    const w = window.open('', '_blank');
+    w.document.write(`<!doctype html><html><head><title>SCIM QR Label Sheet</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 16px; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .cell { border: 1px dashed #94a3b8; border-radius: 8px; padding: 10px; text-align: center; }
+        .cell img { width: 120px; height: 120px; }
+        .cell span { display: block; font-size: 9px; font-family: monospace; margin-top: 6px; word-break: break-all; }
+        h1 { font-size: 14px; } p { font-size: 11px; color: #64748b; }
+        @media print { .noprint { display: none; } }
+      </style></head><body>
+      <h1>SCIM Asset Label Sheet — ${new Date().toLocaleString()}</h1>
+      <p>Scan each serialized tag at the Receiving Dock to mutate assets from Awaiting Print / Inbound into stock.</p>
+      <button class="noprint" onclick="window.print()">Print / Save as PDF</button>
+      <div class="grid">${cells}</div></body></html>`);
+    w.document.close();
+  };
+}

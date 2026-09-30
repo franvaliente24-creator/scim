@@ -207,14 +207,32 @@
                         <div id="recentPOs" class="p-6"></div>
                     </div>
                 </div>
+
+                <!-- Cross-Subsystem Sync + Stock Alerts -->
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div id="syncEngine" class="bg-white rounded-[1.75rem] shadow-sm border border-slate-200 overflow-hidden scroll-mt-24">
+                        <div class="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between">
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">System Synchronization Engine</h2>
+                            <span class="flex items-center gap-1.5 text-xs font-semibold text-emerald-600"><span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>Live</span>
+                        </div>
+                        <div id="syncStreams" class="p-6 space-y-3"></div>
+                    </div>
+                    <div id="lowStockAlerts" class="bg-white rounded-[1.75rem] shadow-sm border border-slate-200 overflow-hidden scroll-mt-24">
+                        <div class="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between">
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">Analytics &amp; Low-Stock Alerts</h2>
+                            <span id="lowStockCount" class="text-xs font-bold px-2.5 py-1 rounded-full bg-red-100 text-red-700 hidden">0 deficits</span>
+                        </div>
+                        <div id="stockAlertsList" class="p-6 space-y-3"></div>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
     
     <script src="token.js?v=1"></script>
     <script src="permissions.js?v=8"></script>
-    <script src="layout.js?v=8"></script>
-    <script src="dashboard.js"></script>
+    <script src="layout.js?v=9"></script>
+    <script src="dashboard.js?v=2"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

@@ -188,3 +188,49 @@ document.addEventListener('DOMContentLoaded', function () {
   if (typeof initializePermissions === 'function') initializePermissions();
   loadSupplierData();
 });
+
+// ==========================================
+// SUPPLIER ITEM CATALOGS — pricing index from sourcing quotes
+// ==========================================
+let catalogItems = [];
+
+async function loadCatalog() {
+  const el = $('#catalogList');
+  if (!el) return;
+  const res = await fetch('/api/v1/procurement/quotes');
+  const data = await res.json().catch(() => ({}));
+  catalogItems = Array.isArray(data.quotes) ? data.quotes : [];
+  renderCatalog();
+}
+
+function renderCatalog() {
+  const el = $('#catalogList');
+  if (!el) return;
+  const term = ($('#catalogSearch')?.value || '').toLowerCase();
+  const rows = catalogItems.filter((q) =>
+    !term || `${q.vendor} ${q.req_number} ${q.notes || ''}`.toLowerCase().includes(term));
+  if (!rows.length) {
+    el.innerHTML = '<p class="text-slate-500 text-sm text-center py-6">No catalog entries yet — approved sourcing quotes appear here.</p>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="w-full text-sm min-w-[520px]">
+      <thead><tr class="border-b border-slate-200 text-left">
+        <th class="py-2 pr-4 font-medium text-slate-600">Requisition</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">Approved Seller</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">Quoted Price</th>
+        <th class="py-2 font-medium text-slate-600">Status</th>
+      </tr></thead>
+      <tbody>${rows.map((q) => `
+        <tr class="border-b border-slate-100 hover:bg-slate-50">
+          <td class="py-2.5 pr-4 font-semibold text-slate-900">${q.req_number || '—'}</td>
+          <td class="py-2.5 pr-4 text-slate-600">${q.vendor || '—'}</td>
+          <td class="py-2.5 pr-4 text-slate-900 font-medium">₱${Number(q.quote_amount || 0).toLocaleString()}</td>
+          <td class="py-2.5"><span class="px-2 py-1 rounded-full text-xs font-semibold ${q.status === 'Accepted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${q.status}</span></td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+const catalogSearchEl = document.getElementById('catalogSearch');
+if (catalogSearchEl) catalogSearchEl.oninput = renderCatalog;
+loadCatalog();

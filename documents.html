@@ -223,6 +223,34 @@
                         <div class="text-on-surface-variant text-sm">Loading activity log...</div>
                     </div>
                 </div>
+
+                <!-- Compliance Asset Clearance (outbound → Core 3) -->
+                <div id="clearance" class="dashboard-card bg-white shadow-sm border border-slate-200 scroll-mt-24">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
+                            <span class="material-symbols-outlined text-emerald-600">verified_user</span>
+                            Compliance Asset Clearance
+                        </h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">When an employee's unreturned-asset count reaches zero, a clearance token is dispatched to Core 3 (Exit Clearance).</p>
+                    </div>
+                    <div id="clearanceList" class="p-6"></div>
+                </div>
+
+                <!-- Immutable Audit History -->
+                <div id="auditTrail" class="dashboard-card bg-white shadow-sm border border-slate-200 scroll-mt-24">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
+                        <div>
+                            <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
+                                <span class="material-symbols-outlined text-slate-600">history</span>
+                                Immutable Audit History
+                            </h2>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Append-only scan ledger — moves, assignments, collisions, and stock mutations.</p>
+                        </div>
+                        <input type="text" id="auditSearch" placeholder="Search audit log..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                    </div>
+                    <div id="auditList" class="p-6 overflow-x-auto"></div>
+                    <div id="auditPager" class="px-6 pb-6 flex items-center justify-between"></div>
+                </div>
             </div>
         </main>
     </div>
@@ -320,9 +348,9 @@
     </dialog>
 
         <script src="token.js?v=1"></script>
-        <script src="layout.js?v=8"></script>
+        <script src="layout.js?v=9"></script>
     <script src="permissions.js?v=8"></script>
-    <script src="documents.js?v=8"></script>
+    <script src="documents.js?v=9"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

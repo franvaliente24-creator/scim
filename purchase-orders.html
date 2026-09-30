@@ -214,6 +214,30 @@
                     <h2>PO Activity Log</h2>
                     <div id="poActivityLog"></div>
                 </section>
+
+                <!-- Inbound Delivery Simulation (Digital Twin) -->
+                <div id="deliverySim" class="dashboard-card bg-white shadow-sm border border-slate-200 scroll-mt-24">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
+                            <span class="material-symbols-outlined text-indigo-600">rocket_launch</span>
+                            Inbound Delivery Simulation
+                        </h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Mock supplier arrivals — an order marked arrived auto-stages serialized assets at the Receiving Dock for QR intake.</p>
+                    </div>
+                    <div id="deliverySimList" class="p-6"></div>
+                </div>
+
+                <!-- Procurement Cost Settlement (outbound → Accounts Payable) -->
+                <div id="settlement" class="dashboard-card bg-white shadow-sm border border-slate-200 scroll-mt-24">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
+                            <span class="material-symbols-outlined text-emerald-600">payments</span>
+                            Procurement Cost Settlement
+                        </h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Verified orders forwarded to Financial Management / Accounts Payable for balance payout.</p>
+                    </div>
+                    <div id="settlementList" class="p-6 overflow-x-auto"></div>
+                </div>
             </div>
         </main>
     </div>
@@ -390,9 +414,9 @@
     </dialog>
 
         <script src="token.js?v=1"></script>
-        <script src="layout.js?v=8"></script>
+        <script src="layout.js?v=9"></script>
     <script src="permissions.js?v=8"></script>
-    <script src="purchase-orders.js?v=8"></script>
+    <script src="purchase-orders.js?v=9"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

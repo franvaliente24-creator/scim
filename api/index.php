@@ -767,6 +767,33 @@ function migrate(PDO $d): void {
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         expires_at DATETIME NOT NULL
     )");
+
+    // Core 3 exit-clearance tokens (outbound stream, blueprint §3.3)
+    $d->exec("CREATE TABLE IF NOT EXISTS clearance_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_name VARCHAR(120) NOT NULL,
+        token VARCHAR(40) UNIQUE NOT NULL,
+        items_returned INT DEFAULT 0,
+        status VARCHAR(40) DEFAULT 'Issued',
+        issued_at DATETIME,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    // Outbound expense settlement stream to Accounts Payable (blueprint §3.2)
+    $d->exec("CREATE TABLE IF NOT EXISTS finance_settlements (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        po_id INT,
+        po_number VARCHAR(30),
+        vendor_id INT,
+        vendor_name VARCHAR(120),
+        amount DECIMAL(12,2),
+        verification_timestamp DATETIME,
+        status VARCHAR(40) DEFAULT 'Forwarded',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    try { $d->exec("ALTER TABLE purchase_orders ADD COLUMN arrived_at DATETIME NULL"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE scan_logs ADD COLUMN collision TINYINT(1) NOT NULL DEFAULT 0"); } catch (Exception $e) {}
     
     // Per-tab pending OTP tickets (replaces shared $_SESSION MFA state)
     $d->exec("CREATE TABLE IF NOT EXISTS otp_tickets (
@@ -819,6 +846,55 @@ function db(): PDO {
     
     migrate($d);
     return $d;
+}
+
+// ---- Blueprint helpers -----------------------------------------------------
+
+// Serialized QR format: AGENCY-ASSET-<CATEGORY>-<6-digit sequence>
+function genAssetSerial(PDO $d, string $category): string {
+    $code = strtoupper(preg_replace('/[^A-Za-z]/', '', $category));
+    $code = substr($code !== '' ? $code : 'ASSET', 0, 8);
+    $q = $d->prepare("SELECT qr_code FROM assets WHERE qr_code LIKE ? ORDER BY qr_code DESC LIMIT 1");
+    $q->execute(["AGENCY-ASSET-$code-%"]);
+    $last = $q->fetchColumn();
+    $seq = $last ? ((int)substr($last, -6)) + 1 : 1;
+    return sprintf('AGENCY-ASSET-%s-%06d', $code, $seq);
+}
+
+// Outbound stream: forward a verified PO to Accounts Payable (Financial Mgmt)
+function forwardToFinance(PDO $d, array $po): void {
+    $exists = $d->prepare('SELECT id FROM finance_settlements WHERE po_id = ? LIMIT 1');
+    $exists->execute([$po['id']]);
+    if ($exists->fetch()) return;
+    $vendorName = $po['vendor_name'] ?? $po['vendor'] ?? 'Unknown';
+    $d->prepare('INSERT INTO finance_settlements(po_id, po_number, vendor_id, vendor_name, amount, verification_timestamp, status) VALUES(?,?,?,?,?,NOW(),?)')
+      ->execute([$po['id'], $po['po_number'], $po['vendor_id'], $vendorName, (float)$po['total'], 'Forwarded to AP']);
+    $d->prepare('INSERT INTO integration_audit_log(external_system, action, entity_type, entity_id, request_data, status) VALUES(?,?,?,?,?,?)')
+      ->execute(['Financial Management', 'PO Settlement Forwarded', 'purchase_order', $po['id'],
+                 json_encode(['po_number' => $po['po_number'], 'vendor_id' => $po['vendor_id'], 'total_invoice_amount' => $po['total']]),
+                 'Success']);
+}
+
+// Outbound stream: emit a clearance token to Core 3 when an employee's
+// unreturned-asset count reaches zero (blueprint §3.3)
+function issueClearanceIfComplete(PDO $d, string $employeeName, int $returnedAssetId): void {
+    if ($employeeName === '') return;
+    $remaining = $d->prepare("SELECT COUNT(*) FROM assets WHERE external_employee_name = ? AND status = 'Deployed'");
+    $remaining->execute([$employeeName]);
+    if ((int)$remaining->fetchColumn() > 0) return;
+
+    $open = $d->prepare("SELECT id FROM clearance_tokens WHERE employee_name = ? AND status = 'Issued' AND issued_at > DATE_SUB(NOW(), INTERVAL 24 HOUR) LIMIT 1");
+    $open->execute([$employeeName]);
+    if ($open->fetch()) return; // token already issued recently
+
+    $token = 'CLR-' . strtoupper(substr(bin2hex(random_bytes(8)), 0, 12));
+    $d->prepare("INSERT INTO clearance_tokens(employee_name, token, items_returned, status, issued_at) VALUES(?,?,1,'Issued',NOW())")
+      ->execute([$employeeName, $token]);
+    $d->prepare("INSERT INTO admin_notifications(type, title, details) VALUES('clearance', 'Exit Clearance Issued', ?)")
+      ->execute(["All assets verified returned for {$employeeName}. Clearance token {$token} dispatched to Core 3 (Exit Clearance)."]);
+    $d->prepare('INSERT INTO integration_audit_log(external_system, action, entity_type, entity_id, request_data, status) VALUES(?,?,?,?,?,?)')
+      ->execute(['Core 3 - Exit Clearance', 'Clearance Token Issued', 'employee', $returnedAssetId,
+                 json_encode(['employee' => $employeeName, 'clearance_token' => $token]), 'Success']);
 }
 
 
@@ -1154,18 +1230,55 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
         }
     }
 
+    // ---- Duplicate & collision detection (blueprint §6.1) -------------------
+    // A serial scanned into a state it already occupies, or the identical
+    // action repeated sequentially, is flagged as a tracking collision and
+    // prevented from writing duplicate ledger entries.
+    if (!$autoCreated) {
+        $collision = null;
+        if (in_array($action, ['Check-Out', 'Contractor Check-Out'], true)) {
+            if ($a['status'] === 'Deployed') {
+                $collision = "Asset is already deployed — duplicate check-out blocked.";
+            } elseif ($a['status'] === 'Inbound/Receiving') {
+                $collision = "Asset is still at the receiving dock — scan it into stock first.";
+            }
+        } elseif ($action === 'Check-In' && $a['status'] !== 'Deployed') {
+            $collision = "Asset is not currently deployed — duplicate check-in blocked.";
+        } elseif (!in_array($action, ['Move to Zone', 'Asset Transfer', 'Assign to Staff'], true)) {
+            // Repeatable actions are excluded; identical sequential scans of the
+            // same serial flag a tracking collision.
+            $lq = $d->prepare('SELECT action FROM scan_logs WHERE asset_id = ? AND collision = 0 ORDER BY created_at DESC LIMIT 1');
+            $lq->execute([$a['id']]);
+            if ($lq->fetchColumn() === $action) {
+                $collision = "Duplicate scan: the previous entry for this serial was also '$action'.";
+            }
+        }
+        if ($collision) {
+            $d->prepare('INSERT INTO scan_logs(asset_id, qr_code, action, details, scanned_by, user_id, ip_address, collision) VALUES(?,?,?,?,?,?,?,1)')
+              ->execute([$a['id'], $qr, $action, 'COLLISION — ' . $collision, $u['name'], $u['id'], $_SERVER['REMOTE_ADDR'] ?? null]);
+            reply(['error' => $collision, 'collision' => true, 'asset' => $a], 409);
+        }
+    }
+
     // Apply the physical-state change implied by the scan action
     $updates = [];
     $params = [];
     $details = $action;
+    $checkInAssignee = '';
     switch ($action) {
+        case 'Inventory Intake':
+            // Placeholders staged by the delivery simulator mutate into stock.
+            $updates = ['status = ?']; $params[] = 'In Warehouse';
+            if ($zone) { $updates[] = 'location = ?'; $params[] = $zone; }
+            break;
         case 'Check-Out':
         case 'Contractor Check-Out':
             $updates = ['status = ?']; $params[] = 'Deployed';
             break;
         case 'Check-In':
-            $updates = ['status = ?']; $params[] = 'In Warehouse';
-            $updates[] = 'external_employee_name = NULL';
+            $checkInAssignee = $a['external_employee_name'] ?? '';
+            $updates = ['status = ?', 'external_employee_name = NULL']; $params[] = 'In Warehouse';
+            if ($zone) { $updates[] = 'location = ?'; $params[] = $zone; }
             break;
         case 'Assign to Staff':
             $updates = ['status = ?', 'external_employee_name = ?', 'assignment_date = CURDATE()'];
@@ -1185,12 +1298,24 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
                 $d->prepare("UPDATE purchase_orders SET status = 'Received', updated_at = NOW() WHERE id = ?")->execute([$poVerified['id']]);
                 $d->prepare("INSERT INTO po_activity(po_id, action, details) VALUES(?, ?, ?)")
                   ->execute([$poVerified['id'], 'Received', 'Shipment verified via QR scan ' . $qr . ' by ' . $u['name']]);
+                // Outbound stream → Financial Management / Accounts Payable
+                forwardToFinance($d, $poVerified);
             }
             break;
     }
     if ($updates && !$autoCreated) {
         $params[] = $qr;
         $d->prepare('UPDATE assets SET ' . implode(', ', $updates) . ' WHERE qr_code = ?')->execute($params);
+    }
+
+    // Outbound stream → Core 3: a check-in that zeroes an employee's deployed
+    // asset count issues their exit-clearance token.
+    $clearance = null;
+    if ($checkInAssignee !== '') {
+        issueClearanceIfComplete($d, $checkInAssignee, (int)$a['id']);
+        $cq = $d->prepare("SELECT token FROM clearance_tokens WHERE employee_name = ? ORDER BY id DESC LIMIT 1");
+        $cq->execute([$checkInAssignee]);
+        $clearance = $cq->fetchColumn() ?: null;
     }
 
     // Transaction + immutable compliance log
@@ -1219,7 +1344,7 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
         }
     }
 
-    reply(['ok' => true, 'asset' => $a, 'action' => $action, 'auto_created' => $autoCreated, 'auto_requisition' => $requisitionFired, 'po_verified' => $poVerified ? $poVerified['po_number'] : null]);
+    reply(['ok' => true, 'asset' => $a, 'action' => $action, 'auto_created' => $autoCreated, 'auto_requisition' => $requisitionFired, 'po_verified' => $poVerified ? $poVerified['po_number'] : null, 'clearance_token' => $clearance]);
 }
 
 // Compliance feed: the immutable scan log
@@ -1246,17 +1371,25 @@ if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) 
     auth(['Admin', 'Manager']);
     $x = body();
     $d = db();
+    $newStatus = $x['status'] ?? 'Draft';
     $d->prepare('UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?')
-      ->execute([$x['status'] ?? 'Draft', $m[1]]);
-    
+      ->execute([$newStatus, $m[1]]);
+
     // Log activity with notes
-    $actionDetails = 'Status changed to ' . ($x['status'] ?? 'Draft');
+    $actionDetails = 'Status changed to ' . $newStatus;
     if (!empty($x['notes'])) {
         $actionDetails .= '. Notes: ' . $x['notes'];
     }
     $d->prepare('INSERT INTO po_activity(po_id, action, details) VALUES(?, ?, ?)')
       ->execute([$m[1], 'Status Updated', $actionDetails]);
-    
+
+    // Outbound stream: a received/fulfilled order settles to Accounts Payable
+    if (in_array($newStatus, ['Received', 'Fulfilled'], true)) {
+        $pq = $d->prepare('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id = v.id WHERE po.id = ?');
+        $pq->execute([$m[1]]);
+        if ($po = $pq->fetch(PDO::FETCH_ASSOC)) forwardToFinance($d, $po);
+    }
+
     reply(['ok' => true]);
 }
 
@@ -2066,6 +2199,143 @@ if ($method === 'GET' && $path === '/api/v1/pos/activity') {
     $d = db();
     $activity = $d->query("SELECT pa.*, po.po_number FROM po_activity pa JOIN purchase_orders po ON pa.po_id=po.id ORDER BY pa.created_at DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
     reply(['activities' => $activity]);
+}
+
+// ==========================================================================
+// BLUEPRINT: INBOUND DELIVERY SIMULATION (Digital Twin, §4)
+// Operator simulates a supplier shipment arrival: the PO mutates to ARRIVED
+// and serialized placeholder assets are staged as 'Inbound/Receiving'.
+// ==========================================================================
+if ($method === 'POST' && preg_match('#^/api/v1/pos/(\d+)/simulate-arrival$#', $path, $m)) {
+    $u = auth(['Admin', 'Manager', 'WarehouseStaff']);
+    $d = db();
+    $pq = $d->prepare('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id = v.id WHERE po.id = ?');
+    $pq->execute([$m[1]]);
+    $po = $pq->fetch(PDO::FETCH_ASSOC);
+    if (!$po) reply(['error' => 'Purchase order not found.'], 404);
+    if ($po['status'] === 'Arrived') {
+        reply(['error' => "PO {$po['po_number']} already arrived — its assets are staged in receiving."], 409);
+    }
+    if (!in_array($po['status'], ['Sent to Vendor', 'Ordered', 'Shipped'], true)) {
+        reply(['error' => "PO {$po['po_number']} is '{$po['status']}' — simulate arrival only after the order is sent to the vendor."], 409);
+    }
+
+    // Resolve line items: prefer the normalized table, fall back to the
+    // freeform items text recorded on the PO.
+    $iq = $d->prepare('SELECT item_name, quantity, unit_price FROM purchase_order_items WHERE po_id = ?');
+    $iq->execute([$po['id']]);
+    $items = $iq->fetchAll(PDO::FETCH_ASSOC);
+    if (!$items) {
+        $decoded = json_decode((string)$po['items'], true);
+        if (is_array($decoded) && $decoded) {
+            $items = array_map(fn($it) => [
+                'item_name' => $it['item_name'] ?? $it['name'] ?? 'Ordered Item',
+                'quantity'  => max(1, (int)($it['quantity'] ?? $it['qty'] ?? 1)),
+                'unit_price'=> (float)($it['unit_price'] ?? $it['price'] ?? 0),
+            ], $decoded);
+        } else {
+            $lines = array_filter(array_map('trim', preg_split('/[\r\n,]+/', (string)$po['items'])));
+            if (!$lines) $lines = ['Ordered Items'];
+            $items = array_map(fn($ln) => ['item_name' => substr($ln, 0, 120), 'quantity' => 1, 'unit_price' => 0], $lines);
+        }
+    }
+
+    $serials = [];
+    $d->beginTransaction();
+    try {
+        $d->prepare("UPDATE purchase_orders SET status = 'Arrived', arrived_at = NOW(), updated_at = NOW() WHERE id = ?")->execute([$po['id']]);
+        foreach ($items as $it) {
+            for ($i = 0; $i < (int)$it['quantity']; $i++) {
+                $serial = genAssetSerial($d, $it['item_name']);
+                $d->prepare("INSERT INTO assets(qr_code, name, category, value, status, location) VALUES(?,?,?,?,?,'Inbound/Receiving')")
+                  ->execute([$serial, $it['item_name'], 'IT Equipment', (float)$it['unit_price'], 'Receiving Dock']);
+                $serials[] = $serial;
+            }
+        }
+        $d->prepare('INSERT INTO po_activity(po_id, action, details) VALUES(?, ?, ?)')
+          ->execute([$po['id'], 'Arrived (Simulated)', count($serials) . ' serialized assets staged at Receiving Dock by ' . $u['name']]);
+        $d->prepare('INSERT INTO integration_audit_log(external_system, action, entity_type, entity_id, request_data, status) VALUES(?,?,?,?,?,?)')
+          ->execute(['Supplier Shipment Simulator', 'Inbound Arrival', 'purchase_order', $po['id'],
+                     json_encode(['po_number' => $po['po_number'], 'serials' => $serials]), 'Success']);
+        $d->commit();
+    } catch (Exception $e) {
+        $d->rollBack();
+        reply(['error' => 'Arrival simulation failed.'], 500);
+    }
+    reply(['ok' => true, 'po_number' => $po['po_number'], 'status' => 'Arrived', 'serials' => $serials, 'count' => count($serials)]);
+}
+
+// ==========================================================================
+// BLUEPRINT: QR SERIAL BATCH GENERATION (§5.2)
+// Generates serialized placeholder assets ready for print-and-scan.
+// ==========================================================================
+if ($method === 'POST' && $path === '/api/v1/assets/generate-batch') {
+    $u = auth(['Admin', 'Manager', 'WarehouseStaff']);
+    $x = body();
+    $d = db();
+    $name = substr(trim($x['name'] ?? ''), 0, 120);
+    $category = substr(trim($x['category'] ?? 'IT Equipment'), 0, 60) ?: 'IT Equipment';
+    $qty = min(50, max(1, (int)($x['quantity'] ?? 1)));
+    if ($name === '') reply(['error' => 'Item name is required.'], 400);
+    $serials = [];
+    for ($i = 0; $i < $qty; $i++) {
+        $serial = genAssetSerial($d, $category);
+        $d->prepare("INSERT INTO assets(qr_code, name, category, value, status, location) VALUES(?,?,?,0,'Awaiting Print','Print Queue')")
+          ->execute([$serial, $name, $category]);
+        $serials[] = $serial;
+    }
+    reply(['ok' => true, 'serials' => $serials, 'count' => count($serials)], 201);
+}
+
+// ==========================================================================
+// BLUEPRINT: OUTBOUND DATA STREAM READ MODELS (§3.2, §3.3)
+// ==========================================================================
+if ($method === 'GET' && $path === '/api/v1/finance-settlements') {
+    auth(['Admin', 'Manager']);
+    reply(['items' => db()->query('SELECT * FROM finance_settlements ORDER BY created_at DESC LIMIT 50')->fetchAll(PDO::FETCH_ASSOC)]);
+}
+
+if ($method === 'GET' && $path === '/api/v1/clearances') {
+    auth(['Admin', 'Manager']);
+    $d = db();
+    $tokens = $d->query('SELECT * FROM clearance_tokens ORDER BY created_at DESC LIMIT 50')->fetchAll(PDO::FETCH_ASSOC);
+    $checklist = $d->query("SELECT external_employee_name AS employee, COUNT(*) AS unreturned,
+            GROUP_CONCAT(CONCAT(name, ' (', qr_code, ')') SEPARATOR ' | ') AS items
+            FROM assets WHERE status = 'Deployed' AND external_employee_name IS NOT NULL AND external_employee_name != ''
+            GROUP BY external_employee_name ORDER BY unreturned DESC")->fetchAll(PDO::FETCH_ASSOC);
+    reply(['tokens' => $tokens, 'checklist' => $checklist]);
+}
+
+if ($method === 'GET' && $path === '/api/v1/sync-status') {
+    auth();
+    $d = db();
+    $row = fn($sql) => $d->query($sql)->fetch(PDO::FETCH_ASSOC);
+    $c2 = $row("SELECT COUNT(*) total, SUM(status='Pending') pending, MAX(created_at) last FROM equipment_requests");
+    $c3 = $row('SELECT COUNT(*) total, MAX(issued_at) last FROM clearance_tokens');
+    $fin = $row('SELECT COUNT(*) total, MAX(created_at) last FROM finance_settlements');
+    $audit = $row('SELECT COUNT(*) total, MAX(created_at) last FROM integration_audit_log');
+    $scans = $row('SELECT COUNT(*) total, MAX(created_at) last FROM scan_logs');
+    reply(['streams' => [
+        ['system' => 'Core 2 — Employee Info (HRIS)', 'direction' => 'Inbound', 'total' => (int)$c2['total'], 'pending' => (int)$c2['pending'], 'last_activity' => $c2['last']],
+        ['system' => 'Core 3 — Exit Clearance', 'direction' => 'Outbound', 'total' => (int)$c3['total'], 'pending' => 0, 'last_activity' => $c3['last']],
+        ['system' => 'Financial Mgmt — Accounts Payable', 'direction' => 'Outbound', 'total' => (int)$fin['total'], 'pending' => 0, 'last_activity' => $fin['last']],
+        ['system' => 'BI / Data Aggregation', 'direction' => 'Outbound', 'total' => (int)$audit['total'], 'pending' => 0, 'last_activity' => $audit['last']],
+        ['system' => 'QR Scan Engine', 'direction' => 'Internal', 'total' => (int)$scans['total'], 'pending' => 0, 'last_activity' => $scans['last']],
+    ]]);
+}
+
+if ($method === 'GET' && $path === '/api/v1/stock-alerts') {
+    auth();
+    $d = db();
+    $alerts = $d->query("SELECT t.category, t.min_quantity,
+            (SELECT COUNT(*) FROM assets a WHERE a.category = t.category AND a.status = 'In Warehouse') AS on_hand
+            FROM stock_thresholds t ORDER BY on_hand / t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($alerts as &$al) {
+        $al['on_hand'] = (int)$al['on_hand'];
+        $al['min_quantity'] = (int)$al['min_quantity'];
+        $al['deficit'] = $al['on_hand'] < $al['min_quantity'];
+    }
+    reply(['items' => $alerts]);
 }
 
 // --- Equipment Requests API Endpoints ---

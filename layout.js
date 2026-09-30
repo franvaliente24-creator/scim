@@ -132,50 +132,53 @@ document.addEventListener('DOMContentLoaded', () => {
   const navContainer = document.getElementById('sidebar-subsystem-modules-nav');
   if (navContainer) {
     const page = window.location.pathname.split('/').pop();
+    // Section 2 architecture schema — parents mirror the subsystem boundaries
     const groups = [
       {
-        label: 'Smart Warehousing & QR', icon: 'warehouse', pages: ['warehousing.html'],
+        label: 'Dashboard & Data Sync', icon: 'monitoring',
         items: [
-          { label: 'Live Warehouse Dashboard', href: 'warehousing.html', icon: 'dashboard' },
-          { label: 'QR Scanner Core', href: 'warehousing.html#scan', icon: 'qr_code_scanner' },
-          { label: 'Warehouse Occupancy Grid', href: 'warehousing.html#warehouseGrid', icon: 'grid_view' },
-          { label: 'Aisle & Zone Config', href: 'warehousing.html#zones', icon: 'shelves' },
-        ],
-      },
-      { label: 'Inventory Management', icon: 'inventory', pages: ['inventory.html'],
-        items: [{ label: 'Asset Registry', href: 'inventory.html', icon: 'inventory_2' }] },
-      {
-        label: 'Procurement & Sourcing', icon: 'shopping_cart', pages: ['procurement.html'],
-        items: [
-          { label: 'Purchase Requests', href: 'procurement.html', icon: 'shopping_bag' },
-          { label: 'Sourcing & Vendor Bidding', href: 'procurement.html#quotesTable', icon: 'gavel' },
-          { label: 'Budget Allocation', href: 'procurement.html#sourcingPipeline', icon: 'account_balance' },
+          { label: 'Real-Time Metrics Overview', href: 'index.html', icon: 'dashboard' },
+          { label: 'System Sync Engine', href: 'index.html#syncEngine', icon: 'sync' },
+          { label: 'Analytics & Low-Stock Alerts', href: 'index.html#lowStockAlerts', icon: 'stacked_line_chart' },
         ],
       },
       {
-        label: 'Purchase Order Mgmt.', icon: 'receipt_long', pages: ['purchase-orders.html'],
+        label: 'Smart Warehousing & Inventory', icon: 'warehouse',
         items: [
-          { label: 'Active Purchase Orders', href: 'purchase-orders.html', icon: 'receipt' },
-          { label: 'Disbursement & Invoicing', href: 'purchase-orders.html#poPipeline', icon: 'payments' },
+          { label: 'Warehouse Layout Mapping', href: 'warehousing.html', icon: 'grid_on' },
+          { label: 'Consumable Stock Ledger', href: 'inventory.html', icon: 'inventory_2' },
+          { label: 'Asset Tracking & Assignment', href: 'equipment-requests.html', icon: 'assignment_ind' },
+          { label: 'QR Scan & Generate Portal', href: 'warehousing.html#qrPortal', icon: 'qr_code_scanner' },
         ],
       },
       {
-        label: 'Supplier/Vendor Mgmt.', icon: 'business', pages: ['suppliers.html'],
+        label: 'Procurement & Sourcing', icon: 'shopping_cart',
         items: [
-          { label: 'Vendor Directory', href: 'suppliers.html', icon: 'contacts' },
-          { label: 'Performance Ratings', href: 'suppliers.html#attentionNeeded', icon: 'star_rate' },
+          { label: 'Purchase Requisitions', href: 'procurement.html', icon: 'shopping_bag' },
+          { label: 'Purchase Orders (PO)', href: 'purchase-orders.html', icon: 'receipt_long' },
+          { label: 'Inbound Delivery Simulation', href: 'purchase-orders.html#deliverySim', icon: 'rocket_launch' },
+          { label: 'Procurement Cost Settlement', href: 'purchase-orders.html#settlement', icon: 'payments' },
         ],
       },
       {
-        label: 'Document & Logistics', icon: 'description', pages: ['documents.html'],
+        label: 'Supplier & Vendor Mgmt.', icon: 'business',
         items: [
-          { label: 'File Repositories', href: 'documents.html', icon: 'folder' },
-          { label: 'Logistics Tracking Logs', href: 'documents.html#documentActivity', icon: 'local_shipping' },
+          { label: 'Vendor Profile Directory', href: 'suppliers.html', icon: 'contacts' },
+          { label: 'Supplier Item Catalogs', href: 'suppliers.html#catalog', icon: 'list_alt' },
         ],
       },
-      { label: 'Equipment Requests', icon: 'request_quote', pages: ['equipment-requests.html'],
-        items: [{ label: 'Request Queue', href: 'equipment-requests.html', icon: 'assignment' }] },
+      {
+        label: 'Document Tracking & Records', icon: 'description',
+        items: [
+          { label: 'Live Document Tracking', href: 'documents.html', icon: 'folder_open' },
+          { label: 'Compliance Asset Clearance', href: 'documents.html#clearance', icon: 'verified_user' },
+          { label: 'Immutable Audit History', href: 'documents.html#auditTrail', icon: 'history' },
+        ],
+      },
     ];
+    groups.forEach((g) => {
+      g.pages = [...new Set(g.items.map((it) => it.href.split('#')[0]))];
+    });
 
     navContainer.innerHTML = groups.map((g, gi) => {
       const active = g.pages.includes(page);
@@ -194,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </button>
           <div class="nav-group-items pl-4 mt-1 space-y-1 ${active ? '' : 'hidden'}">
             ${g.items.map((it) => `
-              <a class="sidebar-subsystem-link nav-sub-link text-xs" href="${it.href}">
+              <a class="sidebar-subsystem-link nav-sub-link text-xs" href="${it.href}" data-base="${it.href.split('#')[0]}">
                 <span class="material-symbols-outlined text-base">${it.icon}</span><span>${it.label}</span>
               </a>`).join('')}
           </div>
@@ -213,8 +216,19 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
+    // Anchor links inherit the visibility of their base page link
+    const syncAnchorVisibility = () => {
+      navContainer.querySelectorAll('a.nav-sub-link[data-base]').forEach((link) => {
+        const base = link.getAttribute('data-base');
+        if (link.getAttribute('href') === base) return;
+        const baseLink = navContainer.querySelector(`a.nav-sub-link[href="${base}"]`);
+        if (baseLink) link.style.display = baseLink.style.display;
+      });
+    };
+
     // Hide group headers whose every link was hidden by RBAC
     window.refreshNavGroups = () => {
+      syncAnchorVisibility();
       navContainer.querySelectorAll('.nav-group').forEach((g) => {
         const links = Array.from(g.querySelectorAll('a.sidebar-subsystem-link'));
         if (links.length && links.every((l) => l.style.display === 'none')) g.style.display = 'none';

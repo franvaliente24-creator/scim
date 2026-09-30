@@ -44,11 +44,13 @@ const money = (amount) =>
 // ==========================================
 async function load() {
   try {
-    const [dash, pos, vendors, docs] = await Promise.all([
+    const [dash, pos, vendors, docs, sync, stockAlerts] = await Promise.all([
       api('dashboard'),
       api('pos'),
       api('suppliers'),
       api('documents'),
+      api('sync-status'),
+      api('stock-alerts'),
     ]);
 
     const stats = dash.stats || {};
@@ -168,6 +170,55 @@ async function load() {
           `;
         }).join('');
       }
+    }
+
+    // Render System Synchronization Engine — cross-boundary stream status
+    const syncEl = $('#syncStreams');
+    if (syncEl) {
+      const streams = Array.isArray(sync.streams) ? sync.streams : [];
+      const dirClass = { Inbound: 'bg-blue-100 text-blue-700', Outbound: 'bg-violet-100 text-violet-700', Internal: 'bg-slate-100 text-slate-600' };
+      syncEl.innerHTML = streams.map((s) => `
+        <div class="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/50">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="h-2.5 w-2.5 rounded-full ${s.last_activity ? 'bg-emerald-500' : 'bg-slate-300'} shrink-0"></span>
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-slate-800 truncate">${s.system}</p>
+              <p class="text-xs text-slate-500">${s.last_activity ? 'Last activity ' + new Date(s.last_activity).toLocaleString() : 'No traffic yet'}</p>
+            </div>
+          </div>
+          <div class="text-right shrink-0">
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${dirClass[s.direction] || dirClass.Internal}">${s.direction}</span>
+            <p class="text-xs text-slate-500 mt-1">${s.total} events${s.pending ? ` · ${s.pending} pending` : ''}</p>
+          </div>
+        </div>`).join('');
+    }
+
+    // Render Analytics & Low-Stock Alerts
+    const alertsEl = $('#stockAlertsList');
+    if (alertsEl) {
+      const items = Array.isArray(stockAlerts.items) ? stockAlerts.items : [];
+      const deficits = items.filter((i) => i.deficit);
+      const badge = $('#lowStockCount');
+      if (badge) {
+        badge.textContent = `${deficits.length} deficit${deficits.length === 1 ? '' : 's'}`;
+        badge.classList.toggle('hidden', deficits.length === 0);
+      }
+      alertsEl.innerHTML = items.length === 0
+        ? '<p class="text-slate-500 text-center py-8">No threshold categories configured</p>'
+        : items.map((i) => {
+            const pct = i.min_quantity > 0 ? Math.min(100, Math.round((i.on_hand / i.min_quantity) * 100)) : 100;
+            return `
+              <div class="p-3.5 rounded-xl border ${i.deficit ? 'border-red-200 bg-red-50/60' : 'border-slate-200 bg-slate-50/50'}">
+                <div class="flex justify-between items-center mb-2">
+                  <span class="text-sm font-semibold text-slate-800">${i.category}</span>
+                  <span class="text-xs font-bold ${i.deficit ? 'text-red-600' : 'text-slate-500'}">${i.on_hand} / ${i.min_quantity} min</span>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-2">
+                  <div class="${i.deficit ? 'bg-red-500' : 'bg-emerald-500'} h-2 rounded-full transition-all" style="width:${pct}%"></div>
+                </div>
+                ${i.deficit ? '<p class="text-[11px] text-red-600 font-medium mt-1.5">Below safety threshold — auto-requisition fires on next check-out</p>' : ''}
+              </div>`;
+          }).join('');
     }
 
     // Render Recent Activity - Show message if no data
