@@ -3,7 +3,6 @@
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('Layout.js loaded'); // Debug log
   
   // Sidebar Toggle Functionality
   const sidebarToggle = document.getElementById('desktop-sidebar-toggle');
@@ -11,7 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const sidebarBackdrop = document.getElementById('sidebar-backdrop');
   const sidebarToggleIcon = document.getElementById('sidebar-toggle-icon');
   
-  console.log('Sidebar elements:', { sidebarToggle, sidebar, sidebarBackdrop, sidebarToggleIcon }); // Debug log
   
   if (!sidebarToggle) {
     console.error('Sidebar toggle button not found');
@@ -26,7 +24,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let sidebarOpen = false;
 
   function toggleSidebar() {
-    console.log('Toggle sidebar called, current state:', sidebarOpen); // Debug log
     sidebarOpen = !sidebarOpen;
     
     if (sidebarOpen) {
@@ -66,7 +63,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // On desktop, toggle collapsed state instead of mobile behavior
   sidebarToggle.addEventListener('click', () => {
-    console.log('Sidebar toggle clicked, window width:', window.innerWidth); // Debug log
     if (window.innerWidth >= 768) {
       toggleDesktopSidebar();
     } else {
@@ -126,108 +122,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ==========================================
-  // SIDEBAR SUB-MENUS (architecture-aligned groups)
-  // Rebuilds the flat module list into collapsible groups that mirror the
-  // Business Process Architecture boundaries.
+  // SIDEBAR NAVIGATION — flat top-level modules only.
+  // Child views are reached via each hub's internal tab bar, never the sidebar.
   // ==========================================
   const navContainer = document.getElementById('sidebar-subsystem-modules-nav');
   if (navContainer) {
     const page = window.location.pathname.split('/').pop();
-    // Section 2 architecture schema — parents mirror the subsystem boundaries
-    // Section 2 architecture schema — parents mirror the subsystem boundaries
-    const groups = [
-      {
-        label: 'Dashboard & Real-Time Data Sync', icon: 'monitoring',
-        items: [
-          { label: 'Real-Time Metrics Overview', href: 'index.html', icon: 'dashboard' },
-          { label: 'System Synchronization Engine', href: 'index.html#syncEngine', icon: 'sync' },
-          { label: 'Analytics & Low-Stock Alerts', href: 'index.html#lowStockAlerts', icon: 'stacked_line_chart' },
-        ],
-      },
-      {
-        label: 'Smart Warehousing & Inventory Mgmt.', icon: 'warehouse',
-        items: [
-          { label: 'Warehouse Layout Mapping', href: 'warehousing.html', icon: 'grid_view' },
-          { label: 'Consumable Stock Ledger', href: 'inventory.html', icon: 'inventory_2' },
-          { label: 'Asset Tracking & Assignment', href: 'equipment-requests.html', icon: 'assignment_ind' },
-          { label: 'QR Code Scan & Generate Portal', href: 'warehousing.html#generate', icon: 'qr_code_scanner' },
-        ],
-      },
-      {
-        label: 'Procurement & Sourcing Logistics', icon: 'shopping_cart',
-        items: [
-          { label: 'Purchase Requisitions', href: 'procurement.html#sourcing', icon: 'shopping_bag' },
-          { label: 'Purchase Orders (PO)', href: 'procurement.html#orders', icon: 'receipt_long' },
-          { label: 'Inbound Delivery Simulation', href: 'procurement.html#receiving', icon: 'rocket_launch' },
-          { label: 'Procurement Cost Settlement', href: 'procurement.html#settlement', icon: 'payments' },
-        ],
-      },
-      {
-        label: 'Supplier & Vendor Management', icon: 'business',
-        items: [
-          { label: 'Vendor Profile Directory', href: 'suppliers.html', icon: 'contacts' },
-          { label: 'Supplier Item Catalogs', href: 'suppliers.html#catalog', icon: 'list_alt' },
-        ],
-      },
-      {
-        label: 'Document Tracking & Records', icon: 'description',
-        items: [
-          { label: 'Live Document Tracking', href: 'documents.html', icon: 'folder_open' },
-          { label: 'Compliance Asset Clearance', href: 'documents.html#clearance', icon: 'verified_user' },
-          { label: 'Immutable Audit History', href: 'documents.html#audit', icon: 'history' },
-        ],
-      },
-    ];
-    groups.forEach((g) => {
-      g.pages = [...new Set(g.items.map((it) => it.href.split('#')[0]))];
-    });
-
-    navContainer.innerHTML = groups.map((g, gi) => {
-      const active = g.pages.includes(page);
-      const single = g.items.length === 1;
-      if (single) {
-        const it = g.items[0];
-        return `<a class="sidebar-subsystem-link ${active ? 'active' : ''}" href="${it.href}">
-          <span class="material-symbols-outlined">${g.icon}</span><span>${g.label}</span></a>`;
-      }
-      return `
-        <div class="nav-group" data-open="${active ? '1' : '0'}">
-          <button type="button" class="sidebar-subsystem-link nav-group-toggle ${active ? 'active' : ''}" data-group="${gi}">
-            <span class="material-symbols-outlined">${g.icon}</span>
-            <span class="flex-1 text-left">${g.label}</span>
-            <span class="material-symbols-outlined text-sm nav-group-chevron transition-transform">${active ? 'expand_less' : 'expand_more'}</span>
-          </button>
-          <div class="nav-group-items pl-4 mt-1 space-y-1 ${active ? '' : 'hidden'}">
-            ${g.items.map((it) => `
-              <a class="sidebar-subsystem-link nav-sub-link text-xs" href="${it.href}" data-base="${it.href.split('#')[0]}">
-                <span class="material-symbols-outlined text-base">${it.icon}</span><span>${it.label}</span>
-              </a>`).join('')}
-          </div>
-        </div>`;
-    }).join('');
-
-    navContainer.querySelectorAll('.nav-group-toggle').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        // In collapsed mode, navigate to the first item instead of expanding
-        if (sidebar.classList.contains('collapsed')) {
-          const wrap = btn.closest('.nav-group');
-          const firstLink = wrap.querySelector('.nav-sub-link');
-          if (firstLink) {
-            window.location.href = firstLink.getAttribute('href');
-            return;
-          }
-        }
-        
-        // Normal expanded mode behavior
-        const wrap = btn.closest('.nav-group');
-        const items = wrap.querySelector('.nav-group-items');
-        const chev = btn.querySelector('.nav-group-chevron');
-        const open = wrap.getAttribute('data-open') === '1';
-        wrap.setAttribute('data-open', open ? '0' : '1');
-        items.classList.toggle('hidden', open);
-        chev.textContent = open ? 'expand_more' : 'expand_less';
-      });
-    });
+    // Sidebar shows top-level parent modules only — child views live inside
+    // each hub's internal tab bar. Flat links render as authored in the HTML.
 
     // Same-page tab navigation: sidebar hash links on the active hub page
     // switch internal tabs instantly instead of reloading.
@@ -245,34 +147,19 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // Anchor links inherit the visibility of their base page link
-    const syncAnchorVisibility = () => {
-      navContainer.querySelectorAll('a.nav-sub-link[data-base]').forEach((link) => {
-        const base = link.getAttribute('data-base');
-        if (link.getAttribute('href') === base) return;
-        const baseLink = navContainer.querySelector(`a.nav-sub-link[href="${base}"]`);
-        if (baseLink) link.style.display = baseLink.style.display;
-      });
-    };
+    // Retained for permissions.js compatibility — flat nav has no groups.
+    window.refreshNavGroups = () => {};
 
-    // Hide group headers whose every link was hidden by RBAC
-    window.refreshNavGroups = () => {
-      syncAnchorVisibility();
-      navContainer.querySelectorAll('.nav-group').forEach((g) => {
-        const links = Array.from(g.querySelectorAll('a.sidebar-subsystem-link'));
-        if (links.length && links.every((l) => l.style.display === 'none')) g.style.display = 'none';
-      });
-    };
 
     // Add tooltips to sidebar links in collapsed mode
     function updateSidebarTooltips() {
       const isCollapsed = sidebar.classList.contains('collapsed');
-      const links = sidebar.querySelectorAll('.sidebar-main-link, .sidebar-subsystem-link, .nav-group-toggle');
+      const links = sidebar.querySelectorAll('.sidebar-main-link, .sidebar-subsystem-link');
       
       links.forEach(link => {
         if (isCollapsed) {
           // Get the label text for tooltip
-          const labelSpan = link.querySelector('span:not(.material-symbols-outlined):not(.nav-group-chevron)');
+          const labelSpan = link.querySelector('span:not(.material-symbols-outlined)');
           const label = labelSpan ? labelSpan.textContent.trim() : link.textContent.trim();
           if (label) {
             link.setAttribute('title', label);

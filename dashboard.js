@@ -320,3 +320,5 @@ if (exportBtn) {
   };
 }
 
+
+if (window.initHubTabs) initHubTabs('overview');
