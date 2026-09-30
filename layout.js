@@ -135,16 +135,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const page = window.location.pathname.split('/').pop();
     const groups = [
       {
-        label: 'Smart Warehousing & QR', icon: 'warehouse', pages: ['warehousing.html'],
+        label: 'Smart Warehousing & QR', icon: 'warehouse', pages: ['warehousing.html', 'warehouse-dashboard.html', 'warehouse-qr.html', 'warehouse-assets.html', 'warehouse-allocation.html', 'warehouse-tracking.html', 'warehouse-low-stock.html', 'warehouse-returns.html', 'warehouse-history.html', 'warehouse-cost-reports.html', 'warehouse-warranty.html'],
         items: [
-          { label: 'Live Warehouse Dashboard', href: 'warehousing.html', icon: 'dashboard' },
-          { label: 'QR Scanner Core', href: 'warehousing.html#scan', icon: 'qr_code_scanner' },
-          { label: 'Warehouse Occupancy Grid', href: 'warehousing.html#warehouseGrid', icon: 'grid_view' },
-          { label: 'Aisle & Zone Config', href: 'warehousing.html#zones', icon: 'shelves' },
+          { label: 'Warehouse Dashboard', href: 'warehouse-dashboard.html', icon: 'dashboard' },
+          { label: 'QR Scanner', href: 'warehouse-qr.html', icon: 'qr_code_scanner' },
+          { label: 'Asset Registration', href: 'warehouse-assets.html', icon: 'inventory_2' },
+          { label: 'Asset Allocation', href: 'warehouse-allocation.html', icon: 'person_add' },
+          { label: 'Live Asset Tracking', href: 'warehouse-tracking.html', icon: 'my_location' },
+          { label: 'Low Stock Alerts', href: 'warehouse-low-stock.html', icon: 'warning' },
+          { label: 'Asset Returns', href: 'warehouse-returns.html', icon: 'keyboard_return' },
+          { label: 'Asset History', href: 'warehouse-history.html', icon: 'history' },
+          { label: 'Cost Reports', href: 'warehouse-cost-reports.html', icon: 'analytics' },
+          { label: 'Warranty Alerts', href: 'warehouse-warranty.html', icon: 'verified_user' },
         ],
       },
-      { label: 'Inventory Management', icon: 'inventory', pages: ['inventory.html'],
-        items: [{ label: 'Asset Registry', href: 'inventory.html', icon: 'inventory_2' }] },
+      {
+        label: 'Inventory Management', icon: 'inventory', pages: ['inventory.html', 'inventory-dashboard.html'],
+        items: [
+          { label: 'Inventory Dashboard', href: 'inventory-dashboard.html', icon: 'dashboard' },
+          { label: 'Asset Registry', href: 'inventory.html', icon: 'inventory_2' },
+        ],
+      },
       {
         label: 'Procurement & Sourcing', icon: 'shopping_cart', pages: ['procurement.html'],
         items: [
@@ -154,9 +165,10 @@ document.addEventListener('DOMContentLoaded', () => {
         ],
       },
       {
-        label: 'Purchase Order Mgmt.', icon: 'receipt_long', pages: ['purchase-orders.html'],
+        label: 'Purchase Order Mgmt.', icon: 'receipt_long', pages: ['purchase-orders.html', 'po-receiving.html'],
         items: [
           { label: 'Active Purchase Orders', href: 'purchase-orders.html', icon: 'receipt' },
+          { label: 'PO Receiving', href: 'po-receiving.html', icon: 'local_shipping' },
           { label: 'Disbursement & Invoicing', href: 'purchase-orders.html#poPipeline', icon: 'payments' },
         ],
       },
