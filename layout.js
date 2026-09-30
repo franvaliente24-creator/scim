@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const isCollapsed = sidebar.classList.contains('collapsed');
     sidebarToggleIcon.textContent = isCollapsed ? 'menu_open' : 'menu';
     try { sessionStorage.setItem('scim_sidebar_collapsed', isCollapsed ? '1' : '0'); } catch (e) {}
+    updateSidebarTooltips();
   }
   try {
     if (sessionStorage.getItem('scim_sidebar_collapsed') === '1' && window.innerWidth >= 768) {
@@ -202,7 +203,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }).join('');
 
     navContainer.querySelectorAll('.nav-group-toggle').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        // In collapsed mode, navigate to the first item instead of expanding
+        if (sidebar.classList.contains('collapsed')) {
+          const wrap = btn.closest('.nav-group');
+          const firstLink = wrap.querySelector('.nav-sub-link');
+          if (firstLink) {
+            window.location.href = firstLink.getAttribute('href');
+            return;
+          }
+        }
+        
+        // Normal expanded mode behavior
         const wrap = btn.closest('.nav-group');
         const items = wrap.querySelector('.nav-group-items');
         const chev = btn.querySelector('.nav-group-chevron');
@@ -220,6 +232,31 @@ document.addEventListener('DOMContentLoaded', () => {
         if (links.length && links.every((l) => l.style.display === 'none')) g.style.display = 'none';
       });
     };
+
+    // Add tooltips to sidebar links in collapsed mode
+    function updateSidebarTooltips() {
+      const isCollapsed = sidebar.classList.contains('collapsed');
+      const links = sidebar.querySelectorAll('.sidebar-main-link, .sidebar-subsystem-link, .nav-group-toggle');
+      
+      links.forEach(link => {
+        if (isCollapsed) {
+          // Get the label text for tooltip
+          const labelSpan = link.querySelector('span:not(.material-symbols-outlined):not(.nav-group-chevron)');
+          const label = labelSpan ? labelSpan.textContent.trim() : link.textContent.trim();
+          if (label) {
+            link.setAttribute('title', label);
+          }
+        } else {
+          link.removeAttribute('title');
+        }
+      });
+    }
+
+    // Initialize tooltips on load
+    updateSidebarTooltips();
+    
+    // Expose function for external calls
+    window.updateSidebarTooltips = updateSidebarTooltips;
   }
 
   // Active link highlighting based on current page
