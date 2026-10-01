@@ -57,10 +57,6 @@
                         <span class="material-symbols-outlined">description</span>
                         <span>Documents & Logistics</span>
                     </a>
-                    <a id="equipment-requests-link" class="sidebar-subsystem-link" href="equipment-requests.html">
-                        <span class="material-symbols-outlined">request_quote</span>
-                        <span>Equipment Requests</span>
-                    </a>
                 </nav>
             </div>
         </nav>
@@ -159,7 +155,7 @@
                     <button class="hub-tab-btn active" data-tab-target="sourcing"><span class="material-symbols-outlined">shopping_bag</span>Sourcing</button>
                     <button class="hub-tab-btn" data-tab-target="orders"><span class="material-symbols-outlined">receipt_long</span>Purchase Orders</button>
                     <button class="hub-tab-btn" data-tab-target="pipeline"><span class="material-symbols-outlined">account_tree</span>Lifecycle &amp; Activity</button>
-                    <button class="hub-tab-btn" data-tab-target="receiving"><span class="material-symbols-outlined">local_shipping</span>Delivery &amp; Receiving</button>
+                    <button class="hub-tab-btn" data-tab-target="receiving"><span class="material-symbols-outlined">local_shipping</span>Order Tracking</button>
                     <button class="hub-tab-btn" data-tab-target="settlement"><span class="material-symbols-outlined">payments</span>Settlements</button>
                     <button class="hub-tab-btn" data-tab-target="rfp"><span class="material-symbols-outlined">gavel</span>RFP &amp; Bids</button>
                 </nav>
@@ -295,8 +291,18 @@
                 </section>
                 </section>
 
-                <!-- Delivery & Receiving -->
+                <!-- Order Tracking & Receiving -->
                 <section class="hub-section" data-tab="receiving">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
+                            <span class="material-symbols-outlined text-primary">route</span>
+                            Inbound Order Tracking
+                        </h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Live fulfillment pipeline — each order's position from draft to received, synced from the database.</p>
+                    </div>
+                    <div id="orderTracking" class="p-6 space-y-5"></div>
+                </div>
                 <div id="deliverySim" class="dashboard-card bg-white shadow-sm border border-slate-200 scroll-mt-24">
                     <div class="px-6 py-4 border-b border-outline-variant/30">
                         <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
@@ -552,8 +558,8 @@
 
         <script src="token.js?v=1"></script>
         <script src="layout.js?v=9"></script>
-    <script src="permissions.js?v=9"></script>
-    <script src="procurement.js?v=9"></script>
+    <script src="permissions.js?v=10"></script>
+    <script src="procurement.js?v=10"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

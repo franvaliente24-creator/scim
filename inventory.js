@@ -53,86 +53,112 @@ document.addEventListener('DOMContentLoaded', async () => {
 // INVENTORY DATA LOADING
 // ==========================================
 let allAssets = [];
+const ASSET_PAGE_SIZE = 10;
+let assetPage = 0;
 
-async function loadInventoryData() {
+// Server-side search + multi-column filters (TRD §8): the query is pushed
+// to the API so large ledgers stay cheap; results paginate client-side.
+async function loadInventoryData(updateStats = true) {
   try {
-    const response = await api('inventory/assets');
-    const data = response.assets || response;
-    const assets = Array.isArray(data) ? data : [];
+    const params = new URLSearchParams();
+    const term = ($('#assetSearch')?.value || '').trim();
+    const cat = $('#categoryFilter')?.value || '';
+    const st = $('#statusFilter')?.value || '';
+    if (term) params.set('search', term);
+    if (cat) params.set('category', cat);
+    if (st) params.set('status', st);
+    const qs = params.toString();
+    const response = await api('inventory/assets' + (qs ? `?${qs}` : ''));
+    const assets = Array.isArray(response.assets) ? response.assets : [];
     allAssets = assets;
+    assetPage = 0;
 
-    // Calculate stats
-    const totalAssets = assets.length;
-    const totalValue = assets.reduce((sum, asset) => sum + Number(asset.value || 0), 0);
-    const deployedAssets = assets.filter(asset => asset.status === 'Deployed').length;
-    const warehouseAssets = assets.filter(asset => asset.status === 'In Warehouse').length;
+    if (updateStats) {
+      // Stats always reflect the unfiltered active ledger.
+      const all = term || cat || st ? (await api('inventory/assets')).assets || [] : assets;
+      const totalValue = all.reduce((s, a) => s + Number(a.value || 0) * (Number(a.quantity) || 1), 0);
+      if ($('#totalAssets')) $('#totalAssets').textContent = all.length;
+      if ($('#totalValue')) $('#totalValue').textContent = money(totalValue);
+      if ($('#deployedAssets')) $('#deployedAssets').textContent = all.filter(a => a.status === 'Deployed').length;
+      if ($('#warehouseAssets')) $('#warehouseAssets').textContent = all.filter(a => a.status === 'In Warehouse').length;
+    }
 
-    // Update stats
-    const totalAssetsEl = $('#totalAssets');
-    if (totalAssetsEl) totalAssetsEl.textContent = totalAssets;
-    
-    const totalValueEl = $('#totalValue');
-    if (totalValueEl) totalValueEl.textContent = money(totalValue);
-    
-    const deployedAssetsEl = $('#deployedAssets');
-    if (deployedAssetsEl) deployedAssetsEl.textContent = deployedAssets;
-    
-    const warehouseAssetsEl = $('#warehouseAssets');
-    if (warehouseAssetsEl) warehouseAssetsEl.textContent = warehouseAssets;
-
-    // Render asset table
     renderAssetTable(assets);
-
-    // Load recent transactions
     loadRecentTransactions();
   } catch (error) {
     console.error('Error loading inventory data:', error);
   }
 }
 
+// Taxonomy-grouped ledger: category header rows carry the product hierarchy
+// (Category ▸ items) with per-group counts and subtotal value.
 function renderAssetTable(assets) {
   const el = $('#assetTable');
+  const pager = $('#assetPager');
   if (!el) return;
   if (!assets.length) {
-    el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No assets found. Click "Add Asset" to register one.</p>';
+    el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No assets match. Register one with "Add Asset", or scan a pending serial into stock.</p>';
+    if (pager) pager.innerHTML = '';
     return;
   }
-  const tableHTML = `
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>QR Code</th>
-          <th>Asset Name</th>
-          <th>Category</th>
-          <th>Status</th>
-          <th>Value</th>
-          <th>Location</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${assets.map(asset => `
-          <tr>
-            <td><span class="tag">${escapeHTML(asset.qr_code)}</span></td>
-            <td><b>${escapeHTML(asset.name)}</b></td>
-            <td>${escapeHTML(asset.category)}</td>
-            <td><span class="tag ${getStatusClass(asset.status)}">${escapeHTML(asset.status)}</span></td>
-            <td>${money(asset.value)}</td>
-            <td>${escapeHTML(asset.location || 'N/A')}</td>
-            <td>
-              <button class="action-btn action-btn-view" type="button" data-asset-action="view" data-qr-code="${escapeHTML(asset.qr_code)}">View</button>
-              <button class="action-btn action-btn-edit" type="button" data-asset-action="edit" data-qr-code="${escapeHTML(asset.qr_code)}">Edit</button>
-              ${(typeof currentUserRole === 'undefined' || currentUserRole === 'Admin')
-                ? `<button class="action-btn action-btn-danger" type="button" data-asset-action="delete" data-qr-code="${escapeHTML(asset.qr_code)}" data-asset-name="${escapeHTML(asset.name)}">Delete</button>`
-                : ''}
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
 
-  el.innerHTML = tableHTML;
+  const totalPages = Math.max(1, Math.ceil(assets.length / ASSET_PAGE_SIZE));
+  assetPage = Math.min(Math.max(assetPage, 0), totalPages - 1);
+  const rows = assets.slice(assetPage * ASSET_PAGE_SIZE, (assetPage + 1) * ASSET_PAGE_SIZE);
+
+  const groups = {};
+  rows.forEach((a) => { const c = a.category || 'Uncategorized'; (groups[c] = groups[c] || []).push(a); });
+
+  const iconBtn = (action, icon, title, cls, extra = '') =>
+    `<button type="button" title="${title}" aria-label="${title}" class="action-btn ${cls} !px-2" data-asset-action="${action}" ${extra}><span class="material-symbols-outlined text-base">${icon}</span></button>`;
+
+  el.innerHTML = `<table class="data-table">
+    <thead><tr>
+      <th>Serial / QR</th><th>Asset Name</th><th>Qty</th><th>Status</th><th>Value</th>
+      <th>Purchased</th><th>Lifespan</th><th>Location</th><th>Actions</th>
+    </tr></thead>
+    <tbody>${Object.entries(groups).map(([cat, items]) => {
+      const subtotal = items.reduce((s, a) => s + Number(a.value || 0) * (Number(a.quantity) || 1), 0);
+      const lowFlag = items.filter(a => a.low_stock_threshold != null && Number(a.quantity) < Number(a.low_stock_threshold)).length;
+      return `<tr class="bg-slate-50/80"><td colspan="9" class="!py-2.5">
+          <span class="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+            <span class="material-symbols-outlined text-sm">folder</span>${escapeHTML(cat)}
+            <span class="font-normal normal-case">· ${items.length} asset${items.length === 1 ? '' : 's'} · ${money(subtotal)}</span>
+            ${lowFlag ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold"><span class="material-symbols-outlined text-xs">warning</span>${lowFlag} below threshold</span>` : ''}
+          </span></td></tr>` +
+        items.map((a) => {
+          const qty = Number(a.quantity ?? 1);
+          const low = a.low_stock_threshold != null && qty < Number(a.low_stock_threshold);
+          return `<tr>
+            <td><span class="tag">${escapeHTML(a.qr_code)}</span></td>
+            <td><b>${escapeHTML(a.name)}</b></td>
+            <td class="${low ? 'text-red-600 font-bold' : ''}">${qty}${a.low_stock_threshold != null ? ` <small class="text-on-surface-variant font-normal">/ min ${a.low_stock_threshold}</small>` : ''}</td>
+            <td><span class="tag ${getStatusClass(a.status)}">${escapeHTML(a.status)}</span></td>
+            <td>${money(a.value)}</td>
+            <td>${a.date_purchased ? new Date(a.date_purchased).toLocaleDateString() : '—'}</td>
+            <td>${a.lifespan_months != null ? `${a.lifespan_months} mo` : '—'}</td>
+            <td>${escapeHTML(a.location || 'N/A')}</td>
+            <td class="whitespace-nowrap">
+              ${iconBtn('view', 'visibility', 'View', 'action-btn-view', `data-qr-code="${escapeHTML(a.qr_code)}"`)}
+              ${iconBtn('edit', 'edit', 'Edit', 'action-btn-edit', `data-qr-code="${escapeHTML(a.qr_code)}"`)}
+              ${(typeof currentUserRole === 'undefined' || currentUserRole === 'Admin')
+                ? iconBtn('delete', 'delete', 'Delete', 'action-btn-danger', `data-qr-code="${escapeHTML(a.qr_code)}" data-asset-name="${escapeHTML(a.name)}"`)
+                : ''}
+            </td></tr>`;
+        }).join('');
+    }).join('')}</tbody></table>`;
+
+  if (pager) {
+    pager.innerHTML = totalPages > 1
+      ? `<span>${assets.length} asset${assets.length === 1 ? '' : 's'} · page ${assetPage + 1} of ${totalPages}</span>
+         <span class="flex gap-2">
+           <button type="button" id="assetPrev" class="px-3 py-1 rounded-lg border border-outline-variant text-xs font-semibold disabled:opacity-40" ${assetPage === 0 ? 'disabled' : ''}>‹ Prev</button>
+           <button type="button" id="assetNext" class="px-3 py-1 rounded-lg border border-outline-variant text-xs font-semibold disabled:opacity-40" ${assetPage >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
+         </span>`
+      : `<span>${assets.length} asset${assets.length === 1 ? '' : 's'}</span>`;
+    $('#assetPrev')?.addEventListener('click', () => { assetPage--; renderAssetTable(assets); });
+    $('#assetNext')?.addEventListener('click', () => { assetPage++; renderAssetTable(assets); });
+  }
 }
 
 function escapeHTML(value) {
@@ -200,6 +226,10 @@ function openAssetForm(asset = null) {
   assetForm.elements.status.value = asset?.status || 'In Warehouse';
   assetForm.elements.value.value = asset?.value ?? '';
   assetForm.elements.location.value = asset?.location || '';
+  assetForm.elements.quantity.value = asset?.quantity ?? 1;
+  assetForm.elements.low_stock_threshold.value = asset?.low_stock_threshold ?? '';
+  assetForm.elements.date_purchased.value = asset?.date_purchased || '';
+  assetForm.elements.lifespan_months.value = asset?.lifespan_months ?? '';
   assetFormError.hidden = true;
   assetFormError.textContent = '';
   showDialog(assetModal);
@@ -326,7 +356,11 @@ window.viewAsset = async (qrCode) => {
       <div><dt>Category</dt><dd>${escapeHTML(asset.category)}</dd></div>
       <div><dt>Status</dt><dd>${escapeHTML(asset.status)}</dd></div>
       <div><dt>Value</dt><dd>${escapeHTML(money(asset.value))}</dd></div>
-      <div><dt>Location</dt><dd>${escapeHTML(asset.location || 'N/A')}</dd></div>`;
+      <div><dt>Location</dt><dd>${escapeHTML(asset.location || 'N/A')}</dd></div>
+      <div><dt>Quantity</dt><dd>${escapeHTML(asset.quantity ?? 1)}</dd></div>
+      <div><dt>Low-Stock Threshold</dt><dd>${asset.low_stock_threshold ?? '—'}</dd></div>
+      <div><dt>Date Purchased</dt><dd>${asset.date_purchased ? new Date(asset.date_purchased).toLocaleDateString() : '—'}</dd></div>
+      <div><dt>Lifespan</dt><dd>${asset.lifespan_months != null ? asset.lifespan_months + ' months' : '—'}</dd></div>`;
     showDialog($('#viewAssetModal'));
   } catch (error) {
     console.error('Error viewing asset:', error);
@@ -368,21 +402,18 @@ if (viewAllTransactionsBtn) {
   };
 }
 
-// Asset search + category filter (client-side)
+// Asset search + multi-column filters (server-side, debounced)
 const assetSearchInput = $('#assetSearch');
 const assetCategoryFilter = $('#categoryFilter');
-function applyAssetFilters() {
-  const term = (assetSearchInput?.value || '').toLowerCase();
-  const cat = assetCategoryFilter?.value || '';
-  const filtered = allAssets.filter((a) => {
-    const matchesTerm = !term || `${a.qr_code} ${a.name} ${a.location}`.toLowerCase().includes(term);
-    const matchesCat = !cat || a.category === cat;
-    return matchesTerm && matchesCat;
-  });
-  renderAssetTable(filtered);
-}
+const assetStatusFilter = $('#statusFilter');
+let assetSearchTimer = null;
+const applyAssetFilters = () => {
+  clearTimeout(assetSearchTimer);
+  assetSearchTimer = setTimeout(() => loadInventoryData(false), 300);
+};
 if (assetSearchInput) assetSearchInput.oninput = applyAssetFilters;
 if (assetCategoryFilter) assetCategoryFilter.onchange = applyAssetFilters;
+if (assetStatusFilter) assetStatusFilter.onchange = applyAssetFilters;
 
 
 
@@ -401,125 +432,107 @@ function invStatusColor(s) {
 
 async function invAssets() { const r = await api('inventory/assets'); return r.assets || []; }
 
-async function loadInvDashboard() {
-  const assets = await invAssets();
-  const inbound = assets.filter(a => a.warehouse_location === 'Inbound/Receiving').length;
-  const deployed = assets.filter(a => a.status === 'Deployed').length;
-  const value = assets.filter(a => a.status !== 'Decommissioned').reduce((s, a) => s + parseFloat(a.purchase_price || 0), 0);
-  $('#invDashTotal').textContent = assets.length;
-  $('#invDashDeployed').textContent = deployed;
-  $('#invDashInbound').textContent = inbound;
-  $('#invDashValue').textContent = `₱${value.toLocaleString()}`;
-  const statuses = {};
-  assets.forEach(a => { statuses[a.status] = (statuses[a.status] || 0) + 1; });
-  const distEl = $('#invDashDist');
-  if (!assets.length) { distEl.innerHTML = '<div class="text-sm text-on-surface-variant">No assets recorded.</div>'; return; }
-  distEl.innerHTML = Object.entries(statuses).sort((a, b) => b[1] - a[1]).map(([s, n]) => `
-    <div class="flex items-center gap-4">
-      <span class="text-xs font-bold text-on-surface-variant w-40 shrink-0">${s}</span>
-      <div class="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-primary rounded-full" style="width:${Math.round(n / assets.length * 100)}%"></div></div>
-      <span class="text-sm font-bold w-10 text-right">${n}</span>
-    </div>`).join('');
-}
-
-async function loadInvSearch() {
-  const assets = await invAssets();
-  const results = $('#invSearchResults'), input = $('#invSearchInput');
-  const render = () => {
-    const q = (input.value || '').toLowerCase().trim();
-    const filtered = q ? assets.filter(a => [a.qr_code, a.name, a.category, a.location, a.assigned_to, a.status]
-      .some(v => (v || '').toLowerCase().includes(q))) : assets;
-    results.innerHTML = `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-      <th class="text-left p-4">QR Code</th><th class="text-left p-4">Name</th><th class="text-left p-4">Category</th><th class="text-left p-4">Status</th><th class="text-left p-4">Location</th><th class="text-left p-4">Assigned</th></tr></thead>
-      <tbody>${filtered.map(a => `<tr class="border-b border-slate-50 hover:bg-slate-50">
-      <td class="p-4 font-mono text-xs">${a.qr_code}</td><td class="p-4 font-medium">${a.name}</td><td class="p-4">${a.category || '—'}</td>
-      <td class="p-4"><span class="px-2 py-1 rounded text-xs font-semibold border ${invStatusColor(a.status)}">${a.status}</span></td>
-      <td class="p-4 text-on-surface-variant">${a.location || '—'}</td><td class="p-4 text-on-surface-variant">${a.assigned_to || '—'}</td></tr>`).join('') || `<tr><td colspan="6" class="p-8 text-center text-on-surface-variant">No matching assets.</td></tr>`}</tbody></table>`;
-  };
-  if (input && !input.dataset.bound) { input.dataset.bound = '1'; input.addEventListener('input', render); }
-  render();
-}
-
-async function loadQrLookup() {
-  const form = $('#qrLookupForm'), box = $('#qrLookupResult');
-  if (!form || form.dataset.bound) return;
-  form.dataset.bound = '1';
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const code = form.qr.value.trim();
-    if (!code) return;
-    box.innerHTML = '<div class="text-sm text-on-surface-variant">Looking up serial...</div>';
-    const assets = await invAssets();
-    const a = assets.find(x => x.qr_code.toLowerCase() === code.toLowerCase());
-    if (!a) { box.innerHTML = `<div class="p-5 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700 font-medium">No asset matches serial <span class="font-mono">${code}</span>.</div>`; return; }
-    box.innerHTML = `<div class="p-5 rounded-xl bg-slate-50 border border-slate-200">
-      <div class="flex items-center justify-between mb-3"><h3 class="font-bold text-on-surface">${a.name}</h3><span class="px-2 py-1 rounded text-xs font-semibold border ${invStatusColor(a.status)}">${a.status}</span></div>
-      <dl class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-        <div><dt class="text-xs text-on-surface-variant">QR Serial</dt><dd class="font-mono font-medium">${a.qr_code}</dd></div>
-        <div><dt class="text-xs text-on-surface-variant">Category</dt><dd class="font-medium">${a.category || '—'}</dd></div>
-        <div><dt class="text-xs text-on-surface-variant">Warehouse Location</dt><dd class="font-medium">${a.warehouse_location || '—'}</dd></div>
-        <div><dt class="text-xs text-on-surface-variant">Physical Location</dt><dd class="font-medium">${a.location || '—'}</dd></div>
-        <div><dt class="text-xs text-on-surface-variant">Assigned To</dt><dd class="font-medium">${a.assigned_to || '—'}</dd></div>
-        <div><dt class="text-xs text-on-surface-variant">Purchase Price</dt><dd class="font-medium">₱${parseFloat(a.purchase_price || 0).toLocaleString()}</dd></div>
-        <div><dt class="text-xs text-on-surface-variant">PO Reference</dt><dd class="font-mono">${a.po_number || '—'}</dd></div>
-      </dl></div>`;
+// Pending Stock Adjustments (TRD §3/§4): generated serials sit here —
+// excluded from the active ledger by the API — until physically scanned.
+// Each row renders its QR tag for re-printing.
+async function loadAdjustments() {
+  const res = await api('inventory/assets?pending=1');
+  const pending = res.assets || [];
+  const el = $('#adjustmentsList');
+  if (!el) return;
+  el.innerHTML = pending.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+    <th class="text-left p-4">QR Tag</th><th class="text-left p-4">Serial</th><th class="text-left p-4">Asset</th><th class="text-left p-4">Category</th><th class="text-left p-4">Generated</th></tr></thead>
+    <tbody>${pending.map(a => `<tr class="border-b border-slate-50">
+    <td class="p-4"><canvas class="pending-qr" data-serial="${escapeHTML(a.qr_code)}" width="64" height="64"></canvas></td>
+    <td class="p-4 font-mono text-xs">${escapeHTML(a.qr_code)}</td>
+    <td class="p-4 font-medium">${escapeHTML(a.name)}</td>
+    <td class="p-4 text-on-surface-variant">${escapeHTML(a.category || '—')}</td>
+    <td class="p-4 text-on-surface-variant">${a.created_at ? new Date(a.created_at).toLocaleDateString() : '—'}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending adjustments — generate serials in Smart Warehousing → Generate QR, then scan each tag at intake to commit it here.</div>';
+  el.querySelectorAll('.pending-qr').forEach((cv) => {
+    if (typeof QRious !== 'undefined') new QRious({ element: cv, value: cv.dataset.serial, size: 64 });
   });
 }
 
-async function loadAdjustments() {
-  const assets = await invAssets();
-  const pending = assets.filter(a => a.status === 'Awaiting Print' || a.warehouse_location === 'Inbound/Receiving');
-  $('#adjustmentsList').innerHTML = pending.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">QR Serial</th><th class="text-left p-4">Asset</th><th class="text-left p-4">Stage</th><th class="text-left p-4">Status</th><th class="text-left p-4">Received</th></tr></thead>
-    <tbody>${pending.map(a => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${a.qr_code}</td><td class="p-4 font-medium">${a.name}</td>
-    <td class="p-4 text-on-surface-variant">${a.warehouse_location || '—'}</td><td class="p-4"><span class="px-2 py-1 rounded text-xs font-semibold border ${invStatusColor(a.status)}">${a.status}</span></td>
-    <td class="p-4 text-on-surface-variant">${a.created_at ? new Date(a.created_at).toLocaleDateString() : '—'}</td></tr>`).join('')}</tbody></table>`
-    : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending adjustments — the inbound pipeline is clear.</div>';
+function reqStatusBadge(s) {
+  const cls = s === 'Approved' ? 'bg-emerald-100 text-emerald-700'
+    : s === 'Rejected' || s === 'Cancelled' ? 'bg-red-100 text-red-700'
+    : s === 'Ordered' || s === 'Closed' ? 'bg-blue-100 text-blue-700'
+    : 'bg-amber-100 text-amber-700';
+  return `<span class="px-2 py-1 rounded text-xs font-semibold ${cls}">${escapeHTML(s || 'Submitted')}</span>`;
 }
 
 async function loadInvRequisitions() {
+  const form = $('#invReqForm');
+  if (form && !form.dataset.bound) {
+    form.dataset.bound = '1';
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = $('#invReqFormMsg');
+      const res = await fetch('/api/v1/procurement/requisitions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.fromEntries(new FormData(form))),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { if (msg) { msg.textContent = data.error || 'Submission failed.'; msg.className = 'text-xs text-red-600 mr-auto'; } return; }
+      form.reset();
+      if (msg) { msg.textContent = `Requisition ${data.req_number} submitted for approval.`; msg.className = 'text-xs text-emerald-600 mr-auto'; }
+      loadInvRequisitions();
+    });
+  }
   const res = await api('procurement/requisitions');
   const reqs = res.requisitions || [];
   const search = $('#invReqSearch');
   const render = () => {
-    const q = (search.value || '').toLowerCase().trim();
-    const filtered = q ? reqs.filter(r => [r.req_number, r.title, r.status].some(v => (v || '').toLowerCase().includes(q))) : reqs;
-    $('#invRequisitionsTable').innerHTML = filtered.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-      <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Qty</th><th class="text-left p-4">Status</th><th class="text-left p-4">Created</th></tr></thead>
-      <tbody>${filtered.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${r.req_number}</td><td class="p-4 font-medium">${r.title}</td>
-      <td class="p-4">${r.quantity}</td><td class="p-4"><span class="px-2 py-1 rounded text-xs font-semibold ${r.status === 'Draft' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}">${r.status}</span></td>
-      <td class="p-4 text-on-surface-variant">${new Date(r.created_at).toLocaleDateString()}</td></tr>`).join('')}</tbody></table>`
+    const q = (search?.value || '').toLowerCase().trim();
+    const filtered = q ? reqs.filter(r => [r.req_number, r.title, r.status, r.department].some(v => (v || '').toLowerCase().includes(q))) : reqs;
+    const tbl = $('#invRequisitionsTable');
+    if (!tbl) return;
+    tbl.innerHTML = filtered.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+      <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Requested</th></tr></thead>
+      <tbody>${filtered.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
+      <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
+      <td class="p-4">${escapeHTML(r.priority || 'Normal')}</td><td class="p-4">${reqStatusBadge(r.status)}</td>
+      <td class="p-4 text-on-surface-variant">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td></tr>`).join('')}</tbody></table>`
       : '<div class="p-10 text-center text-on-surface-variant text-sm">No requisitions found.</div>';
   };
   if (search && !search.dataset.bound) { search.dataset.bound = '1'; search.addEventListener('input', render); }
   render();
 }
 
+// Approve / Reject controls — rendered only for Admins; the API enforces
+// the exclusive authority server-side (403 for non-Admin status changes).
 async function loadInvApprovals() {
   const res = await api('procurement/requisitions');
-  const pending = (res.requisitions || []).filter(r => r.status === 'Draft');
-  $('#invApprovalsTable').innerHTML = pending.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Qty</th><th class="text-left p-4">Requested</th><th class="text-left p-4">Action</th></tr></thead>
-    <tbody>${pending.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${r.req_number}</td><td class="p-4 font-medium">${r.title}</td><td class="p-4">${r.quantity}</td>
-    <td class="p-4 text-on-surface-variant">${new Date(r.created_at).toLocaleDateString()}</td>
-    <td class="p-4"><span class="text-xs text-on-surface-variant">Review under Procurement &amp; Sourcing</span></td></tr>`).join('')}</tbody></table>`
-    : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending approvals.</div>';
+  const pending = (res.requisitions || []).filter(r => !['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered'].includes(r.status));
+  const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
+  const el = $('#invApprovalsTable');
+  if (!el) return;
+  el.innerHTML = pending.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+    <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Requested</th><th class="text-left p-4">Action</th></tr></thead>
+    <tbody>${pending.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
+    <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
+    <td class="p-4">${escapeHTML(r.priority || 'Normal')}</td>
+    <td class="p-4 text-on-surface-variant">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
+    <td class="p-4 whitespace-nowrap">${isAdmin
+      ? `<button type="button" title="Approve" aria-label="Approve requisition" class="action-btn !px-2 text-emerald-600" data-req-action="approve" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">check_circle</span></button>
+         <button type="button" title="Reject" aria-label="Reject requisition" class="action-btn !px-2 text-red-600" data-req-action="reject" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">cancel</span></button>`
+      : '<span class="text-xs text-on-surface-variant">Admin review required</span>'}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending approvals — all requisitions have been decided.</div>';
 }
 
-async function loadReorder() {
-  const assets = await invAssets();
-  const res = await api('stock-thresholds');
-  const counts = {};
-  assets.filter(a => a.status === 'In Warehouse' || a.status === 'Deployed').forEach(a => { const c = a.category || 'General'; counts[c] = (counts[c] || 0) + 1; });
-  $('#reorderList').innerHTML = (res.thresholds || []).map(t => {
-    const c = counts[t.category] || 0;
-    const low = c < parseInt(t.min_threshold, 10);
-    return `<div class="p-5 rounded-2xl border ${low ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'} flex items-center justify-between">
-      <div><div class="font-bold text-sm ${low ? 'text-red-900' : 'text-on-surface'}">${t.category}</div>
-      <div class="text-xs ${low ? 'text-red-600' : 'text-on-surface-variant'} mt-1">${c} on hand · min ${t.min_threshold}</div></div>
-      ${low ? '<span class="material-symbols-outlined text-red-500">warning</span>' : '<span class="material-symbols-outlined text-emerald-500">check_circle</span>'}</div>`;
-  }).join('') || '<div class="col-span-full text-sm text-on-surface-variant text-center py-8">No thresholds configured.</div>';
-}
+document.addEventListener('click', async (event) => {
+  const btn = event.target.closest('[data-req-action][data-req-id]');
+  if (!btn) return;
+  const status = btn.dataset.reqAction === 'approve' ? 'Approved' : 'Rejected';
+  const res = await fetch(`/api/v1/procurement/requisitions/${encodeURIComponent(btn.dataset.reqId)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || `Unable to ${status.toLowerCase()} requisition.`); return; }
+  invLoaded.approvals = false; invLoaded.requisitions = false;
+  loadInvApprovals();
+});
 
 async function loadValuation() {
   const assets = await invAssets();
@@ -528,7 +541,7 @@ async function loadValuation() {
     const c = a.category || 'General';
     cats[c] = cats[c] || { count: 0, value: 0, deployed: 0 };
     cats[c].count++;
-    cats[c].value += parseFloat(a.purchase_price || 0);
+    cats[c].value += parseFloat(a.value || 0) * (Number(a.quantity) || 1);
     if (a.status === 'Deployed') cats[c].deployed++;
   });
   $('#valuationList').innerHTML = Object.keys(cats).length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
@@ -538,38 +551,23 @@ async function loadValuation() {
     : '<div class="text-sm text-on-surface-variant text-center py-8">No valuation data.</div>';
 }
 
-async function loadInvSync() {
-  const res = await api('integration/health');
-  $('#invSyncList').innerHTML = (res.integrations || []).map(i => `
-    <div class="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
-      <span class="material-symbols-outlined ${i.status === 'online' ? 'text-emerald-500' : 'text-slate-400'}">${i.status === 'online' ? 'sync' : 'sync_disabled'}</span>
-      <div class="flex-1 min-w-0"><div class="font-bold text-sm text-on-surface">${i.display_name || i.system_name}</div>
-      <div class="text-xs text-on-surface-variant">Last activity: ${i.last_sync ? new Date(i.last_sync).toLocaleString() : 'Never'}</div></div>
-      <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase ${i.status === 'online' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}">${i.status}</span>
-    </div>`).join('') || '<div class="text-sm text-on-surface-variant text-center py-8">No integration streams registered.</div>';
-}
-
 async function loadInvHistory() {
   const res = await api('inventory/transactions');
   $('#invHistoryList').innerHTML = (res.transactions || []).length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Timestamp</th><th class="text-left p-4">Asset</th><th class="text-left p-4">Type</th><th class="text-left p-4">Location</th><th class="text-left p-4">Notes</th></tr></thead>
+    <th class="text-left p-4">Timestamp</th><th class="text-left p-4">Asset</th><th class="text-left p-4">Transaction</th><th class="text-left p-4">Zone / Location</th></tr></thead>
     <tbody>${res.transactions.map(t => `<tr class="border-b border-slate-50"><td class="p-4 text-on-surface-variant text-xs">${new Date(t.created_at).toLocaleString()}</td>
-    <td class="p-4 font-mono text-xs">${t.asset_qr || '—'}</td><td class="p-4"><span class="px-2 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-700">${t.type}</span></td>
-    <td class="p-4 text-on-surface-variant">${t.location || '—'}</td><td class="p-4 text-on-surface-variant">${t.notes || '—'}</td></tr>`).join('')}</tbody></table>`
+    <td class="p-4"><span class="font-mono text-xs">${escapeHTML(t.qr_code || '—')}</span><div class="text-xs text-on-surface-variant">${escapeHTML(t.asset_name || '')}</div></td>
+    <td class="p-4"><span class="px-2 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-700">${escapeHTML(t.action || '—')}</span></td>
+    <td class="p-4 text-on-surface-variant">${escapeHTML(t.zone || '—')}</td></tr>`).join('')}</tbody></table>`
     : '<div class="text-sm text-on-surface-variant text-center py-8">No transaction history.</div>';
 }
 
 const invTabLoaders = {
   ledger: loadInventoryData,
-  dashboard: loadInvDashboard,
-  search: loadInvSearch,
-  qrlookup: loadQrLookup,
   adjustments: loadAdjustments,
   requisitions: loadInvRequisitions,
   approvals: loadInvApprovals,
-  reorder: loadReorder,
   valuation: loadValuation,
-  sync: loadInvSync,
   history: loadInvHistory,
 };
 

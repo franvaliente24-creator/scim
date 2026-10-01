@@ -33,6 +33,18 @@ async function loadSupplierData() {
   }
 }
 
+// TRD §6 — systematic performance tiering. Computed dynamically from the
+// three dashboard scorecard metrics (rating, on-time rate, defect rate).
+function supplierTier(s) {
+  const rating = parseFloat(s.rating) || 0;
+  const otd = parseFloat(s.on_time_rate) || 0;
+  const defect = parseFloat(s.defect_rate) || 0;
+  if (rating >= 4.5 && otd >= 95 && defect <= 2) return { label: 'Strategic', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: 'military_tech' };
+  if (rating >= 4 && otd >= 85 && defect <= 5) return { label: 'Preferred', cls: 'bg-blue-100 text-blue-700 border-blue-200', icon: 'verified' };
+  if (rating >= 3 && otd >= 75 && defect <= 10) return { label: 'Approved', cls: 'bg-slate-100 text-slate-700 border-slate-200', icon: 'check_circle' };
+  return { label: 'Probationary', cls: 'bg-amber-100 text-amber-700 border-amber-200', icon: 'warning' };
+}
+
 function renderSupplierTable(suppliers) {
   const el = $('#supplierTable');
   if (!el) return;
@@ -43,22 +55,26 @@ function renderSupplierTable(suppliers) {
   el.innerHTML = `
     <table class="data-table w-full text-sm">
       <thead>
-        <tr><th>Supplier</th><th>Category</th><th>Rating</th><th>On-Time</th><th>Defects</th><th>Contact</th><th>Actions</th></tr>
+        <tr><th>Supplier</th><th>Tier</th><th>Category</th><th>Rating</th><th>On-Time</th><th>Defects</th><th>Contact</th><th>Actions</th></tr>
       </thead>
       <tbody>
-        ${suppliers.map((s) => `
+        ${suppliers.map((s) => {
+          const t = supplierTier(s);
+          return `
           <tr>
             <td><b>${esc(s.name)}</b></td>
+            <td><span class="inline-flex items-center gap-1 px-2 py-1 rounded-full border text-[11px] font-bold ${t.cls}" title="Computed from rating, on-time %, and defect rate"><span class="material-symbols-outlined text-sm">${t.icon}</span>${t.label}</span></td>
             <td>${esc(s.category)}</td>
             <td>★ ${(parseFloat(s.rating) || 0).toFixed(1)}</td>
             <td>${esc(s.on_time_rate ?? 0)}%</td>
             <td>${esc(s.defect_rate ?? 0)}%</td>
             <td>${esc(s.email || s.phone || '—')}</td>
             <td class="whitespace-nowrap">
-              <button class="action-btn action-btn-edit" onclick="editSupplier(${s.id})">Edit</button>
-              <button class="action-btn action-btn-danger" onclick="deleteSupplier(${s.id})">Delete</button>
+              <button class="action-btn action-btn-edit !px-2" title="Edit supplier" aria-label="Edit supplier" onclick="editSupplier(${s.id})"><span class="material-symbols-outlined text-base">edit</span></button>
+              <button class="action-btn action-btn-danger !px-2" title="Delete supplier" aria-label="Delete supplier" onclick="deleteSupplier(${s.id})"><span class="material-symbols-outlined text-base">delete</span></button>
             </td>
-          </tr>`).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>`;
 }

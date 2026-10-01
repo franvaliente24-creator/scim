@@ -6,33 +6,39 @@
 const ROLES = {
   ADMIN: 'Admin',
   MANAGER: 'Manager',
-  WAREHOUSE_STAFF: 'Warehouse Staff'
+  WAREHOUSE_STAFF: 'WarehouseStaff'
 };
 
 // Permission Matrix
 const PERMISSIONS = {
   // Dashboard Permissions
-  DASHBOARD_VIEW: ['Admin', 'Manager', 'Warehouse Staff'],
+  DASHBOARD_VIEW: ['Admin', 'Manager', 'WarehouseStaff'],
   DASHBOARD_MANAGE: ['Admin', 'Manager'],
   
   // Smart Warehousing Permissions
-  WAREHOUSE_VIEW: ['Admin', 'Manager', 'Warehouse Staff'],
+  // TRD §1: Warehouse Staff get full QR/scan access; the Procurement
+  // Specialist (Manager) may view the layout but cannot physically scan.
+  WAREHOUSE_VIEW: ['Admin', 'Manager', 'WarehouseStaff'],
   WAREHOUSE_ADD_ZONE: ['Admin', 'Manager'],
   WAREHOUSE_EDIT_ZONE: ['Admin', 'Manager'],
   WAREHOUSE_DELETE_ZONE: ['Admin'],
-  WAREHOUSE_SCAN: ['Admin', 'Manager', 'Warehouse Staff'],
+  WAREHOUSE_SCAN: ['Admin', 'WarehouseStaff'],
   
   // Inventory Management Permissions
-  INVENTORY_VIEW: ['Admin', 'Manager', 'Warehouse Staff'],
-  INVENTORY_ADD_ASSET: ['Admin', 'Manager'],
-  INVENTORY_EDIT_ASSET: ['Admin', 'Manager'],
+  // TRD §1: Warehouse Staff hold read/write on asset updates & adjustments;
+  // the Procurement Specialist is read-only on stock levels.
+  INVENTORY_VIEW: ['Admin', 'Manager', 'WarehouseStaff'],
+  INVENTORY_ADD_ASSET: ['Admin', 'WarehouseStaff'],
+  INVENTORY_EDIT_ASSET: ['Admin', 'WarehouseStaff'],
   INVENTORY_DELETE_ASSET: ['Admin'],
-  INVENTORY_TRANSFER: ['Admin', 'Manager', 'Warehouse Staff'],
+  INVENTORY_TRANSFER: ['Admin', 'Manager', 'WarehouseStaff'],
   
   // Procurement Permissions
+  // TRD §1: any operational role may submit a requisition; approve/reject
+  // authority is exclusive to the System Administrator.
   PROCUREMENT_VIEW: ['Admin', 'Manager'],
-  PROCUREMENT_CREATE_REQ: ['Admin', 'Manager'],
-  PROCUREMENT_APPROVE_REQ: ['Admin', 'Manager'],
+  PROCUREMENT_CREATE_REQ: ['Admin', 'Manager', 'WarehouseStaff'],
+  PROCUREMENT_APPROVE_REQ: ['Admin'],
   PROCUREMENT_DELETE_REQ: ['Admin'],
   
   // Supplier Management Permissions
@@ -44,12 +50,13 @@ const PERMISSIONS = {
   // Purchase Order Permissions
   PO_VIEW: ['Admin', 'Manager'],
   PO_CREATE: ['Admin', 'Manager'],
-  PO_APPROVE: ['Admin', 'Manager'],
-  PO_REJECT: ['Admin', 'Manager'],
+  // TRD §1: workflow approval/rejection is exclusive to the Administrator.
+  PO_APPROVE: ['Admin'],
+  PO_REJECT: ['Admin'],
   PO_SEND_VENDOR: ['Admin', 'Manager'],
   PO_MARK_SHIPPED: ['Admin', 'Manager'],
-  PO_RECEIVE: ['Admin', 'Manager', 'Warehouse Staff'],
-  PO_QR_GENERATE: ['Admin', 'Manager', 'Warehouse Staff'],
+  PO_RECEIVE: ['Admin', 'Manager', 'WarehouseStaff'],
+  PO_QR_GENERATE: ['Admin', 'Manager', 'WarehouseStaff'],
   PO_DELETE: ['Admin'],
   
   // Document Management Permissions
@@ -310,7 +317,7 @@ function getRoleDisplayName(role) {
   const roleNames = {
     'Admin': 'Administrator',
     'Manager': 'Manager',
-    'Warehouse Staff': 'Warehouse Staff'
+    'WarehouseStaff': 'WarehouseStaff'
   };
   return roleNames[role] || role;
 }

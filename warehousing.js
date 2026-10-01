@@ -35,19 +35,6 @@ async function loadWarehouseData() {
     const criticalZones = zones.filter(z => (z.occupied / z.capacity) > 0.85).length;
     const utilizationRate = totalCapacity > 0 ? Math.round((currentOccupancy / totalCapacity) * 100) : 0;
 
-    // Update stats
-    const totalZonesEl = $('#totalZones');
-    if (totalZonesEl) totalZonesEl.textContent = zones.length;
-    
-    const totalCapacityEl = $('#totalCapacity');
-    if (totalCapacityEl) totalCapacityEl.textContent = totalCapacity;
-    
-    const totalOccupiedEl = $('#totalOccupied');
-    if (totalOccupiedEl) totalOccupiedEl.textContent = currentOccupancy;
-    
-    const recentScansEl = $('#recentScans');
-    if (recentScansEl) recentScansEl.textContent = '0'; // Will be updated separately
-
     // Render warehouse grid
     renderWarehouseGrid(zones);
 
@@ -201,16 +188,12 @@ addZoneForm?.addEventListener('submit', async (event) => {
   }
 });
 
-// Scanner is now an inline hub tab — the hero button switches to it and
-// starts the camera (the global FAB still opens the shared quick-scan modal).
-const heroScanBtn = $('#heroScanBtn');
+// Scanner is an inline hub tab — switching to it starts the camera
+// (the global FAB still opens the shared quick-scan modal).
 const openScanner = () => {
   if (typeof window.switchModuleTab === 'function') window.switchModuleTab('scanner');
   initializeCamera();
 };
-if (heroScanBtn) {
-  heroScanBtn.onclick = openScanner;
-}
 
 const closeScan = $('#closeScan');
 if (closeScan) {
@@ -649,7 +632,7 @@ async function loadReturns() {
           <td class="py-2.5 pr-4 font-mono text-xs">${a.qr_code}</td>
           <td class="py-2.5 pr-4 font-semibold text-slate-900">${a.name}</td>
           <td class="py-2.5 pr-4 text-slate-600">${a.external_employee_name || '—'}</td>
-          <td class="py-2.5"><button class="action-btn action-btn-receive" onclick="returnAsset('${a.qr_code}')">Return</button></td>
+          <td class="py-2.5"><button class="action-btn action-btn-receive !px-2" title="Mark returned" aria-label="Mark returned" onclick="returnAsset('${a.qr_code}')"><span class="material-symbols-outlined text-base">keyboard_return</span></button></td>
         </tr>`).join('')}</tbody></table>`;
 }
 window.returnAsset = async (qr) => {
@@ -730,4 +713,4 @@ document.addEventListener('hub:tab', (e) => {
   }
 });
 
-if (window.initHubTabs) initHubTabs('overview');
+if (window.initHubTabs) initHubTabs('layout');

@@ -61,10 +61,6 @@
                         <span class="material-symbols-outlined">description</span>
                         <span>Documents & Logistics</span>
                     </a>
-                    <a id="equipmentRequestsLink" class="sidebar-subsystem-link" href="equipment-requests.html">
-                        <span class="material-symbols-outlined">request_quote</span>
-                        <span>Equipment Requests</span>
-                    </a>
                 </nav>
             </div>
         </nav>
@@ -177,7 +173,25 @@
 
                 <!-- Stats Grid -->
                 <div id="stats" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"></div>
-                
+
+                <!-- Executive KPI Grid — inventory + fulfillment metrics -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                        <div class="px-6 py-4 border-b border-outline-variant/30">
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">Inventory Performance</h2>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Turnover, capital exposure, and stock health (90-day window).</p>
+                        </div>
+                        <div id="kpiInventory" class="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
+                    </div>
+                    <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                        <div class="px-6 py-4 border-b border-outline-variant/30">
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">Fulfillment &amp; Suppliers</h2>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Delivery reliability, cycle time, and vendor scorecards.</p>
+                        </div>
+                        <div id="kpiFulfillment" class="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
+                    </div>
+                </div>
+
                 <!-- Charts Section -->
                 <div class="grid grid-cols-1 lg:grid-cols-[1.8fr_1fr] gap-6">
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200">
@@ -240,9 +254,9 @@
     </div>
     
     <script src="token.js?v=1"></script>
-    <script src="permissions.js?v=9"></script>
+    <script src="permissions.js?v=10"></script>
     <script src="layout.js?v=9"></script>
-    <script src="dashboard.js?v=2"></script>
+    <script src="dashboard.js?v=10"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

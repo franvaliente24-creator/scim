@@ -256,7 +256,6 @@ function renderPOTable(purchaseOrders) {
           <th>Vendor</th>
           <th>Total</th>
           <th>Status</th>
-          <th>Created</th>
           <th>Expected Delivery</th>
           <th>Actions</th>
         </tr>
@@ -268,10 +267,9 @@ function renderPOTable(purchaseOrders) {
             <td><b>${po.vendor_name || po.vendor}</b></td>
             <td>${money(po.total)}</td>
             <td><span class="tag ${getPOStatusClass(po.status)}">${po.status}</span></td>
-            <td>${new Date(po.created_at).toLocaleDateString()}</td>
             <td>${po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString() : 'N/A'}</td>
-            <td>
-              <button class="action-btn action-btn-view" onclick="viewPO('${po.id}')">View</button>
+            <td class="whitespace-nowrap">
+              <button class="action-btn action-btn-view !px-2" title="View order" aria-label="View order" onclick="viewPO('${po.id}')"><span class="material-symbols-outlined text-base">visibility</span></button>
               ${getPOActionButtons(po)}
             </td>
           </tr>
@@ -283,30 +281,35 @@ function renderPOTable(purchaseOrders) {
   el.innerHTML = tableHTML;
 }
 
+// Icon-only workflow actions (TRD §8). Approve/reject render for Admins
+// only — the API enforces the same exclusive authority server-side.
 function getPOActionButtons(po) {
+  const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
+  const icon = (cls, glyph, title, fn) =>
+    `<button class="action-btn ${cls} !px-2" title="${title}" aria-label="${title}" onclick="${fn}"><span class="material-symbols-outlined text-base">${glyph}</span></button>`;
   const buttons = [];
-  
   switch (po.status) {
     case 'Draft':
-      buttons.push(`<button class="action-btn action-btn-primary" onclick="submitForApproval('${po.id}')">Submit</button>`);
+      buttons.push(icon('action-btn-primary', 'send', 'Submit for approval', `submitForApproval('${po.id}')`));
       break;
     case 'Pending Approval':
-      buttons.push(`<button class="action-btn action-btn-approve" onclick="approvePO('${po.id}')">Approve</button>`);
-      buttons.push(`<button class="action-btn action-btn-danger" onclick="rejectPO('${po.id}', '${po.po_number}')">Reject</button>`);
+      if (isAdmin) {
+        buttons.push(icon('action-btn-approve', 'check_circle', 'Approve order', `approvePO('${po.id}')`));
+        buttons.push(icon('action-btn-danger', 'cancel', 'Reject order', `rejectPO('${po.id}', '${po.po_number}')`));
+      }
       break;
     case 'Sent to Vendor':
-      buttons.push(`<button class="action-btn action-btn-ship" onclick="markShipped('${po.id}', '${po.po_number}')">Mark Shipped</button>`);
+      buttons.push(icon('action-btn-ship', 'local_shipping', 'Mark shipped', `markShipped('${po.id}', '${po.po_number}')`));
       break;
     case 'Shipped':
-      buttons.push(`<button class="action-btn action-btn-approve" onclick="receivePO('${po.id}', '${po.po_number}')">Receive</button>`);
+      buttons.push(icon('action-btn-approve', 'download_done', 'Receive order', `receivePO('${po.id}', '${po.po_number}')`));
       break;
     case 'Received':
-      buttons.push(`<button class="action-btn action-btn-primary" onclick="generateQRPDF('${po.id}')">QR PDF</button>`);
+      buttons.push(icon('action-btn-primary', 'picture_as_pdf', 'Generate QR PDF', `generateQRPDF('${po.id}')`));
       break;
     default:
-      buttons.push(`<button class="action-btn action-btn-edit" onclick="updatePOStatus('${po.id}', '${po.status}')">Update</button>`);
+      buttons.push(icon('action-btn-edit', 'edit', 'Update status', `updatePOStatus('${po.id}', '${po.status}')`));
   }
-  
   return buttons.join('');
 }
 
@@ -812,9 +815,49 @@ document.addEventListener("DOMContentLoaded", function() {
 // ==========================================
 const procLoaded = {};
 
+// TRD §5 — dedicated order-tracking view: each inbound PO rendered as a
+// fulfillment stepper synced from the live po status field.
+const PO_STAGES = ['Draft', 'Pending Approval', 'Sent to Vendor', 'Shipped', 'Arrived', 'Received'];
+function poStageIndex(status) {
+  if (status === 'Approved') return 2;
+  const i = PO_STAGES.indexOf(status);
+  return i === -1 ? 0 : i;
+}
+function renderOrderTracking(pos) {
+  const el = $('#orderTracking');
+  if (!el) return;
+  const open = pos.filter(p => p.status !== 'Rejected' && p.status !== 'Cancelled');
+  const rejected = pos.filter(p => p.status === 'Rejected' || p.status === 'Cancelled');
+  if (!pos.length) { el.innerHTML = '<div class="text-sm text-on-surface-variant text-center py-8">No purchase orders yet.</div>'; return; }
+  const row = (p) => {
+    const idx = poStageIndex(p.status);
+    const dead = p.status === 'Rejected' || p.status === 'Cancelled';
+    const steps = PO_STAGES.map((s, i) => {
+      const state = dead ? 'idle' : i < idx ? 'done' : i === idx ? 'current' : 'idle';
+      const dot = state === 'done' ? 'bg-emerald-500 text-white' : state === 'current' ? 'bg-primary text-white ring-4 ring-primary/20' : 'bg-slate-200 text-slate-400';
+      const lbl = state === 'idle' ? 'text-slate-400' : 'text-on-surface font-semibold';
+      return `<div class="flex flex-col items-center gap-1 min-w-0 flex-1">
+        <span class="w-6 h-6 rounded-full ${dot} flex items-center justify-center text-[10px] font-bold">${state === 'done' ? '✓' : i + 1}</span>
+        <span class="text-[10px] ${lbl} text-center leading-tight">${s}</span></div>`;
+    }).join('<div class="flex-1 h-px bg-slate-200 mt-3 shrink-0" style="min-width:8px"></div>');
+    return `<div>
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-mono text-xs font-bold text-on-surface">${p.po_number}</span>
+        <span class="text-xs text-on-surface-variant">${p.vendor || 'Unknown vendor'} · ${money(p.total || 0)}</span>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${dead ? 'bg-red-100 text-red-700' : 'bg-indigo-100 text-indigo-700'}">${p.status}</span>
+      </div>
+      <div class="flex items-start">${steps}</div>
+    </div>`;
+  };
+  el.innerHTML = open.map(row).join('') +
+    (rejected.length ? `<div class="pt-3 border-t border-slate-100"><p class="text-xs font-semibold text-on-surface-variant mb-2">Declined / Cancelled</p>${rejected.map(row).join('')}</div>` : '');
+}
+
 async function loadReceivingQueue() {
   const res = await api('pos');
-  const arrived = (res.pos || res || []).filter(p => p.status === 'Arrived');
+  const pos = res.pos || res || [];
+  renderOrderTracking(pos);
+  const arrived = pos.filter(p => p.status === 'Arrived');
   $('#receivingList').innerHTML = arrived.length ? arrived.map(p => `
     <div class="flex flex-wrap items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 mb-3">
       <span class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0"><span class="material-symbols-outlined">inventory</span></span>

@@ -44,13 +44,14 @@ const money = (amount) =>
 // ==========================================
 async function load() {
   try {
-    const [dash, pos, vendors, docs, sync, stockAlerts] = await Promise.all([
+    const [dash, pos, vendors, docs, sync, stockAlerts, kpi] = await Promise.all([
       api('dashboard'),
       api('pos'),
       api('suppliers'),
       api('documents'),
       api('sync-status'),
       api('stock-alerts'),
+      api('dashboard/metrics'),
     ]);
 
     const stats = dash.stats || {};
@@ -86,6 +87,38 @@ async function load() {
           `
         )
         .join('');
+    }
+
+    // Executive KPI grid (TRD §2) — inventory + fulfillment metrics
+    const m = kpi.metrics || {};
+    const kpiCell = (label, value, hint, warn) => `
+      <div class="p-4 rounded-xl border ${warn ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}">
+        <p class="text-[11px] font-semibold uppercase tracking-wide ${warn ? 'text-red-600' : 'text-on-surface-variant'}">${label}</p>
+        <strong class="text-xl font-headline font-bold ${warn ? 'text-red-700' : 'text-on-surface'}">${value}</strong>
+        <p class="text-[11px] ${warn ? 'text-red-500' : 'text-on-surface-variant'} mt-0.5">${hint}</p>
+      </div>`;
+    const na = '—';
+    const invEl = $('#kpiInventory');
+    if (invEl) {
+      invEl.innerHTML = [
+        ['Total Stock Value', money(m.carrying_value || 0), `${m.units_on_hand || 0} units on hand`],
+        ['Inventory Turnover', m.turnover_90d != null ? `${m.turnover_90d}×` : na, 'outbound vs. on-hand, 90d'],
+        ['Days Sales of Inv.', m.dsi_days != null ? `${m.dsi_days}d` : na, 'avg days to convert stock'],
+        ['Stockout Rate', `${m.stockout_rate ?? 0}%`, `${m.deficit_categories || 0} categories below min`, (m.stockout_rate || 0) > 0],
+        ['Threshold Alerts', m.asset_threshold_alerts || 0, 'assets under custom min', (m.asset_threshold_alerts || 0) > 0],
+        ['Dead Stock', m.dead_stock || 0, 'no movement in 90+ days', (m.dead_stock || 0) > 0],
+      ].map(([l, v, h, w]) => kpiCell(l, v, h, w)).join('');
+    }
+    const fulEl = $('#kpiFulfillment');
+    if (fulEl) {
+      fulEl.innerHTML = [
+        ['On-Time Delivery', m.on_time_delivery != null ? `${m.on_time_delivery}%` : na, 'POs received by deadline'],
+        ['Order Cycle Time', m.cycle_days != null ? `${m.cycle_days}d` : na, 'order → delivery, avg'],
+        ['Return Rate', `${m.return_rate ?? 0}%`, 'check-ins vs check-outs, 90d'],
+        ['Supplier Rating', m.supplier_rating != null ? `${m.supplier_rating}/5` : na, 'vendor scorecard average'],
+        ['Supplier OTD', m.supplier_otd != null ? `${m.supplier_otd}%` : na, 'vendor on-time average'],
+        ['Logistics Spend', money(m.logistics_value || 0), 'in-transit + received POs'],
+      ].map(([l, v, h]) => kpiCell(l, v, h, false)).join('');
     }
 
     // Render Zones - Show message if no data

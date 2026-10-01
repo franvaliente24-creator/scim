@@ -55,10 +55,6 @@
                         <span class="material-symbols-outlined">description</span>
                         <span>Documents & Logistics</span>
                     </a>
-                    <a id="equipment-requests-link" class="sidebar-subsystem-link" href="equipment-requests.html">
-                        <span class="material-symbols-outlined">request_quote</span>
-                        <span>Equipment Requests</span>
-                    </a>
                 </nav>
             </div> 
         </nav>
@@ -154,16 +150,11 @@
 
                 <!-- Module Tabs -->
                 <nav class="hub-tabs" aria-label="Inventory modules">
-                    <button class="hub-tab-btn active" data-tab-target="ledger"><span class="material-symbols-outlined">inventory_2</span>Stock Ledger</button>
-                    <button class="hub-tab-btn" data-tab-target="dashboard"><span class="material-symbols-outlined">dashboard</span>Dashboard</button>
-                    <button class="hub-tab-btn" data-tab-target="search"><span class="material-symbols-outlined">search</span>Asset Search</button>
-                    <button class="hub-tab-btn" data-tab-target="qrlookup"><span class="material-symbols-outlined">qr_code</span>QR Lookup</button>
-                    <button class="hub-tab-btn" data-tab-target="adjustments"><span class="material-symbols-outlined">tune</span>Adjustments</button>
+                    <button class="hub-tab-btn active" data-tab-target="ledger"><span class="material-symbols-outlined">inventory_2</span>Asset Inventory</button>
+                    <button class="hub-tab-btn" data-tab-target="adjustments"><span class="material-symbols-outlined">tune</span>Pending Adjustments</button>
                     <button class="hub-tab-btn" data-tab-target="requisitions"><span class="material-symbols-outlined">shopping_bag</span>Requisitions</button>
                     <button class="hub-tab-btn" data-tab-target="approvals"><span class="material-symbols-outlined">fact_check</span>Approvals</button>
-                    <button class="hub-tab-btn" data-tab-target="reorder"><span class="material-symbols-outlined">production_quantity_limits</span>Reorder Points</button>
                     <button class="hub-tab-btn" data-tab-target="valuation"><span class="material-symbols-outlined">request_quote</span>Valuation</button>
-                    <button class="hub-tab-btn" data-tab-target="sync"><span class="material-symbols-outlined">sync</span>Data Sync</button>
                     <button class="hub-tab-btn" data-tab-target="history"><span class="material-symbols-outlined">history</span>History</button>
                 </nav>
 
@@ -193,21 +184,35 @@
                     </div>
                 </div>
                 
-                <!-- Asset Search and Table -->
+                <!-- Asset Inventory — server-side search + multi-column filters -->
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Asset Inventory</h2>
-                        <div class="flex gap-3">
-                            <input type="text" id="assetSearch" placeholder="Search assets..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                        <div>
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">Asset Inventory</h2>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Active stock grouped by product taxonomy. Pending serials live under Pending Adjustments until scanned in.</p>
+                        </div>
+                        <div class="flex flex-wrap gap-3">
+                            <input type="text" id="assetSearch" placeholder="Search serial, name, location…" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                             <select id="categoryFilter" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                                 <option value="">All Categories</option>
+                                <option value="IT Equipment">IT Equipment</option>
                                 <option value="Laptop">Laptops</option>
                                 <option value="Monitor">Monitors</option>
                                 <option value="Peripheral">Peripherals</option>
+                                <option value="Office Supplies">Office Supplies</option>
+                            </select>
+                            <select id="statusFilter" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                                <option value="">All Statuses</option>
+                                <option value="In Warehouse">In Warehouse</option>
+                                <option value="Deployed">Deployed</option>
+                                <option value="In Maintenance">In Maintenance</option>
+                                <option value="Inbound/Receiving">Inbound/Receiving</option>
+                                <option value="Disposed">Disposed</option>
                             </select>
                         </div>
                     </div>
                     <div id="assetTable" class="data-table-container"></div>
+                    <div id="assetPager" class="px-6 py-3 border-t border-outline-variant/30 flex items-center justify-between text-sm text-on-surface-variant"></div>
                 </div>
                 
                 <!-- Recent Transactions -->
@@ -224,67 +229,56 @@
                 </div>
                 </section>
 
-                <!-- Inventory Dashboard -->
-                <section class="hub-section" data-tab="dashboard">
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6"><p class="text-on-surface-variant text-sm mb-2">Total Assets</p><strong class="text-2xl font-headline font-bold text-on-surface" id="invDashTotal">0</strong></div>
-                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6"><p class="text-on-surface-variant text-sm mb-2">Deployed</p><strong class="text-2xl font-headline font-bold text-on-surface" id="invDashDeployed">0</strong></div>
-                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6"><p class="text-on-surface-variant text-sm mb-2">Inbound Pipeline</p><strong class="text-2xl font-headline font-bold text-on-surface" id="invDashInbound">0</strong></div>
-                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6"><p class="text-on-surface-variant text-sm mb-2">Stock Value</p><strong class="text-2xl font-headline font-bold text-on-surface" id="invDashValue">₱0</strong></div>
-                </div>
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30"><h2 class="text-lg font-headline font-semibold text-on-surface">Status Distribution</h2></div>
-                    <div id="invDashDist" class="p-6 space-y-4"></div>
-                </div>
-                </section>
-
-                <!-- Asset Search -->
-                <section class="hub-section" data-tab="search">
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Asset Search</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Search across serials, names, categories, locations, and assignees.</p>
-                    </div>
-                    <div class="p-6 border-b border-slate-100">
-                        <input type="text" id="invSearchInput" placeholder="Type to search all asset fields..." class="w-full px-4 py-3 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-                    </div>
-                    <div id="invSearchResults" class="data-table-container"></div>
-                </div>
-                </section>
-
-                <!-- QR Lookup -->
-                <section class="hub-section" data-tab="qrlookup">
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2"><span class="material-symbols-outlined text-indigo-600">qr_code</span>QR Serial Lookup</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Enter or scan a serialized QR tag to pull the asset's full record.</p>
-                    </div>
-                    <div class="p-6">
-                        <form id="qrLookupForm" class="flex flex-col sm:flex-row gap-3 mb-6">
-                            <input name="qr" required placeholder="AGENCY-ASSET-LAPTOP-000001" class="flex-1 px-4 py-3 border border-outline-variant rounded-xl text-sm font-mono focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-                            <button type="submit" class="btn-primary m-0 flex items-center gap-2"><span class="material-symbols-outlined">search</span>Lookup</button>
-                        </form>
-                        <div id="qrLookupResult"></div>
-                    </div>
-                </div>
-                </section>
-
                 <!-- Stock Adjustments -->
                 <section class="hub-section" data-tab="adjustments">
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30">
                         <h2 class="text-lg font-headline font-semibold text-on-surface">Pending Stock Adjustments</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Serialized placeholders awaiting intake scans — scan each tag to move it into stock.</p>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Serials generated in the QR Portal stay here — invisible to active inventory — until each physical tag is scanned at intake.</p>
                     </div>
                     <div id="adjustmentsList" class="data-table-container"></div>
                 </div>
                 </section>
 
-                <!-- Purchase Requisitions -->
+                <!-- Purchase Requisitions — the exclusive asset-allocation workflow -->
                 <section class="hub-section" data-tab="requisitions">
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Submit Requisition</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">All asset allocation and purchase requests route through this workflow. An Administrator approves or rejects each request under the Approvals tab.</p>
+                    </div>
+                    <form id="invReqForm" class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-slate-100">
+                        <label class="text-xs font-semibold text-on-surface-variant">Request Title
+                            <input name="title" required placeholder="e.g. 5x laptops for new hires" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
+                        </label>
+                        <label class="text-xs font-semibold text-on-surface-variant">Department
+                            <input name="department" required placeholder="e.g. Operations" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
+                        </label>
+                        <label class="text-xs font-semibold text-on-surface-variant md:col-span-2">Description / Justification
+                            <textarea name="description" rows="2" placeholder="Items needed and business justification" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary"></textarea>
+                        </label>
+                        <label class="text-xs font-semibold text-on-surface-variant">Estimated Cost (₱)
+                            <input name="estimated_cost" type="number" min="0" step="0.01" placeholder="0.00" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
+                        </label>
+                        <div class="grid grid-cols-2 gap-4">
+                            <label class="text-xs font-semibold text-on-surface-variant">Priority
+                                <select name="priority" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
+                                    <option value="Low">Low</option><option value="Normal" selected>Normal</option><option value="High">High</option><option value="Urgent">Urgent</option>
+                                </select>
+                            </label>
+                            <label class="text-xs font-semibold text-on-surface-variant">Needed By
+                                <input name="needed_by" type="date" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
+                            </label>
+                        </div>
+                        <div class="md:col-span-2 flex items-center justify-end gap-3">
+                            <p id="invReqFormMsg" class="text-xs text-on-surface-variant mr-auto"></p>
+                            <button type="submit" class="btn-primary m-0 flex items-center gap-2"><span class="material-symbols-outlined">send</span>Submit for Approval</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Inventory Purchase Requisitions</h2>
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Requisition History</h2>
                         <input type="text" id="invReqSearch" placeholder="Search requisitions..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                     </div>
                     <div id="invRequisitionsTable" class="data-table-container"></div>
@@ -302,17 +296,6 @@
                 </div>
                 </section>
 
-                <!-- Reorder Points -->
-                <section class="hub-section" data-tab="reorder">
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Reorder Point Configuration</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Minimum safety thresholds that trigger automatic requisitions on check-out.</p>
-                    </div>
-                    <div id="reorderList" class="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
-                </div>
-                </section>
-
                 <!-- Valuation Report -->
                 <section class="hub-section" data-tab="valuation">
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
@@ -321,17 +304,6 @@
                         <p class="text-xs text-on-surface-variant mt-0.5">Asset value grouped by category and lifecycle status.</p>
                     </div>
                     <div id="valuationList" class="p-6 overflow-x-auto"></div>
-                </div>
-                </section>
-
-                <!-- Data Synchronization -->
-                <section class="hub-section" data-tab="sync">
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Subsystem Synchronization</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Live status of cross-boundary data streams.</p>
-                    </div>
-                    <div id="invSyncList" class="p-6 space-y-3"></div>
                 </div>
                 </section>
 
@@ -375,6 +347,18 @@
                 <label>Location
                     <input name="location" placeholder="Warehouse A">
                 </label>
+                <label>Quantity
+                    <input name="quantity" type="number" min="1" step="1" placeholder="1">
+                </label>
+                <label>Low-Stock Threshold
+                    <input name="low_stock_threshold" type="number" min="0" step="1" placeholder="Alert when qty falls below">
+                </label>
+                <label>Date Purchased
+                    <input name="date_purchased" type="date">
+                </label>
+                <label>Lifespan (months)
+                    <input name="lifespan_months" type="number" min="0" step="1" placeholder="e.g. 36">
+                </label>
                 <p id="assetFormError" role="alert" hidden></p>
                 <button id="saveAssetButton" type="submit">Save Asset</button>
             </form>
@@ -389,10 +373,11 @@
         </div>
     </dialog>
     
+    <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
     <script src="token.js?v=1"></script>
-    <script src="permissions.js?v=9"></script>
+    <script src="permissions.js?v=10"></script>
     <script src="layout.js?v=9"></script>
-    <script src="inventory.js?v=9"></script>
+    <script src="inventory.js?v=10"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

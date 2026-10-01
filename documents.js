@@ -59,8 +59,8 @@ function renderDocumentTable(documents) {
             <td>${doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '—'}</td>
             <td>${doc.due_date ? new Date(doc.due_date).toLocaleDateString() : '—'}</td>
             <td class="whitespace-nowrap">
-              <button class="action-btn action-btn-view" onclick="viewDocument(${doc.id})">View</button>
-              <button class="action-btn action-btn-edit" onclick="updateDocStatus(${doc.id}, '${esc(doc.status)}')">Update</button>
+              <button class="action-btn action-btn-view !px-2" title="View document" aria-label="View document" onclick="viewDocument(${doc.id})"><span class="material-symbols-outlined text-base">visibility</span></button>
+              <button class="action-btn action-btn-edit !px-2" title="Update status" aria-label="Update status" onclick="updateDocStatus(${doc.id}, '${esc(doc.status)}')"><span class="material-symbols-outlined text-base">edit</span></button>
               <button class="action-btn action-btn-ship" title="Download record" onclick="downloadDocument(${doc.id})"><span class="material-symbols-outlined text-sm align-middle">download</span></button>
             </td>
           </tr>`).join('')}

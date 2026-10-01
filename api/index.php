@@ -651,6 +651,20 @@ function migrate(PDO $d): void {
     } catch (Exception $e) {
         // Column might already exist
     }
+    // TRD §4 schema: consumable quantity, custom low-stock threshold,
+    // acquisition date, and usable lifespan (months) per asset record
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN quantity INT NOT NULL DEFAULT 1");
+    } catch (Exception $e) {}
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN low_stock_threshold INT NULL");
+    } catch (Exception $e) {}
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN date_purchased DATE NULL");
+    } catch (Exception $e) {}
+    try {
+        $d->exec("ALTER TABLE assets ADD COLUMN lifespan_months INT NULL");
+    } catch (Exception $e) {}
     
     try {
         $d->exec("ALTER TABLE purchase_orders ADD COLUMN budget_code VARCHAR(40)");
@@ -1086,6 +1100,61 @@ if ($method === 'GET' && $path === '/api/v1/dashboard') {
     reply(compact('stats', 'zones', 'scans'));
 }
 
+// TRD §2 — executive KPI metrics (inventory + supply chain / fulfillment)
+if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
+    auth();
+    $d = db();
+
+    // Inventory side
+    $inv = $d->query("SELECT COALESCE(SUM(value*quantity),0) carrying_value, COALESCE(SUM(quantity),0) units_on_hand
+                      FROM assets WHERE status='In Warehouse'")->fetch(PDO::FETCH_ASSOC);
+    $outbound90 = (int)$d->query("SELECT COUNT(*) FROM asset_transactions WHERE action LIKE 'Check-Out%' AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)")->fetchColumn();
+    $inbound90  = (int)$d->query("SELECT COUNT(*) FROM asset_transactions WHERE action LIKE 'Check-In%' AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)")->fetchColumn();
+    $unitsOnHand = max(1, (int)$inv['units_on_hand']);
+    $turnover = round($outbound90 / $unitsOnHand, 2);
+    $dsi = $outbound90 > 0 ? round($unitsOnHand / ($outbound90 / 90)) : null;
+    $dead = (int)$d->query("SELECT COUNT(*) FROM assets a WHERE a.status='In Warehouse' AND a.created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
+                            AND NOT EXISTS (SELECT 1 FROM asset_transactions t WHERE t.asset_id=a.id AND t.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY))")->fetchColumn();
+    // Category-level deficits vs thresholds
+    $stockouts = $d->query("SELECT t.category, t.min_quantity, COALESCE(SUM(a.quantity),0) on_hand
+                            FROM stock_thresholds t LEFT JOIN assets a ON a.category=t.category AND a.status='In Warehouse'
+                            GROUP BY t.category, t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
+    $belowThresh = 0;
+    foreach ($stockouts as $s) { if ((int)$s['on_hand'] < (int)$s['min_quantity']) $belowThresh++; }
+    $stockoutRate = count($stockouts) ? round($belowThresh / count($stockouts) * 100) : 0;
+    // Per-asset custom threshold breaches
+    $assetAlerts = (int)$d->query("SELECT COUNT(*) FROM assets WHERE status='In Warehouse' AND low_stock_threshold IS NOT NULL AND quantity < low_stock_threshold")->fetchColumn();
+
+    // Fulfillment side — PO lifecycle timing from the activity ledger
+    $ful = $d->query("SELECT COUNT(*) total_received,
+                      SUM(pa.created_at <= po.expected_delivery) on_time,
+                      AVG(DATEDIFF(pa.created_at, po.created_at)) cycle_days
+                      FROM purchase_orders po JOIN po_activity pa ON pa.po_id=po.id AND pa.action='Received'")->fetch(PDO::FETCH_ASSOC);
+    $otd = ((int)$ful['total_received']) ? round($ful['on_time'] / $ful['total_received'] * 100) : null;
+    $cycle = $ful['cycle_days'] !== null ? round($ful['cycle_days'], 1) : null;
+    $returnRate = $outbound90 > 0 ? round($inbound90 / $outbound90 * 100) : 0;
+    $sup = $d->query("SELECT ROUND(AVG(rating),1) avg_rating, ROUND(AVG(on_time_rate)) avg_otd, ROUND(AVG(defect_rate),1) avg_defect FROM vendors")->fetch(PDO::FETCH_ASSOC);
+    $logistics = (float)$d->query("SELECT COALESCE(SUM(total),0) FROM purchase_orders WHERE status IN ('Shipped','Arrived','Received')")->fetchColumn();
+
+    reply(['metrics' => [
+        'carrying_value'   => (float)$inv['carrying_value'],
+        'units_on_hand'    => (int)$inv['units_on_hand'],
+        'turnover_90d'     => $turnover,
+        'dsi_days'         => $dsi,
+        'stockout_rate'    => $stockoutRate,
+        'deficit_categories' => $belowThresh,
+        'asset_threshold_alerts' => $assetAlerts,
+        'dead_stock'       => $dead,
+        'on_time_delivery' => $otd,
+        'cycle_days'       => $cycle,
+        'return_rate'      => $returnRate,
+        'supplier_rating'  => $sup['avg_rating'] !== null ? (float)$sup['avg_rating'] : null,
+        'supplier_otd'     => $sup['avg_otd'] !== null ? (int)$sup['avg_otd'] : null,
+        'supplier_defect'  => $sup['avg_defect'] !== null ? (float)$sup['avg_defect'] : null,
+        'logistics_value'  => $logistics,
+    ]]);
+}
+
 // --- Assets Endpoints ---
 if ($method === 'GET' && $path === '/api/v1/assets') {
     auth();
@@ -1093,10 +1162,12 @@ if ($method === 'GET' && $path === '/api/v1/assets') {
 }
 
 if ($method === 'POST' && $path === '/api/v1/assets') {
-    auth(['Admin', 'Manager']);
+    auth(['Admin', 'WarehouseStaff']);
     $x = body();
-    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location) VALUES(?, ?, ?, ?, ?, ?)');
-    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location']]);
+    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'],
+        (int)($x['quantity'] ?? 1) ?: 1, $x['low_stock_threshold'] !== '' && $x['low_stock_threshold'] !== null ? (int)$x['low_stock_threshold'] : null,
+        $x['date_purchased'] ?: null, $x['lifespan_months'] !== '' && $x['lifespan_months'] !== null ? (int)$x['lifespan_months'] : null]);
     reply(['id' => db()->lastInsertId()], 201);
 }
 
@@ -1165,7 +1236,7 @@ if ($method === 'DELETE' && preg_match('#^/api/v1/assets/([^/]+)$#', $path, $m))
 }
 
 if ($method === 'POST' && $path === '/api/v1/assets/scan') {
-    $u = auth();
+    $u = auth(['Admin', 'WarehouseStaff']);
     $x = body();
     $d = db();
     $qr = trim($x['qr_code'] ?? '');
@@ -1368,10 +1439,18 @@ if ($method === 'GET' && $path === '/api/v1/pos/pending') {
 }
 
 if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) {
-    auth(['Admin', 'Manager']);
+    $u = auth(['Admin', 'Manager', 'WarehouseStaff']);
     $x = body();
     $d = db();
     $newStatus = $x['status'] ?? 'Draft';
+    // TRD §1: approve/reject authority over sourcing workflows is Admin-exclusive.
+    if (in_array($newStatus, ['Approved', 'Rejected'], true) && $u['role'] !== 'Admin') {
+        reply(['error' => 'Only a System Administrator may approve or reject purchase orders.'], 403);
+    }
+    // Warehouse Staff may only advance inbound logistics states.
+    if ($u['role'] === 'WarehouseStaff' && !in_array($newStatus, ['Shipped', 'Arrived', 'Received'], true)) {
+        reply(['error' => 'Warehouse Staff may only update inbound delivery statuses.'], 403);
+    }
     $d->prepare('UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?')
       ->execute([$newStatus, $m[1]]);
 
@@ -1840,15 +1919,35 @@ if ($method === 'GET' && $path === '/api/v1/warehouse/scans') {
 if ($method === 'GET' && $path === '/api/v1/inventory/assets') {
     auth();
     $d = db();
-    $assets = $d->query('SELECT * FROM assets ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
-    reply(['assets' => $assets]);
+    // TRD §3/§4: generated-but-unscanned serials stay in a pending state
+    // (Awaiting Print / Print Queue) and must NOT populate the active
+    // Asset Inventory until physically scanned in. They are exposed only
+    // through ?pending=1 for the Pending Stock Adjustments queue.
+    $pending = isset($_GET['pending']) && $_GET['pending'] === '1';
+    $search = trim((string)($_GET['search'] ?? ''));
+    $where = $pending ? "status = 'Awaiting Print'" : "status <> 'Awaiting Print'";
+    $params = [];
+    if ($search !== '') {
+        $where .= ' AND (name LIKE ? OR qr_code LIKE ? OR category LIKE ? OR location LIKE ? OR status LIKE ?)';
+        $like = "%$search%";
+        $params = [$like, $like, $like, $like, $like];
+    }
+    $cat = trim((string)($_GET['category'] ?? ''));
+    if ($cat !== '') { $where .= ' AND category = ?'; $params[] = $cat; }
+    $st = trim((string)($_GET['status'] ?? ''));
+    if ($st !== '') { $where .= ' AND status = ?'; $params[] = $st; }
+    $q = $d->prepare("SELECT * FROM assets WHERE $where ORDER BY created_at DESC");
+    $q->execute($params);
+    reply(['assets' => $q->fetchAll(PDO::FETCH_ASSOC)]);
 }
 
 if ($method === 'POST' && $path === '/api/v1/inventory/assets') {
-    auth(['Admin', 'Manager']);
+    auth(['Admin', 'WarehouseStaff']);
     $x = body();
-    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location) VALUES(?,?,?,?,?,?)');
-    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location']]);
+    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months) VALUES(?,?,?,?,?,?,?,?,?,?)');
+    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'],
+        (int)($x['quantity'] ?? 1) ?: 1, $x['low_stock_threshold'] !== '' && $x['low_stock_threshold'] !== null ? (int)$x['low_stock_threshold'] : null,
+        $x['date_purchased'] ?: null, $x['lifespan_months'] !== '' && $x['lifespan_months'] !== null ? (int)$x['lifespan_months'] : null]);
     reply(['id' => db()->lastInsertId()], 201);
 }
 
@@ -1861,7 +1960,8 @@ if ($method === 'GET' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
 }
 
 if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $path, $m)) {
-    auth(['Admin', 'Manager']);
+    // TRD §1: procurement specialists are read-only on stock levels.
+    auth(['Admin', 'WarehouseStaff']);
     $x = body();
     $d = db();
 
@@ -1903,6 +2003,22 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
     if (array_key_exists('location', $x)) {
         $updateFields[] = 'location = ?';
         $params[] = $x['location'];
+    }
+    if (array_key_exists('quantity', $x)) {
+        $updateFields[] = 'quantity = ?';
+        $params[] = max(1, (int)$x['quantity']);
+    }
+    if (array_key_exists('low_stock_threshold', $x)) {
+        $updateFields[] = 'low_stock_threshold = ?';
+        $params[] = $x['low_stock_threshold'] === null || $x['low_stock_threshold'] === '' ? null : (int)$x['low_stock_threshold'];
+    }
+    if (array_key_exists('date_purchased', $x)) {
+        $updateFields[] = 'date_purchased = ?';
+        $params[] = $x['date_purchased'] ?: null;
+    }
+    if (array_key_exists('lifespan_months', $x)) {
+        $updateFields[] = 'lifespan_months = ?';
+        $params[] = $x['lifespan_months'] === null || $x['lifespan_months'] === '' ? null : (int)$x['lifespan_months'];
     }
     
     if (empty($updateFields)) {
@@ -1950,10 +2066,10 @@ if ($method === 'GET' && $path === '/api/v1/procurement/requisitions') {
 }
 
 if ($method === 'POST' && $path === '/api/v1/procurement/requisitions') {
-    auth(['Admin', 'Manager']);
+    // Any operational role may *submit* a requisition; only Admin can approve.
+    $u = auth(['Admin', 'Manager', 'WarehouseStaff']);
     $x = body();
     $d = db();
-    $u = auth();
     $req_count = (int)$d->query("SELECT COUNT(*)+1 FROM requisitions WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
     $req_number='REQ-'.date('Y').'-'.str_pad((string)$req_count,3,'0',STR_PAD_LEFT);    $q = $d->prepare('INSERT INTO requisitions(req_number, title, department, description, estimated_cost, priority, needed_by, created_by) VALUES(?,?,?,?,?,?,?,?)');
     $q->execute([$req_number, $x['title'], $x['department'], $x['description'], $x['estimated_cost'], $x['priority'], $x['needed_by'], $u['id']]);
@@ -1970,9 +2086,20 @@ if ($method === 'GET' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$
 }
 
 if ($method === 'PUT' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$#', $path, $m)) {
-    auth(['Admin', 'Manager']);
+    $u = auth(['Admin', 'Manager']);
     $x = body();
     $d = db();
+
+    // TRD §1: approve/reject authority is exclusive to System Administrators.
+    if (isset($x['status'])) {
+        $allowedStatuses = ['Submitted', 'Pending', 'Approved', 'Rejected', 'Ordered', 'Closed', 'Cancelled'];
+        if (!in_array($x['status'], $allowedStatuses, true)) {
+            reply(['error' => 'Invalid requisition status.'], 400);
+        }
+        if (in_array($x['status'], ['Approved', 'Rejected'], true) && $u['role'] !== 'Admin') {
+            reply(['error' => 'Only a System Administrator may approve or reject requisitions.'], 403);
+        }
+    }
 
     $lookup = $d->prepare('SELECT id FROM requisitions WHERE req_number = ? OR id = ? LIMIT 1');
     $lookup->execute([$m[1], $m[1]]);
@@ -2013,6 +2140,13 @@ if ($method === 'PUT' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$
 
     $params[] = $req['id'];
     $d->prepare('UPDATE requisitions SET ' . implode(', ', $updateFields) . ' WHERE id = ?')->execute($params);
+
+    // TRD §4 audit trail: requisition lifecycle events are immutable log rows
+    if (isset($x['status'])) {
+        $d->prepare('INSERT INTO integration_audit_log(external_system, action, entity_type, entity_id, request_data, status) VALUES(?,?,?,?,?,?)')
+          ->execute(['SCIM', 'Requisition ' . $x['status'], 'requisition', $req['id'],
+                     json_encode(['req_number' => $m[1], 'new_status' => $x['status'], 'actor' => $u['name'] ?? $u['id']]), 'Success']);
+    }
 
     reply(['ok' => true]);
 }
@@ -2270,7 +2404,7 @@ if ($method === 'POST' && preg_match('#^/api/v1/pos/(\d+)/simulate-arrival$#', $
 // Generates serialized placeholder assets ready for print-and-scan.
 // ==========================================================================
 if ($method === 'POST' && $path === '/api/v1/assets/generate-batch') {
-    $u = auth(['Admin', 'Manager', 'WarehouseStaff']);
+    $u = auth(['Admin', 'WarehouseStaff']);
     $x = body();
     $d = db();
     $name = substr(trim($x['name'] ?? ''), 0, 120);
