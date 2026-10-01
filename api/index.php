@@ -2027,7 +2027,7 @@ if ($method === 'POST' && $path === '/api/v1/inventory/assets') {
     $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'],
         (int)($x['quantity'] ?? 1) ?: 1, $x['low_stock_threshold'] !== '' && $x['low_stock_threshold'] !== null ? (int)$x['low_stock_threshold'] : null,
         $x['date_purchased'] ?: null, $x['lifespan_months'] !== '' && $x['lifespan_months'] !== null ? (int)$x['lifespan_months'] : null]);
-    logActivity($d, auth(), 'Registered asset', 'asset', $x['qr_code'], $x['name']);
+    logActivity(db(), auth(), 'Registered asset', 'asset', $x['qr_code'], $x['name']);
     reply(['id' => db()->lastInsertId()], 201);
 }
 
