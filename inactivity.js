@@ -139,7 +139,11 @@ class InactivityTimer {
   logout() {
     this.isLocked = true;
     this.hideWarning();
-    
+
+    // TRD §7 auto-save: preserve any mid-edit form fields before the
+    // session dies — layout.js restores them on the next visit.
+    if (typeof window.scimAutosave === 'function') window.scimAutosave();
+
     // Server-side logout + clear this tab's token
     fetch('/api/v1/auth/logout', { method: 'POST' })
       .finally(() => {

@@ -26,7 +26,6 @@ async function loadSupplierData() {
     setText('avgDefect', avgDefect + '%');
 
     renderSupplierTable(allSuppliers);
-    renderAttentionSuppliers(allSuppliers);
   } catch (error) {
     console.error('Error loading supplier data:', error);
     if (table) table.innerHTML = '<p class="text-sm text-red-500 py-4">Could not load suppliers.</p>';
@@ -68,7 +67,7 @@ function renderSupplierTable(suppliers) {
             <td>★ ${(parseFloat(s.rating) || 0).toFixed(1)}</td>
             <td>${esc(s.on_time_rate ?? 0)}%</td>
             <td>${esc(s.defect_rate ?? 0)}%</td>
-            <td>${esc(s.email || s.phone || '—')}</td>
+            <td class="text-xs"><div>${esc(s.email || '—')}</div><div class="text-slate-400">${esc(s.phone || '')}</div></td>
             <td class="whitespace-nowrap">
               <button class="action-btn action-btn-edit !px-2" title="Edit supplier" aria-label="Edit supplier" onclick="editSupplier(${s.id})"><span class="material-symbols-outlined text-base">edit</span></button>
               <button class="action-btn action-btn-danger !px-2" title="Delete supplier" aria-label="Delete supplier" onclick="deleteSupplier(${s.id})"><span class="material-symbols-outlined text-base">delete</span></button>
@@ -77,22 +76,6 @@ function renderSupplierTable(suppliers) {
         }).join('')}
       </tbody>
     </table>`;
-}
-
-function renderAttentionSuppliers(suppliers) {
-  const el = $('#attentionNeeded');
-  if (!el) return;
-  const attention = suppliers.filter((s) => (s.on_time_rate || 0) < 75 || (s.defect_rate || 0) > 10 || (s.rating || 5) < 3);
-  el.innerHTML = attention.length
-    ? attention.map((s) => `
-        <div class="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
-          <div>
-            <b class="text-sm">${esc(s.name)}</b>
-            <p class="text-xs text-slate-500">${s.on_time_rate || 0}% on-time · ${s.defect_rate || 0}% defects</p>
-          </div>
-          <span class="tag">Needs Review</span>
-        </div>`).join('')
-    : '<p class="text-sm text-slate-400 py-6 text-center">All suppliers performing well.</p>';
 }
 
 // ==========================================
@@ -155,7 +138,6 @@ window.editSupplier = (id) => {
   $('#editSupplierCategory').value = s.category || '';
   $('#editSupplierEmail').value = s.email || '';
   $('#editSupplierPhone').value = s.phone || '';
-  $('#editSupplierAddress').value = s.address || '';
   editSupplierModal?.showModal();
 };
 
@@ -174,7 +156,6 @@ $('#editSupplierForm')?.addEventListener('submit', async (e) => {
       category: $('#editSupplierCategory').value.trim(),
       email: $('#editSupplierEmail').value.trim(),
       phone: $('#editSupplierPhone').value.trim(),
-      address: $('#editSupplierAddress').value.trim(),
     }),
   });
   btn.disabled = false;
@@ -200,9 +181,37 @@ window.deleteSupplier = async (id) => {
   else alert(data.error || 'Failed to delete supplier');
 };
 
+// Supplier Quotes — relocated from Procurement & Sourcing (TRD §5).
+let allQuotes = [];
+async function loadQuotes() {
+  const el = $('#quotesTable');
+  if (!el) return;
+  const res = await api('procurement/quotes').catch(() => ({}));
+  allQuotes = Array.isArray(res.quotes) ? res.quotes : [];
+  renderQuotes();
+}
+function renderQuotes() {
+  const el = $('#quotesTable');
+  if (!el) return;
+  const term = ($('#quotesSearch')?.value || '').toLowerCase();
+  const rows = allQuotes.filter((q) => !term || `${q.vendor} ${q.vendor_name || ''} ${q.req_number || ''} ${q.status || ''}`.toLowerCase().includes(term));
+  el.innerHTML = rows.length ? `<table class="data-table w-full text-sm min-w-[560px]">
+    <thead><tr><th>Requisition</th><th>Supplier</th><th>Quoted Price</th><th>Status</th></tr></thead>
+    <tbody>${rows.map((q) => `<tr>
+      <td><span class="tag">${esc(q.req_number || '—')}</span></td>
+      <td><b>${esc(q.vendor_name || q.vendor || '—')}</b></td>
+      <td class="font-mono">₱${Number(q.quote_amount || q.amount || q.quoted_price || 0).toLocaleString()}</td>
+      <td><span class="px-2 py-1 rounded-full text-xs font-semibold ${q.status === 'Accepted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${esc(q.status || 'Submitted')}</span></td>
+    </tr>`).join('')}</tbody></table>`
+    : '<p class="text-sm text-slate-400 py-6 text-center">No supplier quotes yet.</p>';
+}
+const quotesSearchEl = document.getElementById('quotesSearch');
+if (quotesSearchEl) quotesSearchEl.oninput = renderQuotes;
+
 document.addEventListener('DOMContentLoaded', function () {
   if (typeof initializePermissions === 'function') initializePermissions();
   loadSupplierData();
+  loadQuotes();
 });
 
 // ==========================================

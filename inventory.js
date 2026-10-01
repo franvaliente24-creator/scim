@@ -76,18 +76,52 @@ async function loadInventoryData(updateStats = true) {
     if (updateStats) {
       // Stats always reflect the unfiltered active ledger.
       const all = term || cat || st ? (await api('inventory/assets')).assets || [] : assets;
-      const totalValue = all.reduce((s, a) => s + Number(a.value || 0) * (Number(a.quantity) || 1), 0);
       if ($('#totalAssets')) $('#totalAssets').textContent = all.length;
-      if ($('#totalValue')) $('#totalValue').textContent = money(totalValue);
       if ($('#deployedAssets')) $('#deployedAssets').textContent = all.filter(a => a.status === 'Deployed').length;
       if ($('#warehouseAssets')) $('#warehouseAssets').textContent = all.filter(a => a.status === 'In Warehouse').length;
     }
 
     renderAssetTable(assets);
-    loadRecentTransactions();
   } catch (error) {
     console.error('Error loading inventory data:', error);
   }
+}
+
+// Batch selection state for bulk delete (Admin only).
+const selectedAssets = new Set();
+const isAdminUser = () => typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
+
+function renderBatchBar(assets) {
+  const bar = $('#assetBatchBar');
+  if (!bar) return;
+  const n = [...selectedAssets].filter((qr) => assets.some((a) => a.qr_code === qr)).length;
+  if (!n || !isAdminUser()) { bar.innerHTML = ''; return; }
+  bar.innerHTML = `<div class="flex items-center gap-3 px-4 py-2.5 bg-red-50 border-b border-red-100 text-sm">
+      <span class="font-semibold text-red-700">${n} selected</span>
+      <button type="button" id="batchDeleteBtn" class="px-3 py-1 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700">Delete Selected</button>
+      <button type="button" id="batchClearBtn" class="text-xs text-slate-500 hover:underline">Clear</button>
+    </div>`;
+  $('#batchDeleteBtn')?.addEventListener('click', () => batchDeleteAssets(assets));
+  $('#batchClearBtn')?.addEventListener('click', () => { selectedAssets.clear(); renderAssetTable(assets); });
+}
+
+async function batchDeleteAssets(assets) {
+  const qrs = [...selectedAssets].filter((qr) => assets.some((a) => a.qr_code === qr));
+  if (!qrs.length) return;
+  const ok = await (window.scimConfirm ? scimConfirm({
+    title: `Delete ${qrs.length} assets?`,
+    message: 'Selected records move to the Trash Bin for the retention period before permanent deletion. Audit entries are written for each.',
+    confirmLabel: 'Delete', icon: 'delete_forever',
+  }) : Promise.resolve(confirm(`Delete ${qrs.length} assets?`)));
+  if (!ok) return;
+  let failed = 0;
+  for (const qr of qrs) {
+    const res = await fetch(`/api/v1/assets/${encodeURIComponent(qr)}`, { method: 'DELETE' });
+    if (!res.ok) failed++;
+  }
+  selectedAssets.clear();
+  if (failed) alert(`${failed} record(s) could not be deleted.`);
+  loadInventoryData();
 }
 
 // Taxonomy-grouped ledger: category header rows carry the product hierarchy
@@ -99,6 +133,7 @@ function renderAssetTable(assets) {
   if (!assets.length) {
     el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No assets match. Register one with "Add Asset", or scan a pending serial into stock.</p>';
     if (pager) pager.innerHTML = '';
+    renderBatchBar(assets);
     return;
   }
 
@@ -112,15 +147,17 @@ function renderAssetTable(assets) {
   const iconBtn = (action, icon, title, cls, extra = '') =>
     `<button type="button" title="${title}" aria-label="${title}" class="action-btn ${cls} !px-2" data-asset-action="${action}" ${extra}><span class="material-symbols-outlined text-base">${icon}</span></button>`;
 
+  const adminCols = isAdminUser();
   el.innerHTML = `<table class="data-table">
     <thead><tr>
-      <th>Serial / QR</th><th>Asset Name</th><th>Qty</th><th>Status</th><th>Value</th>
+      ${adminCols ? '<th class="w-8"><input type="checkbox" id="assetSelectAll" title="Select all on this page" aria-label="Select all"></th>' : ''}
+      <th>ID</th><th>Asset Name</th><th>Qty</th><th>Status</th><th>Value</th>
       <th>Purchased</th><th>Lifespan</th><th>Location</th><th>Actions</th>
     </tr></thead>
     <tbody>${Object.entries(groups).map(([cat, items]) => {
       const subtotal = items.reduce((s, a) => s + Number(a.value || 0) * (Number(a.quantity) || 1), 0);
       const lowFlag = items.filter(a => a.low_stock_threshold != null && Number(a.quantity) < Number(a.low_stock_threshold)).length;
-      return `<tr class="bg-slate-50/80"><td colspan="9" class="!py-2.5">
+      return `<tr class="bg-slate-50/80"><td colspan="${adminCols ? 10 : 9}" class="!py-2.5">
           <span class="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-on-surface-variant">
             <span class="material-symbols-outlined text-sm">folder</span>${escapeHTML(cat)}
             <span class="font-normal normal-case">· ${items.length} asset${items.length === 1 ? '' : 's'} · ${money(subtotal)}</span>
@@ -130,6 +167,7 @@ function renderAssetTable(assets) {
           const qty = Number(a.quantity ?? 1);
           const low = a.low_stock_threshold != null && qty < Number(a.low_stock_threshold);
           return `<tr>
+            ${adminCols ? `<td><input type="checkbox" class="asset-row-check" data-qr="${escapeHTML(a.qr_code)}" ${selectedAssets.has(a.qr_code) ? 'checked' : ''} aria-label="Select ${escapeHTML(a.qr_code)}"></td>` : ''}
             <td><span class="tag">${escapeHTML(a.qr_code)}</span></td>
             <td><b>${escapeHTML(a.name)}</b></td>
             <td class="${low ? 'text-red-600 font-bold' : ''}">${qty}${a.low_stock_threshold != null ? ` <small class="text-on-surface-variant font-normal">/ min ${a.low_stock_threshold}</small>` : ''}</td>
@@ -141,8 +179,9 @@ function renderAssetTable(assets) {
             <td class="whitespace-nowrap">
               ${iconBtn('view', 'visibility', 'View', 'action-btn-view', `data-qr-code="${escapeHTML(a.qr_code)}"`)}
               ${iconBtn('edit', 'edit', 'Edit', 'action-btn-edit', `data-qr-code="${escapeHTML(a.qr_code)}"`)}
-              ${(typeof currentUserRole === 'undefined' || currentUserRole === 'Admin')
-                ? iconBtn('delete', 'delete', 'Delete', 'action-btn-danger', `data-qr-code="${escapeHTML(a.qr_code)}" data-asset-name="${escapeHTML(a.name)}"`)
+              ${adminCols
+                ? iconBtn('archive', 'archive', 'Archive', 'action-btn-view', `data-qr-code="${escapeHTML(a.qr_code)}" data-asset-id="${a.id}"`) +
+                  iconBtn('delete', 'delete', 'Delete', 'action-btn-danger', `data-qr-code="${escapeHTML(a.qr_code)}" data-asset-name="${escapeHTML(a.name)}"`)
                 : ''}
             </td></tr>`;
         }).join('');
@@ -159,6 +198,19 @@ function renderAssetTable(assets) {
     $('#assetPrev')?.addEventListener('click', () => { assetPage--; renderAssetTable(assets); });
     $('#assetNext')?.addEventListener('click', () => { assetPage++; renderAssetTable(assets); });
   }
+
+  // Batch-select wiring
+  el.querySelectorAll('.asset-row-check').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      cb.checked ? selectedAssets.add(cb.dataset.qr) : selectedAssets.delete(cb.dataset.qr);
+      renderBatchBar(assets);
+    });
+  });
+  $('#assetSelectAll')?.addEventListener('change', (e) => {
+    rows.forEach((a) => e.target.checked ? selectedAssets.add(a.qr_code) : selectedAssets.delete(a.qr_code));
+    renderAssetTable(assets);
+  });
+  renderBatchBar(assets);
 }
 
 function escapeHTML(value) {
@@ -178,16 +230,17 @@ document.addEventListener('click', (event) => {
   const { assetAction, qrCode } = button.dataset;
   if (assetAction === 'view') window.viewAsset(qrCode);
   if (assetAction === 'edit') window.editAsset(qrCode);
+  if (assetAction === 'archive') window.archiveRecord('asset', button.dataset.assetId, () => loadInventoryData());
   if (assetAction === 'delete') window.deleteAsset(qrCode, button.dataset.assetName || qrCode);
 });
 
 // Asset deletion — Admin only server-side, compliance-logged.
-// Confirmed through the shared modal before the request fires.
+// Soft-deletes to the Trash Bin for the retention window.
 window.deleteAsset = async (qrCode, name) => {
-  if (typeof currentUserRole !== 'undefined' && currentUserRole !== 'Admin') return;
+  if (!isAdminUser()) return;
   const ok = await (window.scimConfirm ? scimConfirm({
     title: 'Delete Asset?',
-    message: `"${name}" will be permanently removed from inventory. A compliance record is written to the audit log before deletion. This cannot be undone.`,
+    message: `"${name}" moves to the Trash Bin for the retention period. A compliance record is written to the audit log. Restore it there, or purge permanently.`,
     confirmLabel: 'Delete', icon: 'delete_forever',
   }) : Promise.resolve(confirm(`Delete asset "${name}"?`)));
   if (!ok) return;
@@ -305,34 +358,6 @@ function renderAssetCategories(assets) {
   if (categoriesEl) categoriesEl.innerHTML = categoriesHTML;
 }
 
-async function loadRecentTransactions(showAll = false) {
-  try {
-    const response = await api('inventory/transactions');
-    const data = response.transactions || response;
-    const transactions = Array.isArray(data) ? data : [];
-    
-    // Limit to 5 items unless showAll is true
-    const displayTransactions = showAll ? transactions : transactions.slice(0, 5);
-
-    const transactionTableEl = $('#transactionTable');
-    if (!transactionTableEl) return;
-
-    const transactionsHTML = displayTransactions.map(transaction => `
-      <div class="row">
-        <div>
-          <b>${transaction.action}</b><br>
-          <small>${transaction.qr_code} · ${transaction.asset_name}</small>
-        </div>
-        <small>${new Date(transaction.created_at).toLocaleString()}</small>
-      </div>
-    `).join('');
-
-    transactionTableEl.innerHTML = transactionsHTML || '<p class="text-on-surface-variant text-sm">No recent transactions</p>';
-  } catch (error) {
-    console.error('Error loading recent transactions:', error);
-  }
-}
-
 // ==========================================
 // EVENT LISTENERS & INTERACTION
 // ==========================================
@@ -393,15 +418,6 @@ if (addAssetBtn) {
   addAssetBtn.addEventListener('click', () => openAssetForm());
 }
 
-// View All Transactions Button
-const viewAllTransactionsBtn = $('#viewAllTransactions');
-if (viewAllTransactionsBtn) {
-  viewAllTransactionsBtn.onclick = async () => {
-    await loadRecentTransactions(true);
-    $('#transactionTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-}
-
 // Asset search + multi-column filters (server-side, debounced)
 const assetSearchInput = $('#assetSearch');
 const assetCategoryFilter = $('#categoryFilter');
@@ -441,13 +457,14 @@ async function loadAdjustments() {
   const el = $('#adjustmentsList');
   if (!el) return;
   el.innerHTML = pending.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">QR Tag</th><th class="text-left p-4">Serial</th><th class="text-left p-4">Asset</th><th class="text-left p-4">Category</th><th class="text-left p-4">Generated</th></tr></thead>
+    <th class="text-left p-4">QR Tag</th><th class="text-left p-4">ID</th><th class="text-left p-4">Asset</th><th class="text-left p-4">Category</th><th class="text-left p-4">Generated</th><th class="text-left p-4">Action</th></tr></thead>
     <tbody>${pending.map(a => `<tr class="border-b border-slate-50">
     <td class="p-4"><canvas class="pending-qr" data-serial="${escapeHTML(a.qr_code)}" width="64" height="64"></canvas></td>
     <td class="p-4 font-mono text-xs">${escapeHTML(a.qr_code)}</td>
     <td class="p-4 font-medium">${escapeHTML(a.name)}</td>
     <td class="p-4 text-on-surface-variant">${escapeHTML(a.category || '—')}</td>
-    <td class="p-4 text-on-surface-variant">${a.created_at ? new Date(a.created_at).toLocaleDateString() : '—'}</td></tr>`).join('')}</tbody></table>`
+    <td class="p-4 text-on-surface-variant">${a.created_at ? new Date(a.created_at).toLocaleDateString() : '—'}</td>
+    <td class="p-4"><button type="button" title="Discard pending serial" aria-label="Discard pending serial" class="action-btn action-btn-danger !px-2" data-pending-delete="${escapeHTML(a.qr_code)}"><span class="material-symbols-outlined text-base">delete</span></button></td></tr>`).join('')}</tbody></table>`
     : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending adjustments — generate serials in Smart Warehousing → Generate QR, then scan each tag at intake to commit it here.</div>';
   el.querySelectorAll('.pending-qr').forEach((cv) => {
     if (typeof QRious !== 'undefined') new QRious({ element: cv, value: cv.dataset.serial, size: 64 });
@@ -462,24 +479,8 @@ function reqStatusBadge(s) {
   return `<span class="px-2 py-1 rounded text-xs font-semibold ${cls}">${escapeHTML(s || 'Submitted')}</span>`;
 }
 
+// Submission lives in Procurement & Sourcing — this tab is history/visibility.
 async function loadInvRequisitions() {
-  const form = $('#invReqForm');
-  if (form && !form.dataset.bound) {
-    form.dataset.bound = '1';
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const msg = $('#invReqFormMsg');
-      const res = await fetch('/api/v1/procurement/requisitions', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.fromEntries(new FormData(form))),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) { if (msg) { msg.textContent = data.error || 'Submission failed.'; msg.className = 'text-xs text-red-600 mr-auto'; } return; }
-      form.reset();
-      if (msg) { msg.textContent = `Requisition ${data.req_number} submitted for approval.`; msg.className = 'text-xs text-emerald-600 mr-auto'; }
-      loadInvRequisitions();
-    });
-  }
   const res = await api('procurement/requisitions');
   const reqs = res.requisitions || [];
   const search = $('#invReqSearch');
@@ -520,6 +521,21 @@ async function loadInvApprovals() {
       : '<span class="text-xs text-on-surface-variant">Admin review required</span>'}</td></tr>`).join('')}</tbody></table>`
     : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending approvals — all requisitions have been decided.</div>';
 }
+
+// Discard a pending (unscanned) generated serial — never reached active stock.
+document.addEventListener('click', async (event) => {
+  const btn = event.target.closest('[data-pending-delete]');
+  if (!btn) return;
+  const ok = await (window.scimConfirm ? scimConfirm({
+    title: 'Discard pending serial?',
+    message: 'This unscanned tag is removed permanently — it never entered active inventory.',
+    confirmLabel: 'Discard', icon: 'delete',
+  }) : Promise.resolve(confirm('Discard this pending serial?')));
+  if (!ok) return;
+  const res = await fetch(`/api/v1/inventory/pending/${encodeURIComponent(btn.dataset.pendingDelete)}`, { method: 'DELETE' });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Unable to discard.'); return; }
+  loadAdjustments();
+});
 
 document.addEventListener('click', async (event) => {
   const btn = event.target.closest('[data-req-action][data-req-id]');
@@ -562,6 +578,80 @@ async function loadInvHistory() {
     : '<div class="text-sm text-on-surface-variant text-center py-8">No transaction history.</div>';
 }
 
+// Centralized Archive — GET /api/v1/archives lists every entity; filtered client-side.
+// Restore via POST /api/v1/records/{entity}/{id}/restore (Admin-only).
+async function loadArchiveTable() {
+  const entity = $('#archiveResource')?.value || 'asset';
+  const q = ($('#archiveSearch')?.value || '').toLowerCase();
+  const data = await api('archives').catch(() => ({}));
+  const rows = (data.items || []).filter((r) => r.entity === entity && (!q || `${r.label} ${r.ref}`.toLowerCase().includes(q)));
+  const el = $('#archiveTable');
+  if (!el) return;
+  el.innerHTML = rows.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+    <th class="text-left p-4">Ref</th><th class="text-left p-4">Record</th><th class="text-left p-4">Archived</th><th class="text-left p-4">Action</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr class="border-b border-slate-50">
+      <td class="p-4 font-mono text-xs">${escapeHTML(r.ref || r.id)}</td>
+      <td class="p-4 font-medium">${escapeHTML(r.label)}</td>
+      <td class="p-4 text-on-surface-variant text-xs">${r.archived_at ? new Date(r.archived_at).toLocaleString() : '—'}</td>
+      <td class="p-4"><button type="button" title="Restore" aria-label="Restore record" class="action-btn action-btn-view !px-2" data-restore-res="${r.entity}" data-restore-id="${r.id}"><span class="material-symbols-outlined text-base">unarchive</span></button></td></tr>`).join('')}</tbody></table>`
+    : '<div class="p-10 text-center text-on-surface-variant text-sm">Archive is empty.</div>';
+}
+
+// Trash Bin — GET /api/v1/trash returns each row's remaining retention days;
+// rows past the window are auto-purged server-side on read.
+async function loadTrashTable() {
+  const entity = $('#trashResource')?.value || 'asset';
+  const data = await api('trash').catch(() => ({}));
+  const rows = (data.items || []).filter((r) => r.entity === entity);
+  const el = $('#trashTable');
+  if (!el) return;
+  el.innerHTML = rows.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+    <th class="text-left p-4">Ref</th><th class="text-left p-4">Record</th><th class="text-left p-4">Deleted</th><th class="text-left p-4">Retention</th><th class="text-left p-4">Action</th></tr></thead>
+    <tbody>${rows.map((r) => {
+      const left = Number(r.days_left);
+      const canPurge = left === 0;
+      return `<tr class="border-b border-slate-50">
+      <td class="p-4 font-mono text-xs">${escapeHTML(r.ref || r.id)}</td>
+      <td class="p-4 font-medium">${escapeHTML(r.label)}</td>
+      <td class="p-4 text-on-surface-variant text-xs">${r.deleted_at ? new Date(r.deleted_at).toLocaleString() : '—'}</td>
+      <td class="p-4 text-xs">${left > 0 ? `${left} day${left === 1 ? '' : 's'} left` : '<span class="text-red-600 font-semibold">Retention expired</span>'}</td>
+      <td class="p-4 whitespace-nowrap">
+        <button type="button" title="Restore" aria-label="Restore record" class="action-btn action-btn-view !px-2" data-restore-res="${r.entity}" data-restore-id="${r.id}"><span class="material-symbols-outlined text-base">restore_from_trash</span></button>
+        <button type="button" title="${canPurge ? 'Delete permanently' : 'Locked while retention runs'}" aria-label="Delete permanently" class="action-btn action-btn-danger !px-2 ${canPurge ? '' : 'opacity-40 cursor-not-allowed'}" data-purge-res="${r.entity}" data-purge-id="${r.id}" ${canPurge ? '' : 'disabled'}><span class="material-symbols-outlined text-base">delete_forever</span></button>
+      </td></tr>`;
+    }).join('')}</tbody></table>`
+    : '<div class="p-10 text-center text-on-surface-variant text-sm">Trash bin is empty.</div>';
+}
+
+document.addEventListener('click', async (event) => {
+  const rBtn = event.target.closest('[data-restore-res]');
+  if (rBtn) {
+    const res = await fetch(`/api/v1/records/${rBtn.dataset.restoreRes}/${rBtn.dataset.restoreId}/restore`, { method: 'POST' });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Restore failed.'); }
+    invLoaded.archive = invLoaded.trash = false;
+    loadArchiveTable(); loadTrashTable(); loadInventoryData();
+    return;
+  }
+  const pBtn = event.target.closest('[data-purge-res]');
+  if (pBtn && !pBtn.disabled) {
+    const ok = await (window.scimConfirm ? scimConfirm({
+      title: 'Permanently delete?',
+      message: 'This record is erased forever — no restore possible. The audit trail entry is preserved.',
+      confirmLabel: 'Purge', icon: 'delete_forever',
+    }) : Promise.resolve(confirm('Permanently delete this record? This cannot be undone.')));
+    if (!ok) return;
+    const res = await fetch(`/api/v1/records/${pBtn.dataset.purgeRes}/${pBtn.dataset.purgeId}?permanent=1`, { method: 'DELETE' });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Purge refused — retention window may still be active.'); }
+    loadTrashTable();
+  }
+});
+
+['archiveResource', 'archiveSearch'].forEach((id) => {
+  const el = $('#' + id);
+  if (el) { el.dataset.bound || (el.dataset.bound = '1', el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', loadArchiveTable)); }
+});
+$('#trashResource')?.addEventListener('change', loadTrashTable);
+
 const invTabLoaders = {
   ledger: loadInventoryData,
   adjustments: loadAdjustments,
@@ -569,6 +659,8 @@ const invTabLoaders = {
   approvals: loadInvApprovals,
   valuation: loadValuation,
   history: loadInvHistory,
+  archive: loadArchiveTable,
+  trash: loadTrashTable,
 };
 
 window.refreshInvTab = (name) => { invLoaded[name] = false; if (invTabLoaders[name]) return invTabLoaders[name](); };

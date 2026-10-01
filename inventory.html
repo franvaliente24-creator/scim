@@ -156,21 +156,18 @@
                     <button class="hub-tab-btn" data-tab-target="approvals"><span class="material-symbols-outlined">fact_check</span>Approvals</button>
                     <button class="hub-tab-btn" data-tab-target="valuation"><span class="material-symbols-outlined">request_quote</span>Valuation</button>
                     <button class="hub-tab-btn" data-tab-target="history"><span class="material-symbols-outlined">history</span>History</button>
+                    <button class="hub-tab-btn" data-tab-target="archive" data-requires-role="Admin"><span class="material-symbols-outlined">inventory</span>Archive</button>
+                    <button class="hub-tab-btn" data-tab-target="trash" data-requires-role="Admin"><span class="material-symbols-outlined">delete</span>Trash Bin</button>
                 </nav>
 
                 <section class="hub-section active" data-tab="ledger">
 
                 <!-- Stats Grid -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
                         <p class="text-on-surface-variant text-sm mb-2">Total Assets</p>
                         <strong class="text-2xl font-headline font-bold text-on-surface" id="totalAssets">0</strong>
                         <small class="text-on-surface-variant text-xs">Hardware items tracked</small>
-                    </div>
-                    <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
-                        <p class="text-on-surface-variant text-sm mb-2">Total Value</p>
-                        <strong class="text-2xl font-headline font-bold text-on-surface" id="totalValue">₱0</strong>
-                        <small class="text-on-surface-variant text-xs">Inventory valuation</small>
                     </div>
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
                         <p class="text-on-surface-variant text-sm mb-2">Deployed</p>
@@ -211,21 +208,9 @@
                             </select>
                         </div>
                     </div>
+                    <div id="assetBatchBar"></div>
                     <div id="assetTable" class="data-table-container"></div>
                     <div id="assetPager" class="px-6 py-3 border-t border-outline-variant/30 flex items-center justify-between text-sm text-on-surface-variant"></div>
-                </div>
-                
-                <!-- Recent Transactions -->
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Recent Transactions</h2>
-                        <button id="viewAllTransactions" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
-                            View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
-                        </button>
-                    </div>
-                    <div id="transactionTable" class="p-6">
-                        <div class="text-on-surface-variant text-sm">Loading transactions...</div>
-                    </div>
                 </div>
                 </section>
 
@@ -240,42 +225,8 @@
                 </div>
                 </section>
 
-                <!-- Purchase Requisitions — the exclusive asset-allocation workflow -->
+                <!-- Purchase Requisitions — submission lives in Procurement &amp; Sourcing -->
                 <section class="hub-section" data-tab="requisitions">
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Submit Requisition</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">All asset allocation and purchase requests route through this workflow. An Administrator approves or rejects each request under the Approvals tab.</p>
-                    </div>
-                    <form id="invReqForm" class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-slate-100">
-                        <label class="text-xs font-semibold text-on-surface-variant">Request Title
-                            <input name="title" required placeholder="e.g. 5x laptops for new hires" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
-                        </label>
-                        <label class="text-xs font-semibold text-on-surface-variant">Department
-                            <input name="department" required placeholder="e.g. Operations" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
-                        </label>
-                        <label class="text-xs font-semibold text-on-surface-variant md:col-span-2">Description / Justification
-                            <textarea name="description" rows="2" placeholder="Items needed and business justification" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary"></textarea>
-                        </label>
-                        <label class="text-xs font-semibold text-on-surface-variant">Estimated Cost (₱)
-                            <input name="estimated_cost" type="number" min="0" step="0.01" placeholder="0.00" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
-                        </label>
-                        <div class="grid grid-cols-2 gap-4">
-                            <label class="text-xs font-semibold text-on-surface-variant">Priority
-                                <select name="priority" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
-                                    <option value="Low">Low</option><option value="Normal" selected>Normal</option><option value="High">High</option><option value="Urgent">Urgent</option>
-                                </select>
-                            </label>
-                            <label class="text-xs font-semibold text-on-surface-variant">Needed By
-                                <input name="needed_by" type="date" class="mt-1 w-full px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
-                            </label>
-                        </div>
-                        <div class="md:col-span-2 flex items-center justify-end gap-3">
-                            <p id="invReqFormMsg" class="text-xs text-on-surface-variant mr-auto"></p>
-                            <button type="submit" class="btn-primary m-0 flex items-center gap-2"><span class="material-symbols-outlined">send</span>Submit for Approval</button>
-                        </div>
-                    </form>
-                </div>
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
                         <h2 class="text-lg font-headline font-semibold text-on-surface">Requisition History</h2>
@@ -310,10 +261,52 @@
                 <!-- Inventory History -->
                 <section class="hub-section" data-tab="history">
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
                         <h2 class="text-lg font-headline font-semibold text-on-surface">Complete Inventory History</h2>
+                        <button type="button" class="btn-outline text-xs flex items-center gap-1" onclick="exportCSV('transactions')"><span class="material-symbols-outlined text-base">download</span>Export CSV</button>
                     </div>
                     <div id="invHistoryList" class="p-6 overflow-x-auto"></div>
+                </div>
+                </section>
+
+                <!-- Archive (Admin) -->
+                <section class="hub-section" data-tab="archive" data-requires-role="Admin">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Archived Records</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Records removed from active views but retained for audit. Restorable.</p>
+                    </div>
+                    <div class="px-6 pt-4 flex gap-2">
+                        <select id="archiveResource" class="px-3 py-2 border border-outline-variant rounded-lg text-sm">
+                            <option value="asset">Assets</option>
+                            <option value="requisition">Requisitions</option>
+                            <option value="po">Purchase Orders</option>
+                            <option value="supplier">Suppliers</option>
+                            <option value="document">Documents</option>
+                        </select>
+                        <input type="text" id="archiveSearch" placeholder="Search archive…" class="flex-1 px-4 py-2 border border-outline-variant rounded-lg text-sm">
+                    </div>
+                    <div id="archiveTable" class="data-table-container"></div>
+                </div>
+                </section>
+
+                <!-- Trash Bin (Admin) -->
+                <section class="hub-section" data-tab="trash" data-requires-role="Admin">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Trash Bin</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Deleted records are retained for the configured window before permanent deletion is allowed.</p>
+                    </div>
+                    <div class="px-6 pt-4 flex gap-2">
+                        <select id="trashResource" class="px-3 py-2 border border-outline-variant rounded-lg text-sm">
+                            <option value="asset">Assets</option>
+                            <option value="requisition">Requisitions</option>
+                            <option value="po">Purchase Orders</option>
+                            <option value="supplier">Suppliers</option>
+                            <option value="document">Documents</option>
+                        </select>
+                    </div>
+                    <div id="trashTable" class="data-table-container"></div>
                 </div>
                 </section>
             </div>
@@ -376,8 +369,8 @@
     <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
     <script src="token.js?v=1"></script>
     <script src="permissions.js?v=10"></script>
-    <script src="layout.js?v=9"></script>
-    <script src="inventory.js?v=10"></script>
+    <script src="layout.js?v=10"></script>
+    <script src="inventory.js?v=11"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

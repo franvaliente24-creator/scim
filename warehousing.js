@@ -38,8 +38,16 @@ async function loadWarehouseData() {
     // Render warehouse grid
     renderWarehouseGrid(zones);
 
-    // Load recent scans
-    loadRecentScans();
+    // Populate the generate portal's destination-zone picker
+    const zonePicker = $('#qrBatchZone');
+    if (zonePicker && zonePicker.options.length <= 1) {
+      zones.filter(z => z.zone !== 'DISPOSAL').forEach((z) => {
+        const opt = document.createElement('option');
+        opt.value = `Zone ${z.zone}`;
+        opt.textContent = `Zone ${z.zone}${z.category ? ' — ' + z.category : ''}`;
+        zonePicker.appendChild(opt);
+      });
+    }
   } catch (error) {
     console.error('Error loading warehouse data:', error);
   }
@@ -64,10 +72,14 @@ function renderWarehouseGrid(zones) {
     : pct >= 60
       ? { chip: 'bg-amber-100 text-amber-700', bar: 'bg-amber-500', ring: 'border-amber-200', label: 'Filling' }
       : { chip: 'bg-emerald-100 text-emerald-700', bar: 'bg-emerald-500', ring: 'border-emerald-200', label: 'Available' };
+  const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
 
   gridEl.innerHTML = zones.map(zone => {
     const pct = zone.capacity > 0 ? Math.round((zone.occupied / zone.capacity) * 100) : 0;
-    const c = palette(pct);
+    const isDisposal = String(zone.zone).toUpperCase() === 'DISPOSAL';
+    const c = isDisposal
+      ? { chip: 'bg-slate-800 text-white', bar: 'bg-slate-700', ring: 'border-slate-300', label: 'Disposal' }
+      : palette(pct);
 
     const rows = (zone.rows || []).map(row => {
       const rPct = row.capacity > 0 ? Math.round((row.occupied / row.capacity) * 100) : 0;
@@ -84,14 +96,17 @@ function renderWarehouseGrid(zones) {
         <div class="flex items-start justify-between gap-3 mb-3">
           <div class="flex items-center gap-3 min-w-0">
             <span class="w-10 h-10 rounded-xl ${c.chip} flex items-center justify-center shrink-0">
-              <span class="material-symbols-outlined text-xl">shelves</span>
+              <span class="material-symbols-outlined text-xl">${isDisposal ? 'delete_forever' : 'shelves'}</span>
             </span>
             <div class="min-w-0">
-              <p class="text-base font-bold text-on-surface leading-tight">Zone ${zone.zone}</p>
-              <p class="text-xs text-on-surface-variant">${zone.occupied} of ${zone.capacity} slots</p>
+              <p class="text-base font-bold text-on-surface leading-tight">${isDisposal ? 'Disposal Zone' : 'Zone ' + zone.zone}</p>
+              <p class="text-xs text-on-surface-variant">${zone.occupied} of ${zone.capacity} slots${zone.category ? ` · ${zone.category}` : ''}</p>
             </div>
           </div>
-          <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${c.chip} shrink-0">${c.label}</span>
+          <div class="flex flex-col items-end gap-1.5 shrink-0">
+            <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${c.chip}">${c.label}</span>
+            ${isAdmin && !isDisposal ? `<button type="button" class="text-slate-300 hover:text-red-500 transition-colors" title="Delete zone" aria-label="Delete zone ${zone.zone}" onclick="deleteZone('${zone.zone}')"><span class="material-symbols-outlined text-base">delete</span></button>` : ''}
+          </div>
         </div>
         <div class="flex items-center gap-3 mb-4">
           <div class="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
@@ -104,46 +119,19 @@ function renderWarehouseGrid(zones) {
   }).join('');
 }
 
-let allScans = [];
-
-async function loadRecentScans() {
-  try {
-    const response = await api('warehouse/scans');
-    const scans = response.scans || response;
-    allScans = Array.isArray(scans) ? scans : [];
-    renderScansList();
-  } catch (error) {
-    console.error('Error loading recent scans:', error);
-  }
-}
-
-function renderScansList() {
-  const recentScansListEl = $('#recentScansList');
-  if (!recentScansListEl) return;
-
-  const term = ($('#scanSearch')?.value || '').toLowerCase();
-  const scans = term
-    ? allScans.filter((s) => `${s.action} ${s.qr_code} ${s.zone || ''}`.toLowerCase().includes(term))
-    : allScans;
-
-  const scansHTML = scans.map(scan => `
-    <div class="row">
-      <div>
-        <b>${scan.action}</b><br>
-        <small>${scan.qr_code} · Zone ${scan.zone || 'N/A'}</small>
-      </div>
-      <small>${new Date(scan.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
-    </div>
-  `).join('');
-
-  recentScansListEl.innerHTML = scansHTML || '<p class="text-on-surface-variant text-sm">No recent scans</p>';
-
-  // Update the counter
-  const recentScansEl = $('#recentScans');
-  if (recentScansEl) recentScansEl.textContent = scans.length;
-}
-
-$('#scanSearch')?.addEventListener('input', renderScansList);
+// Zone deletion — Admin only server-side; occupied zones are refused.
+window.deleteZone = async (zone) => {
+  const ok = await (window.scimConfirm ? scimConfirm({
+    title: `Delete Zone ${zone}?`,
+    message: 'The zone and its row map are removed permanently. Zones still holding stock cannot be deleted.',
+    confirmLabel: 'Delete Zone', icon: 'delete_forever',
+  }) : Promise.resolve(confirm(`Delete zone ${zone}?`)));
+  if (!ok) return;
+  const res = await fetch(`/api/v1/warehouse/zones/${encodeURIComponent(zone)}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || 'Unable to delete zone.'); return; }
+  loadWarehouseData();
+};
 
 // ==========================================
 // EVENT LISTENERS & INTERACTION
@@ -430,13 +418,6 @@ if (refreshWarehouseBtn) {
 }
 
 // View All button - reload all scans
-const viewAllScansBtn = $('#viewAllScans');
-if (viewAllScansBtn) {
-  viewAllScansBtn.onclick = async () => {
-    await loadRecentScans();
-    $('#recentScansList')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-}
 
 // Load warehouse data on page load
 loadWarehouseData();
@@ -557,18 +538,23 @@ if (refreshAssetsBtn2) refreshAssetsBtn2.onclick = loadRecentRegistered;
 
 // --- Tracking tab (ported from warehouse-tracking) ---
 let trackAssets = [];
+const TRACK_PAGE = 10;
+let trackPage = 0;
 function renderTrackingTable() {
   const el = $('#assetTrackingTable');
   if (!el) return;
   const term = ($('#trackSearch')?.value || '').toLowerCase();
   const status = $('#trackStatusFilter')?.value || '';
-  const rows = trackAssets.filter((a) =>
+  const filtered = trackAssets.filter((a) =>
     (!status || a.status === status) &&
     (!term || `${a.name} ${a.qr_code} ${a.location || ''}`.toLowerCase().includes(term)));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / TRACK_PAGE));
+  trackPage = Math.min(Math.max(trackPage, 0), totalPages - 1);
+  const rows = filtered.slice(trackPage * TRACK_PAGE, (trackPage + 1) * TRACK_PAGE);
   el.innerHTML = rows.length === 0
     ? '<p class="text-slate-500 text-sm text-center py-8">No assets match.</p>'
     : `<table class="w-full text-sm min-w-[640px]"><thead><tr class="border-b border-slate-200 text-left">
-        <th class="py-2 px-4 font-medium text-slate-600">Serial</th><th class="py-2 px-4 font-medium text-slate-600">Asset</th>
+        <th class="py-2 px-4 font-medium text-slate-600">ID</th><th class="py-2 px-4 font-medium text-slate-600">Asset</th>
         <th class="py-2 px-4 font-medium text-slate-600">Category</th><th class="py-2 px-4 font-medium text-slate-600">Location</th>
         <th class="py-2 px-4 font-medium text-slate-600">Status</th></tr></thead>
         <tbody>${rows.map((a) => `<tr class="border-b border-slate-100 hover:bg-slate-50">
@@ -578,6 +564,18 @@ function renderTrackingTable() {
           <td class="py-2.5 px-4 text-slate-600">${a.location || '—'}</td>
           <td class="py-2.5 px-4"><span class="px-2 py-1 rounded-full text-xs font-semibold ${a.status === 'Deployed' ? 'bg-blue-100 text-blue-700' : a.status === 'In Warehouse' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${a.status}</span></td>
         </tr>`).join('')}</tbody></table>`;
+  if (filtered.length > 0) {
+    const foot = document.createElement('div');
+    foot.className = 'px-4 py-3 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500';
+    foot.innerHTML = `<span>${filtered.length} assets · Page ${trackPage + 1} of ${totalPages}</span>
+      <div class="flex gap-1">
+        <button class="px-3 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40" ${trackPage === 0 ? 'disabled' : ''} id="trackPrev">Prev</button>
+        <button class="px-3 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40" ${trackPage >= totalPages - 1 ? 'disabled' : ''} id="trackNext">Next</button>
+      </div>`;
+    el.appendChild(foot);
+    $('#trackPrev')?.addEventListener('click', () => { trackPage--; renderTrackingTable(); });
+    $('#trackNext')?.addEventListener('click', () => { trackPage++; renderTrackingTable(); });
+  }
 }
 async function loadTracking() {
   trackAssets = await loadTabAssets();
@@ -604,7 +602,17 @@ async function loadWhLowStock() {
   if (!el) return;
   const data = await api('stock-alerts').catch(() => ({}));
   const items = Array.isArray(data.items) ? data.items : [];
-  el.innerHTML = items.length === 0
+  const assetItems = Array.isArray(data.asset_items) ? data.asset_items : [];
+  const assetHTML = assetItems.length
+    ? `<div class="col-span-full mt-2"><h3 class="text-sm font-bold text-slate-700 mb-2">Asset-Level Thresholds <span class="font-normal text-slate-400">(grouped by asset name)</span></h3>
+      <div class="space-y-2">${assetItems.map((i) => `
+        <div class="p-4 rounded-xl border border-red-200 bg-red-50/60 flex items-center justify-between gap-3">
+          <div><span class="text-sm font-semibold text-slate-800">${i.name}</span>
+            <span class="block text-xs text-slate-500">${i.category || ''} · ${i.serials} serial${i.serials === 1 ? '' : 's'}</span></div>
+          <span class="text-xs font-bold text-red-600">${i.on_hand} on hand / min ${i.min_quantity}</span>
+        </div>`).join('')}</div></div>`
+    : '';
+  el.innerHTML = (items.length === 0 && !assetItems.length)
     ? '<p class="text-slate-500 text-sm col-span-full text-center py-8">No threshold categories configured.</p>'
     : items.map((i) => {
         const pct = i.min_quantity > 0 ? Math.min(100, Math.round((i.on_hand / i.min_quantity) * 100)) : 100;
@@ -615,7 +623,7 @@ async function loadWhLowStock() {
           </div>
           <div class="w-full bg-slate-200 rounded-full h-2"><div class="${i.deficit ? 'bg-red-500' : 'bg-emerald-500'} h-2 rounded-full" style="width:${pct}%"></div></div>
         </div>`;
-      }).join('');
+      }).join('') + assetHTML;
 }
 
 // --- Returns tab ---
@@ -626,7 +634,7 @@ async function loadReturns() {
   el.innerHTML = assets.length === 0
     ? '<p class="text-slate-500 text-sm text-center py-8">No deployed assets — nothing is out for return.</p>'
     : `<table class="w-full text-sm min-w-[560px]"><thead><tr class="border-b border-slate-200 text-left">
-        <th class="py-2 pr-4 font-medium text-slate-600">Serial</th><th class="py-2 pr-4 font-medium text-slate-600">Asset</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">ID</th><th class="py-2 pr-4 font-medium text-slate-600">Asset</th>
         <th class="py-2 pr-4 font-medium text-slate-600">Assigned To</th><th class="py-2 font-medium text-slate-600">Action</th></tr></thead>
         <tbody>${assets.map((a) => `<tr class="border-b border-slate-100">
           <td class="py-2.5 pr-4 font-mono text-xs">${a.qr_code}</td>
@@ -658,7 +666,7 @@ async function loadAssetHistory() {
     ? '<p class="text-slate-500 text-sm text-center py-8">No movement history yet.</p>'
     : `<table class="w-full text-sm min-w-[560px]"><thead><tr class="border-b border-slate-200 text-left">
         <th class="py-2 pr-4 font-medium text-slate-600">Time</th><th class="py-2 pr-4 font-medium text-slate-600">Asset</th>
-        <th class="py-2 pr-4 font-medium text-slate-600">Serial</th><th class="py-2 pr-4 font-medium text-slate-600">Action</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">ID</th><th class="py-2 pr-4 font-medium text-slate-600">Action</th>
         <th class="py-2 font-medium text-slate-600">Zone</th></tr></thead>
         <tbody>${tx.map((t) => `<tr class="border-b border-slate-100">
           <td class="py-2.5 pr-4 text-slate-500 text-xs whitespace-nowrap">${new Date(t.created_at).toLocaleString()}</td>
@@ -670,10 +678,26 @@ async function loadAssetHistory() {
 }
 
 // --- Cost reports tab ---
+function costDateBounds() {
+  const preset = $('#costRangePreset')?.value || '';
+  const to = $('#costTo')?.value ? new Date($('#costTo').value + 'T23:59:59') : new Date();
+  let from = null;
+  if (preset === 'custom') {
+    from = $('#costFrom')?.value ? new Date($('#costFrom').value + 'T00:00:00') : null;
+  } else if (preset) {
+    from = new Date(Date.now() - parseInt(preset, 10) * 864e5);
+  }
+  return { from, to };
+}
 async function loadCostReports() {
   const el = $('#costReportList');
   if (!el) return;
-  const assets = await loadTabAssets();
+  const { from, to } = costDateBounds();
+  const assets = (await loadTabAssets()).filter((a) => {
+    if (!from && !$('#costTo')?.value) return true;
+    const d = new Date(a.date_purchased || a.created_at);
+    return (!from || d >= from) && d <= to;
+  });
   const byCat = {};
   assets.forEach((a) => {
     const c = a.category || 'Uncategorized';
@@ -694,6 +718,20 @@ async function loadCostReports() {
         </tr>`).join('')}
         <tr class="font-bold"><td class="py-3 pr-4">TOTAL</td><td class="py-3 pr-4">${assets.length}</td><td class="py-3">₱${total.toLocaleString()}</td></tr></tbody></table>`;
 }
+
+const costPreset = $('#costRangePreset');
+if (costPreset) {
+  costPreset.onchange = () => {
+    const custom = costPreset.value === 'custom';
+    $('#costFrom')?.classList.toggle('hidden', !custom);
+    $('#costTo')?.classList.toggle('hidden', !custom);
+    loadCostReports();
+  };
+}
+['costFrom', 'costTo'].forEach((id) => {
+  const el2 = $('#' + id);
+  if (el2) el2.onchange = () => costPreset?.value === 'custom' && loadCostReports();
+});
 
 const whTabLoaders = {
   register: loadRecentRegistered,

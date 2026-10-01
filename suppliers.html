@@ -199,14 +199,16 @@
                     <div id="supplierTable" class="data-table-container"></div>
                 </div>
                 
-                <!-- Attention Needed -->
+                <!-- Supplier Quotes — relocated from Procurement & Sourcing -->
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Vendors Needing Attention</h2>
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
+                        <div>
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">Supplier Quotes</h2>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Sourcing quotes submitted against requisitions.</p>
+                        </div>
+                        <input type="text" id="quotesSearch" placeholder="Search quotes..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                     </div>
-                    <div id="attentionNeeded" class="p-6">
-                        <div class="text-on-surface-variant text-sm">Loading supplier data...</div>
-                    </div>
+                    <div id="quotesTable" class="p-6 overflow-x-auto"></div>
                 </div>
                 </section>
 
@@ -246,10 +248,7 @@
                     <input type="email" name="email" required placeholder="sales@company.com">
                 </label>
                 <label>Phone
-                    <input type="text" name="phone" placeholder="+63 912 345 6789">
-                </label>
-                <label>Address
-                    <textarea name="address" rows="3" placeholder="Supplier address"></textarea>
+                    <input type="tel" name="phone" required placeholder="+63 912 345 6789">
                 </label>
                 <button type="submit">Save Supplier</button>
             </form>
@@ -273,19 +272,16 @@
                     <input type="email" name="email" id="editSupplierEmail" required>
                 </label>
                 <label>Phone
-                    <input type="text" name="phone" id="editSupplierPhone">
-                </label>
-                <label>Address
-                    <textarea name="address" id="editSupplierAddress" rows="3"></textarea>
+                    <input type="tel" name="phone" id="editSupplierPhone" required>
                 </label>
                 <button type="submit">Save Changes</button>
             </form>
         </div>
     </dialog>
         <script src="token.js?v=1"></script>
-        <script src="layout.js?v=9"></script>
+        <script src="layout.js?v=10"></script>
     <script src="permissions.js?v=10"></script>
-    <script src="suppliers.js?v=10"></script>
+    <script src="suppliers.js?v=11"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

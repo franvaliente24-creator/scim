@@ -35,19 +35,58 @@ async function loadProcurementData(showAll = false) {
 
     const active = requisitions.filter((r) => !['Completed', 'Cancelled', 'Closed', 'Rejected'].includes(r.status)).length;
     const pending = requisitions.filter((r) => ['Submitted', 'Pending', 'Pending Quote', 'Under Review'].includes(r.status)).length;
+    const inApproval = requisitions.filter((r) => ['Submitted', 'Inventory Review', 'Inventory Approved'].includes(r.status)).length;
     const pipeline = requisitions.reduce((sum, r) => sum + (parseFloat(r.actual_cost) || parseFloat(r.estimated_cost) || 0), 0);
 
     setText('totalRequisitions', requisitions.length);
     setText('pendingRequisitions', pending || active);
+    setText('inApproval', inApproval);
     setText('pipelineValue', money(pipeline));
 
     renderRequisitionTable(displayRequisitions);
     renderSourcingPipeline(requisitions);
-    loadRecentQuotes(showAll);
+    renderCompletedReqs(requisitions);
   } catch (error) {
     console.error('Error loading procurement data:', error);
     if (table) table.innerHTML = '<p class="text-sm text-red-500 py-4">Could not load requisitions.</p>';
   }
+}
+
+// Multi-tier requisition workflow (TRD §4): Submitted → Inventory Review
+// (manager forwards) → Inventory Approved (Admin) → Completed (procurement
+// final approval). Rejection is Admin-exclusive; the API enforces every gate.
+const REQ_STAGES = ['Draft', 'Submitted', 'Inventory Review', 'Inventory Approved', 'Completed'];
+
+function reqStageActions(r) {
+  const role = typeof currentUserRole === 'undefined' ? 'Admin' : currentUserRole;
+  const isAdmin = role === 'Admin';
+  const isManager = role === 'Manager' || isAdmin;
+  const icon = (cls, glyph, title, action) =>
+    `<button class="action-btn ${cls} !px-2" title="${title}" aria-label="${title}" data-req-status="${action}" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">${glyph}</span></button>`;
+  const btns = [`<button class="action-btn action-btn-view !px-2" title="View details" aria-label="View details" data-req-view="${r.id}"><span class="material-symbols-outlined text-base">visibility</span></button>`];
+  if (['Draft', 'Submitted', 'Pending'].includes(r.status) && isManager) {
+    btns.push(icon('action-btn-primary', 'forward_to_inbox', 'Forward to inventory review', 'Inventory Review'));
+  }
+  if (r.status === 'Inventory Review' && isAdmin) {
+    btns.push(icon('action-btn-approve', 'check_circle', 'Approve (inventory)', 'Inventory Approved'));
+    btns.push(icon('action-btn-danger', 'cancel', 'Reject requisition', 'Rejected'));
+  }
+  if (r.status === 'Inventory Approved' && isManager) {
+    btns.push(icon('action-btn-approve', 'task_alt', 'Final approval — mark completed', 'Completed'));
+  }
+  if (!['Rejected', 'Cancelled', 'Closed', 'Completed'].includes(r.status) && isAdmin && r.status !== 'Inventory Review') {
+    btns.push(icon('action-btn-danger', 'cancel', 'Reject requisition', 'Rejected'));
+  }
+  return btns.join('');
+}
+
+function reqStatusBadge(s) {
+  const cls = ['Completed', 'Approved', 'Inventory Approved'].includes(s) ? 'bg-emerald-100 text-emerald-700'
+    : ['Rejected', 'Cancelled'].includes(s) ? 'bg-red-100 text-red-700'
+    : s === 'Inventory Review' ? 'bg-indigo-100 text-indigo-700'
+    : s === 'Ordered' || s === 'Closed' ? 'bg-blue-100 text-blue-700'
+    : 'bg-amber-100 text-amber-700';
+  return `<span class="px-2 py-1 rounded text-xs font-semibold ${cls}">${esc(s || 'Submitted')}</span>`;
 }
 
 function renderRequisitionTable(requisitions) {
@@ -58,11 +97,11 @@ function renderRequisitionTable(requisitions) {
     return;
   }
   el.innerHTML = `
-    <table class="data-table w-full text-sm">
+    <table class="data-table w-full text-sm min-w-[820px]">
       <thead>
         <tr>
           <th>Req #</th><th>Title</th><th>Department</th><th>Priority</th>
-          <th>Est. Cost</th><th>Status</th><th>Needed By</th>
+          <th>Est. Cost</th><th>Status</th><th>Needed By</th><th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -73,28 +112,31 @@ function renderRequisitionTable(requisitions) {
             <td>${esc(req.department)}</td>
             <td><span class="tag">${esc(req.priority)}</span></td>
             <td>${money(req.estimated_cost)}</td>
-            <td><span class="tag">${esc(req.status)}</span></td>
+            <td>${reqStatusBadge(req.status)}</td>
             <td>${req.needed_by ? new Date(req.needed_by).toLocaleDateString() : '—'}</td>
+            <td class="whitespace-nowrap">${reqStageActions(req)}</td>
           </tr>
         `).join('')}
       </tbody>
     </table>`;
 }
 
+// Clickable pipeline: each stage box opens a detail dialog listing its
+// requisitions. "Completed" doubles as the historical record of approved work.
 function renderSourcingPipeline(requisitions) {
   const el = $('#sourcingPipeline');
   if (!el) return;
-  const stages = ['Draft', 'Submitted', 'Under Review', 'Approved', 'Completed'];
-  const counts = Object.fromEntries(stages.map((s) => [s, 0]));
+  const counts = Object.fromEntries(REQ_STAGES.map((s) => [s, 0]));
   requisitions.forEach((r) => {
-    const s = counts.hasOwnProperty(r.status) ? r.status : 'Submitted';
+    const s = counts.hasOwnProperty(r.status) ? r.status
+      : (r.status === 'Approved' ? 'Inventory Approved' : 'Submitted');
     counts[s]++;
   });
   const max = Math.max(1, ...Object.values(counts));
   el.innerHTML = `
     <div class="grid grid-cols-1 sm:grid-cols-5 gap-4">
       ${Object.entries(counts).map(([stage, count]) => `
-        <div class="bg-slate-50 rounded-xl p-4 border border-slate-100">
+        <button type="button" data-stage="${stage}" class="stage-card bg-slate-50 rounded-xl p-4 border border-slate-100 text-left hover:border-primary/50 hover:shadow transition-all cursor-pointer">
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-semibold text-slate-600">${stage}</span>
             <span class="text-sm font-bold text-primary">${count}</span>
@@ -102,33 +144,44 @@ function renderSourcingPipeline(requisitions) {
           <div class="h-1.5 bg-slate-200 rounded-full overflow-hidden">
             <div class="h-full bg-primary rounded-full" style="width:${Math.round((count / max) * 100)}%"></div>
           </div>
-        </div>`).join('')}
+        </button>`).join('')}
     </div>`;
 }
 
-async function loadRecentQuotes(showAll = false) {
-  const el = $('#quotesTable');
+// Completed requisitions — the permanent historical record.
+function renderCompletedReqs(requisitions) {
+  const el = $('#completedReqTable');
   if (!el) return;
-  try {
-    const response = await api('procurement/quotes');
-    const quotes = Array.isArray(response.quotes) ? response.quotes : [];
-    setText('totalQuotes', quotes.length);
-    const display = showAll ? quotes : quotes.slice(0, 5);
-    el.innerHTML = display.length
-      ? display.map((q) => `
-          <div class="flex items-center justify-between py-3 border-b border-slate-100 last:border-0">
-            <div>
-              <b class="text-sm">${esc(q.vendor)}</b>
-              <p class="text-xs text-slate-500">${esc(q.req_number)} · ${money(q.quote_amount)}</p>
-            </div>
-            <span class="tag">${esc(q.status)}</span>
-          </div>`).join('')
-      : '<p class="text-sm text-slate-400 py-6 text-center">No supplier quotes yet.</p>';
-  } catch (error) {
-    console.error('Error loading quotes:', error);
-    el.innerHTML = '<p class="text-sm text-red-500 py-4">Could not load quotes.</p>';
-  }
+  const done = requisitions.filter((r) => ['Completed', 'Approved', 'Closed', 'Ordered'].includes(r.status));
+  el.innerHTML = done.length ? `<table class="data-table w-full text-sm min-w-[640px]">
+    <thead><tr><th>Req #</th><th>Title</th><th>Department</th><th>Final Cost</th><th>Status</th><th>Completed</th></tr></thead>
+    <tbody>${done.map((r) => `<tr>
+      <td><span class="tag">${esc(r.req_number)}</span></td>
+      <td><b>${esc(r.title)}</b></td>
+      <td>${esc(r.department || '—')}</td>
+      <td class="font-mono">${money(r.actual_cost || r.estimated_cost)}</td>
+      <td>${reqStatusBadge(r.status)}</td>
+      <td class="text-slate-500 text-xs">${r.updated_at ? new Date(r.updated_at).toLocaleDateString() : '—'}</td>
+    </tr>`).join('')}</tbody></table>`
+    : '<p class="text-sm text-slate-400 py-6 text-center">No completed requisitions yet — approved work lands here.</p>';
 }
+
+// Stage drill-down dialog
+window.viewReqStage = (stage) => {
+  const rows = allRequisitions.filter((r) => (r.status === stage) || (stage === 'Inventory Approved' && r.status === 'Approved') || (stage === 'Submitted' && !REQ_STAGES.includes(r.status)));
+  const body = $('#reqStageBody');
+  if (!body) return;
+  $('#reqStageTitle') && ($('#reqStageTitle').textContent = `Requisitions — ${stage}`);
+  body.innerHTML = rows.length ? `<table class="w-full text-sm"><thead><tr class="border-b border-slate-200 text-left">
+    <th class="py-2 pr-4">Req #</th><th class="py-2 pr-4">Title</th><th class="py-2 pr-4">Dept</th><th class="py-2">Est. Cost</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono text-xs">${esc(r.req_number)}</td>
+    <td class="py-2 pr-4 font-medium">${esc(r.title)}</td><td class="py-2 pr-4 text-slate-600">${esc(r.department || '—')}</td>
+    <td class="py-2 font-mono">${money(r.estimated_cost)}</td></tr>`).join('')}</tbody></table>`
+    : '<p class="text-sm text-slate-400 py-6 text-center">No requisitions at this stage.</p>';
+  $('#reqStageModal')?.showModal();
+};
+
+// Supplier quotes now render inside Supplier Management (suppliers.js).
 
 // ==========================================
 // EVENT LISTENERS & INTERACTION
@@ -172,19 +225,47 @@ $('#requisitionSearch')?.addEventListener('input', () => {
   renderRequisitionTable(filtered);
 });
 
-const viewAllRequisitionsBtn = $('#viewAllRequisitions');
-if (viewAllRequisitionsBtn) {
-  viewAllRequisitionsBtn.onclick = () => loadProcurementData(true).then(() => {
-    $('#requisitionsTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
-}
+// Requisition workflow transitions + stage drill-down + detail view
+document.addEventListener('click', async (event) => {
+  const stageBtn = event.target.closest('[data-stage]');
+  if (stageBtn) { viewReqStage(stageBtn.dataset.stage); return; }
 
-const viewAllQuotesBtn = $('#viewAllQuotes');
-if (viewAllQuotesBtn) {
-  viewAllQuotesBtn.onclick = () => loadRecentQuotes(true).then(() => {
-    $('#quotesTable')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
-}
+  const viewBtn = event.target.closest('[data-req-view]');
+  if (viewBtn) {
+    const r = allRequisitions.find((x) => String(x.id) === String(viewBtn.dataset.reqView));
+    if (!r) return;
+    const body = $('#reqStageBody');
+    $('#reqStageTitle') && ($('#reqStageTitle').textContent = `Requisition ${r.req_number}`);
+    if (body) body.innerHTML = `<dl class="grid grid-cols-2 gap-3 text-sm">
+      <div><dt class="text-xs text-slate-500">Title</dt><dd class="font-medium">${esc(r.title)}</dd></div>
+      <div><dt class="text-xs text-slate-500">Status</dt><dd>${reqStatusBadge(r.status)}</dd></div>
+      <div><dt class="text-xs text-slate-500">Department</dt><dd>${esc(r.department || '—')}</dd></div>
+      <div><dt class="text-xs text-slate-500">Priority</dt><dd>${esc(r.priority || 'Normal')}</dd></div>
+      <div><dt class="text-xs text-slate-500">Estimated Cost</dt><dd class="font-mono">${money(r.estimated_cost)}</dd></div>
+      <div><dt class="text-xs text-slate-500">Needed By</dt><dd>${r.needed_by ? new Date(r.needed_by).toLocaleDateString() : '—'}</dd></div>
+      <div class="col-span-2"><dt class="text-xs text-slate-500">Justification</dt><dd>${esc(r.description || '—')}</dd></div></dl>`;
+    $('#reqStageModal')?.showModal();
+    return;
+  }
+
+  const actBtn = event.target.closest('[data-req-status]');
+  if (actBtn) {
+    const status = actBtn.dataset.reqStatus;
+    const ok = await confirmStep({
+      title: `${status === 'Rejected' ? 'Reject' : 'Advance'} requisition?`,
+      message: `This sets the requisition to "${status}". The transition is written to the immutable audit log.`,
+      confirmLabel: status === 'Rejected' ? 'Reject' : 'Confirm', icon: status === 'Rejected' ? 'cancel' : 'check_circle', danger: status === 'Rejected',
+    });
+    if (!ok) return;
+    const res = await fetch(`/api/v1/procurement/requisitions/${encodeURIComponent(actBtn.dataset.reqId)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.error || 'Transition refused.'); return; }
+    loadProcurementData();
+  }
+});
+document.getElementById('closeReqStage')?.addEventListener('click', () => $('#reqStageModal')?.close());
 
 document.addEventListener('DOMContentLoaded', function () {
   if (typeof initializePermissions === 'function') initializePermissions();
@@ -201,16 +282,30 @@ const setStat = (id, value) => { const el = document.getElementById(id); if (el)
 // ==========================================
 // PURCHASE ORDER DATA LOADING
 // ==========================================
+let allPOs = [];
+// Date-range filter on the Total Value stat + table (per TRD §5).
+function poInRange(po) {
+  const from = document.getElementById('poDateFrom')?.value;
+  const to = document.getElementById('poDateTo')?.value;
+  if (!from && !to) return true;
+  const d = new Date(po.created_at);
+  if (from && d < new Date(from + 'T00:00:00')) return false;
+  if (to && d > new Date(to + 'T23:59:59')) return false;
+  return true;
+}
+
 async function loadPOData() {
   try {
     const response = await api('pos');
     const data = response.pos || response;
     const purchaseOrders = Array.isArray(data) ? data : [];
+    allPOs = purchaseOrders;
 
+    const inRange = purchaseOrders.filter(poInRange);
     const totalPOs = purchaseOrders.length;
     const activePipeline = purchaseOrders.filter(po => po.status !== 'Received' && po.status !== 'Cancelled').length;
     const pendingApproval = purchaseOrders.filter(po => po.status === 'Pending Approval').length;
-    const totalPOValue = purchaseOrders.reduce((sum, po) => sum + (parseFloat(po.total) || 0), 0);
+    const totalPOValue = inRange.reduce((sum, po) => sum + (parseFloat(po.total) || 0), 0);
 
     // Update stats
     setStat('totalPOs', totalPOs);
@@ -221,14 +316,8 @@ async function loadPOData() {
     // Render PO table
     renderPOTable(purchaseOrders);
 
-    // Render PO pipeline
-    renderPOPipeline(purchaseOrders);
-
-    // Load recent activity
-    loadRecentActivity();
-
-    // Load vendor summary
-    loadVendorSummary(purchaseOrders);
+    // Render PO history table (static lifecycle record)
+    renderPOHistory(purchaseOrders);
 
     // Load PO activity log
     loadPOActivityLog();
@@ -239,6 +328,24 @@ async function loadPOData() {
   } catch (error) {
     console.error('Error loading PO data:', error);
   }
+}
+
+// Static PO history — every order, viewable details via the action icon.
+function renderPOHistory(purchaseOrders) {
+  const el = document.getElementById('poHistoryTable');
+  if (!el) return;
+  el.innerHTML = purchaseOrders.length ? `<table class="data-table w-full text-sm">
+    <thead><tr><th>PO #</th><th>Vendor</th><th>Total</th><th>Status</th><th>Expected</th><th>Created</th><th>Actions</th></tr></thead>
+    <tbody>${purchaseOrders.map((po) => `<tr>
+      <td><span class="tag">${esc(po.po_number)}</span></td>
+      <td><b>${esc(po.vendor_name || po.vendor)}</b></td>
+      <td class="font-mono">${money(po.total)}</td>
+      <td><span class="tag ${getPOStatusClass(po.status)}">${esc(po.status)}</span></td>
+      <td class="text-slate-500 text-xs">${po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString() : '—'}</td>
+      <td class="text-slate-500 text-xs">${po.created_at ? new Date(po.created_at).toLocaleDateString() : '—'}</td>
+      <td><button class="action-btn action-btn-view !px-2" title="View order" aria-label="View order" onclick="viewPO('${po.id}')"><span class="material-symbols-outlined text-base">visibility</span></button></td>
+    </tr>`).join('')}</tbody></table>`
+    : '<p class="text-sm text-slate-400 py-6 text-center">No purchase orders on record.</p>';
 }
 
 function renderPOTable(purchaseOrders) {
@@ -270,6 +377,7 @@ function renderPOTable(purchaseOrders) {
             <td>${po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString() : 'N/A'}</td>
             <td class="whitespace-nowrap">
               <button class="action-btn action-btn-view !px-2" title="View order" aria-label="View order" onclick="viewPO('${po.id}')"><span class="material-symbols-outlined text-base">visibility</span></button>
+              <button class="action-btn action-btn-view !px-2" title="Order tracking timeline" aria-label="Order tracking timeline" data-po-timeline="${po.id}"><span class="material-symbols-outlined text-base">route</span></button>
               ${getPOActionButtons(po)}
             </td>
           </tr>
@@ -299,10 +407,11 @@ function getPOActionButtons(po) {
       }
       break;
     case 'Sent to Vendor':
-      buttons.push(icon('action-btn-ship', 'local_shipping', 'Mark shipped', `markShipped('${po.id}', '${po.po_number}')`));
-      break;
     case 'Shipped':
-      buttons.push(icon('action-btn-approve', 'download_done', 'Receive order', `receivePO('${po.id}', '${po.po_number}')`));
+    case 'Arrived':
+      // "Order Received" — the shipped-step was removed per spec; goods move
+      // straight to the receipt workflow which logs items + generates QR serials.
+      buttons.push(icon('action-btn-approve', 'inventory_2', 'Order received — record receipt', `receivePO('${po.id}', '${po.po_number}')`));
       break;
     case 'Received':
       buttons.push(icon('action-btn-primary', 'picture_as_pdf', 'Generate QR PDF', `generateQRPDF('${po.id}')`));
@@ -322,6 +431,7 @@ function getPOStatusClass(status) {
     case 'Sent to Vendor':
       return 'status-sent';
     case 'Shipped':
+    case 'Arrived':
       return 'status-shipped';
     case 'Received':
       return 'status-received';
@@ -332,38 +442,42 @@ function getPOStatusClass(status) {
   }
 }
 
-function renderPOPipeline(purchaseOrders) {
-  const el = $('#poPipeline');
-  if (!el) return;
-  const pipelineStages = {
-    'Draft': 0,
-    'Pending Approval': 0,
-    'Sent to Vendor': 0,
-    'Shipped': 0,
-    'Received': 0,
-    'Cancelled': 0
-  };
-
-  purchaseOrders.forEach(po => {
-    if (pipelineStages.hasOwnProperty(po.status)) {
-      pipelineStages[po.status]++;
-    }
-  });
-
-  const pipelineHTML = Object.entries(pipelineStages).map(([stage, count]) => `
-    <div class="po-stage">
-      <div class="stage-header">
-        <b>${stage}</b>
-        <span class="stage-count">${count}</span>
-      </div>
-      <div class="stage-bar">
-        <div class="stage-fill ${getPOStatusClass(stage)}" style="width: ${Math.min(count * 25, 100)}%"></div>
-      </div>
-    </div>
-  `).join('');
-
-  el.innerHTML = pipelineHTML;
+// Inline order-tracking timeline (expandable row under each PO) — the
+// standalone tracking card was removed; tracking lives in the action column.
+const PO_STAGES = ['Draft', 'Pending Approval', 'Sent to Vendor', 'Received'];
+function poStageIndex(status) {
+  if (status === 'Approved') return 2;
+  if (status === 'Arrived') return 3; // arrived counts as in-receipt
+  const i = PO_STAGES.indexOf(status);
+  return i === -1 ? 0 : i;
 }
+function poTimelineHTML(po) {
+  const idx = poStageIndex(po.status);
+  const dead = po.status === 'Rejected' || po.status === 'Cancelled';
+  const steps = PO_STAGES.map((s, i) => {
+    const state = dead ? 'idle' : i < idx ? 'done' : i === idx ? 'current' : 'idle';
+    const dot = state === 'done' ? 'bg-emerald-500 text-white' : state === 'current' ? 'bg-primary text-white ring-4 ring-primary/20' : 'bg-slate-200 text-slate-400';
+    const lbl = state === 'idle' ? 'text-slate-400' : 'text-on-surface font-semibold';
+    return `<div class="flex flex-col items-center gap-1 min-w-0 flex-1">
+      <span class="w-6 h-6 rounded-full ${dot} flex items-center justify-center text-[10px] font-bold">${state === 'done' ? '✓' : i + 1}</span>
+      <span class="text-[10px] ${lbl} text-center leading-tight">${s}</span></div>`;
+  }).join('<div class="flex-1 h-px bg-slate-200 mt-3 shrink-0" style="min-width:8px"></div>');
+  return `<div class="px-4 py-3">${dead ? `<p class="text-xs text-red-600 font-semibold mb-2">${po.status}</p>` : ''}<div class="flex items-start">${steps}</div></div>`;
+}
+
+document.addEventListener('click', (event) => {
+  const tBtn = event.target.closest('[data-po-timeline]');
+  if (!tBtn) return;
+  const tr = tBtn.closest('tr');
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('po-timeline-row')) { next.remove(); return; }
+  const po = allPOs.find((p) => String(p.id) === String(tBtn.dataset.poTimeline));
+  if (!po) return;
+  const row = document.createElement('tr');
+  row.className = 'po-timeline-row bg-slate-50/70';
+  row.innerHTML = `<td colspan="6">${poTimelineHTML(po)}</td>`;
+  tr.after(row);
+});
 
 async function loadPOActivityLog() {
   const el = $('#poActivityLog');
@@ -389,30 +503,7 @@ async function loadPOActivityLog() {
   }
 }
 
-function loadVendorSummary(purchaseOrders) {
-  const el = $('#vendorSummary');
-  if (!el) return;
-  const vendorData = {};
-  purchaseOrders.forEach(po => {
-    if (!vendorData[po.vendor]) {
-      vendorData[po.vendor] = { count: 0, total: 0 };
-    }
-    vendorData[po.vendor].count++;
-    vendorData[po.vendor].total += po.total || 0;
-  });
 
-  const vendorHTML = Object.entries(vendorData).map(([vendor, data]) => `
-    <div class="row">
-      <div>
-        <b>${vendor}</b><br>
-        <small>${data.count} orders</small>
-      </div>
-      <b>${money(data.total)}</b>
-    </div>
-  `).join('');
-
-  el.innerHTML = vendorHTML;
-}
 
 // ==========================================
 // EVENT LISTENERS & INTERACTION
@@ -527,35 +618,7 @@ if (rejectPOForm) rejectPOForm.onsubmit = async (e) => {
   }
 };
 
-// Mark Shipped Modal
-const shippedModal = $('#shippedModal');
-const closeShippedBtn = $('#closeShipped');
-if (closeShippedBtn) closeShippedBtn.onclick = () => shippedModal?.close?.();
-
-const shippedForm = $('#shippedForm');
-if (shippedForm) shippedForm.onsubmit = async (e) => {
-  e.preventDefault();
-  const formData = new FormData(e.target);
-  const data = Object.fromEntries(formData);
-
-  const notes = `Marked as shipped. Carrier: ${data.carrier || 'N/A'}, Tracking: ${data.tracking_number || 'N/A'}. ${data.notes || ''}`;
-
-  const response = await fetch(`/api/v1/pos/${data.po_id}/status`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'Shipped', notes: notes }),
-  });
-
-  if (response.ok) {
-    shippedModal?.close?.();
-    e.target.reset();
-    loadPOData();
-  } else {
-    alert('Failed to mark as shipped');
-  }
-};
-
-// Receive PO Modal
+// Receive PO Modal ("Order Received" — the shipped step was removed per spec)
 const receiveModal = $('#receiveModal');
 const closeReceiveBtn = $('#closeReceive');
 if (closeReceiveBtn) closeReceiveBtn.onclick = () => receiveModal?.close?.();
@@ -679,12 +742,6 @@ window.rejectPO = (poId, poNumber) => {
   $('#rejectPoIdInput').value = poId;
   $('#rejectPoNumber').value = poNumber;
   $('#rejectPOModal').showModal();
-};
-
-window.markShipped = (poId, poNumber) => {
-  $('#shippedPoIdInput').value = poId;
-  $('#shippedPoNumber').value = poNumber;
-  $('#shippedModal').showModal();
 };
 
 window.receivePO = (poId, poNumber) => {
@@ -815,48 +872,9 @@ document.addEventListener("DOMContentLoaded", function() {
 // ==========================================
 const procLoaded = {};
 
-// TRD §5 — dedicated order-tracking view: each inbound PO rendered as a
-// fulfillment stepper synced from the live po status field.
-const PO_STAGES = ['Draft', 'Pending Approval', 'Sent to Vendor', 'Shipped', 'Arrived', 'Received'];
-function poStageIndex(status) {
-  if (status === 'Approved') return 2;
-  const i = PO_STAGES.indexOf(status);
-  return i === -1 ? 0 : i;
-}
-function renderOrderTracking(pos) {
-  const el = $('#orderTracking');
-  if (!el) return;
-  const open = pos.filter(p => p.status !== 'Rejected' && p.status !== 'Cancelled');
-  const rejected = pos.filter(p => p.status === 'Rejected' || p.status === 'Cancelled');
-  if (!pos.length) { el.innerHTML = '<div class="text-sm text-on-surface-variant text-center py-8">No purchase orders yet.</div>'; return; }
-  const row = (p) => {
-    const idx = poStageIndex(p.status);
-    const dead = p.status === 'Rejected' || p.status === 'Cancelled';
-    const steps = PO_STAGES.map((s, i) => {
-      const state = dead ? 'idle' : i < idx ? 'done' : i === idx ? 'current' : 'idle';
-      const dot = state === 'done' ? 'bg-emerald-500 text-white' : state === 'current' ? 'bg-primary text-white ring-4 ring-primary/20' : 'bg-slate-200 text-slate-400';
-      const lbl = state === 'idle' ? 'text-slate-400' : 'text-on-surface font-semibold';
-      return `<div class="flex flex-col items-center gap-1 min-w-0 flex-1">
-        <span class="w-6 h-6 rounded-full ${dot} flex items-center justify-center text-[10px] font-bold">${state === 'done' ? '✓' : i + 1}</span>
-        <span class="text-[10px] ${lbl} text-center leading-tight">${s}</span></div>`;
-    }).join('<div class="flex-1 h-px bg-slate-200 mt-3 shrink-0" style="min-width:8px"></div>');
-    return `<div>
-      <div class="flex items-center justify-between mb-2">
-        <span class="font-mono text-xs font-bold text-on-surface">${p.po_number}</span>
-        <span class="text-xs text-on-surface-variant">${p.vendor || 'Unknown vendor'} · ${money(p.total || 0)}</span>
-        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${dead ? 'bg-red-100 text-red-700' : 'bg-indigo-100 text-indigo-700'}">${p.status}</span>
-      </div>
-      <div class="flex items-start">${steps}</div>
-    </div>`;
-  };
-  el.innerHTML = open.map(row).join('') +
-    (rejected.length ? `<div class="pt-3 border-t border-slate-100"><p class="text-xs font-semibold text-on-surface-variant mb-2">Declined / Cancelled</p>${rejected.map(row).join('')}</div>` : '');
-}
-
 async function loadReceivingQueue() {
   const res = await api('pos');
   const pos = res.pos || res || [];
-  renderOrderTracking(pos);
   const arrived = pos.filter(p => p.status === 'Arrived');
   $('#receivingList').innerHTML = arrived.length ? arrived.map(p => `
     <div class="flex flex-wrap items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 mb-3">
@@ -869,31 +887,22 @@ async function loadReceivingQueue() {
     </div>`).join('') : '<div class="text-sm text-on-surface-variant text-center py-8">No arrivals awaiting receipt.</div>';
 }
 
-async function loadRfpBids() {
-  const [reqs, quotes] = await Promise.all([api('procurement/requisitions'), api('procurement/quotes')]);
-  const open = (reqs.requisitions || []).filter(r => r.status !== 'Converted' && r.status !== 'Cancelled');
-  const allQuotes = quotes.quotes || [];
-  const box = $('#rfpList');
-  if (!open.length) { box.innerHTML = '<div class="text-sm text-on-surface-variant text-center py-8">No open requisitions for bidding.</div>'; return; }
-  box.innerHTML = open.map(r => {
-    const bids = allQuotes.filter(q => q.requisition_id === r.id);
-    return `<div class="p-5 rounded-2xl bg-slate-50 border border-slate-200">
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <div><span class="font-bold text-sm text-on-surface">${r.req_number}</span><span class="text-sm text-on-surface-variant ml-2">${r.title}</span></div>
-        <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase ${bids.length ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600'}">${bids.length} bid${bids.length === 1 ? '' : 's'}</span>
-      </div>
-      ${bids.length ? `<div class="space-y-2">${bids.map(q => `
-        <div class="flex items-center justify-between p-3 rounded-xl bg-white border border-slate-100">
-          <span class="text-sm font-medium text-on-surface">${q.vendor_name || q.vendor || 'Supplier #' + q.vendor_id}</span>
-          <span class="text-sm font-mono font-bold text-on-surface">${money(q.amount || q.quoted_price || 0)}</span>
-        </div>`).join('')}</div>` : '<div class="text-xs text-on-surface-variant italic">No supplier quotes submitted yet.</div>'}
-    </div>`;
-  }).join('');
-}
+// PO date-range filter recomputes the Total Value stat live.
+['poDateFrom', 'poDateTo'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.onchange = () => {
+    const v = allPOs.filter(poInRange).reduce((s, po) => s + (parseFloat(po.total) || 0), 0);
+    setStat('totalPOValue', money(v));
+  };
+});
 
-const procTabLoaders = { receiving: loadReceivingQueue, rfp: loadRfpBids };
+const procTabLoaders = { receiving: loadReceivingQueue };
 document.addEventListener('hub:tab', (e) => {
   const name = e.detail.tab;
+  // Sourcing + Orders re-sync on every activation — the pipeline and totals
+  // must reflect requisition/PO transitions made elsewhere in real time.
+  if (name === 'sourcing') loadProcurementData();
+  if (name === 'orders' || name === 'history') loadPOData();
   if (procTabLoaders[name] && !procLoaded[name]) { procLoaded[name] = true; procTabLoaders[name](); }
 });
 

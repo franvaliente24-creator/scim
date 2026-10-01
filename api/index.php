@@ -651,6 +651,34 @@ function migrate(PDO $d): void {
     } catch (Exception $e) {
         // Column might already exist
     }
+    // Centralized archive + deletion bin (TRD §7): archived rows are hidden
+    // but restorable; deleted rows sit in a retention bin before purge.
+    foreach (['assets', 'purchase_orders', 'requisitions', 'vendors', 'documents'] as $t) {
+        try { $d->exec("ALTER TABLE $t ADD COLUMN archived_at DATETIME NULL"); } catch (Exception $e) {}
+        try { $d->exec("ALTER TABLE $t ADD COLUMN deleted_at DATETIME NULL"); } catch (Exception $e) {}
+    }
+    // Zone categorization (TRD §2): every zone stores its assigned category.
+    try { $d->exec("ALTER TABLE warehouse_zones ADD COLUMN category VARCHAR(60) NULL"); } catch (Exception $e) {}
+    // Dedicated disposal zone for write-offs.
+    $d->exec("INSERT IGNORE INTO warehouse_zones(zone, capacity, occupied, category)
+              SELECT 'DISPOSAL', 200, 0, 'Disposed Assets' FROM DUAL
+              WHERE NOT EXISTS (SELECT 1 FROM warehouse_zones WHERE zone = 'DISPOSAL')");
+    // Item specifications captured at generation time.
+    try { $d->exec("ALTER TABLE assets ADD COLUMN specs TEXT NULL"); } catch (Exception $e) {}
+    // Comprehensive user activity log (TRD §7).
+    $d->exec("CREATE TABLE IF NOT EXISTS activity_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT,
+        user_name VARCHAR(120),
+        action VARCHAR(80) NOT NULL,
+        entity VARCHAR(40),
+        entity_ref VARCHAR(80),
+        details TEXT,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_activity_user (user_id),
+        INDEX idx_activity_created (created_at)
+    )");
+
     // TRD §4 schema: consumable quantity, custom low-stock threshold,
     // acquisition date, and usable lifespan (months) per asset record
     try {
@@ -864,25 +892,38 @@ function db(): PDO {
 
 // ---- Blueprint helpers -----------------------------------------------------
 
-// Serialized QR format: AGENCY-ASSET-<CATEGORY>-<6-digit sequence>
+// Compact serialized ID format: AST-<6-digit sequence> (TRD §2 — IDs are
+// kept as short as possible for table layout; uniqueness is enforced by an
+// atomic MAX()+1 over the numeric suffix and the qr_code UNIQUE column).
 function genAssetSerial(PDO $d, string $category): string {
-    $code = strtoupper(preg_replace('/[^A-Za-z]/', '', $category));
-    $code = substr($code !== '' ? $code : 'ASSET', 0, 8);
-    $q = $d->prepare("SELECT qr_code FROM assets WHERE qr_code LIKE ? ORDER BY qr_code DESC LIMIT 1");
-    $q->execute(["AGENCY-ASSET-$code-%"]);
-    $last = $q->fetchColumn();
-    $seq = $last ? ((int)substr($last, -6)) + 1 : 1;
-    return sprintf('AGENCY-ASSET-%s-%06d', $code, $seq);
+    $q = $d->query("SELECT MAX(CAST(SUBSTRING(qr_code, 5) AS UNSIGNED)) FROM assets WHERE qr_code LIKE 'AST-%'");
+    $seq = ((int)$q->fetchColumn()) + 1;
+    return sprintf('AST-%06d', $seq);
+}
+
+// Comprehensive activity log (TRD §7): every mutating user action appends
+// an immutable row — actor, action, entity reference, and free-text detail.
+function logActivity(PDO $d, array $u, string $action, string $entity = '', string $ref = '', string $details = ''): void {
+    try {
+        $d->prepare('INSERT INTO activity_log(user_id, user_name, action, entity, entity_ref, details) VALUES(?,?,?,?,?,?)')
+          ->execute([$u['id'] ?? null, $u['name'] ?? ($u['full_name'] ?? 'system'), $action, $entity, $ref, $details]);
+    } catch (Exception $e) { /* logging must never break the action */ }
 }
 
 // Outbound stream: forward a verified PO to Accounts Payable (Financial Mgmt)
 function forwardToFinance(PDO $d, array $po): void {
+    $vendorName = $po['vendor_name'] ?? $po['vendor'] ?? 'Unknown';
+    // PO creation already staged a settlement receipt ('Awaiting Delivery');
+    // verification upgrades it to a forwarded AP record.
     $exists = $d->prepare('SELECT id FROM finance_settlements WHERE po_id = ? LIMIT 1');
     $exists->execute([$po['id']]);
-    if ($exists->fetch()) return;
-    $vendorName = $po['vendor_name'] ?? $po['vendor'] ?? 'Unknown';
-    $d->prepare('INSERT INTO finance_settlements(po_id, po_number, vendor_id, vendor_name, amount, verification_timestamp, status) VALUES(?,?,?,?,?,NOW(),?)')
-      ->execute([$po['id'], $po['po_number'], $po['vendor_id'], $vendorName, (float)$po['total'], 'Forwarded to AP']);
+    if ($row = $exists->fetch(PDO::FETCH_ASSOC)) {
+        $d->prepare("UPDATE finance_settlements SET vendor_name = ?, amount = ?, verification_timestamp = NOW(), status = 'Forwarded to AP' WHERE id = ?")
+          ->execute([$vendorName, (float)$po['total'], $row['id']]);
+    } else {
+        $d->prepare('INSERT INTO finance_settlements(po_id, po_number, vendor_id, vendor_name, amount, verification_timestamp, status) VALUES(?,?,?,?,?,NOW(),?)')
+          ->execute([$po['id'], $po['po_number'], $po['vendor_id'], $vendorName, (float)$po['total'], 'Forwarded to AP']);
+    }
     $d->prepare('INSERT INTO integration_audit_log(external_system, action, entity_type, entity_id, request_data, status) VALUES(?,?,?,?,?,?)')
       ->execute(['Financial Management', 'PO Settlement Forwarded', 'purchase_order', $po['id'],
                  json_encode(['po_number' => $po['po_number'], 'vendor_id' => $po['vendor_id'], 'total_invoice_amount' => $po['total']]),
@@ -1107,23 +1148,23 @@ if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
 
     // Inventory side
     $inv = $d->query("SELECT COALESCE(SUM(value*quantity),0) carrying_value, COALESCE(SUM(quantity),0) units_on_hand
-                      FROM assets WHERE status='In Warehouse'")->fetch(PDO::FETCH_ASSOC);
+                      FROM assets WHERE status='In Warehouse' AND deleted_at IS NULL AND archived_at IS NULL")->fetch(PDO::FETCH_ASSOC);
     $outbound90 = (int)$d->query("SELECT COUNT(*) FROM asset_transactions WHERE action LIKE 'Check-Out%' AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)")->fetchColumn();
     $inbound90  = (int)$d->query("SELECT COUNT(*) FROM asset_transactions WHERE action LIKE 'Check-In%' AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)")->fetchColumn();
     $unitsOnHand = max(1, (int)$inv['units_on_hand']);
     $turnover = round($outbound90 / $unitsOnHand, 2);
     $dsi = $outbound90 > 0 ? round($unitsOnHand / ($outbound90 / 90)) : null;
-    $dead = (int)$d->query("SELECT COUNT(*) FROM assets a WHERE a.status='In Warehouse' AND a.created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
+    $dead = (int)$d->query("SELECT COUNT(*) FROM assets a WHERE a.status='In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL AND a.created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
                             AND NOT EXISTS (SELECT 1 FROM asset_transactions t WHERE t.asset_id=a.id AND t.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY))")->fetchColumn();
     // Category-level deficits vs thresholds
     $stockouts = $d->query("SELECT t.category, t.min_quantity, COALESCE(SUM(a.quantity),0) on_hand
-                            FROM stock_thresholds t LEFT JOIN assets a ON a.category=t.category AND a.status='In Warehouse'
+                            FROM stock_thresholds t LEFT JOIN assets a ON a.category=t.category AND a.status='In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL
                             GROUP BY t.category, t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
     $belowThresh = 0;
     foreach ($stockouts as $s) { if ((int)$s['on_hand'] < (int)$s['min_quantity']) $belowThresh++; }
     $stockoutRate = count($stockouts) ? round($belowThresh / count($stockouts) * 100) : 0;
     // Per-asset custom threshold breaches
-    $assetAlerts = (int)$d->query("SELECT COUNT(*) FROM assets WHERE status='In Warehouse' AND low_stock_threshold IS NOT NULL AND quantity < low_stock_threshold")->fetchColumn();
+    $assetAlerts = (int)$d->query("SELECT COUNT(*) FROM assets WHERE status='In Warehouse' AND deleted_at IS NULL AND archived_at IS NULL AND low_stock_threshold IS NOT NULL AND quantity < low_stock_threshold")->fetchColumn();
 
     // Fulfillment side — PO lifecycle timing from the activity ledger
     $ful = $d->query("SELECT COUNT(*) total_received,
@@ -1134,7 +1175,17 @@ if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
     $cycle = $ful['cycle_days'] !== null ? round($ful['cycle_days'], 1) : null;
     $returnRate = $outbound90 > 0 ? round($inbound90 / $outbound90 * 100) : 0;
     $sup = $d->query("SELECT ROUND(AVG(rating),1) avg_rating, ROUND(AVG(on_time_rate)) avg_otd, ROUND(AVG(defect_rate),1) avg_defect FROM vendors")->fetch(PDO::FETCH_ASSOC);
-    $logistics = (float)$d->query("SELECT COALESCE(SUM(total),0) FROM purchase_orders WHERE status IN ('Shipped','Arrived','Received')")->fetchColumn();
+    $logistics = (float)$d->query("SELECT COALESCE(SUM(total),0) FROM purchase_orders WHERE status IN ('Shipped','Arrived','Received','Order Received') AND deleted_at IS NULL")->fetchColumn();
+
+    // Chart series for the dashboard overhaul (TRD §1)
+    $moveSeries = $d->query("SELECT DATE(created_at) d,
+            SUM(action LIKE 'Check-Out%' OR action LIKE 'Assign%') outbound,
+            SUM(action LIKE 'Check-In%' OR action = 'Inventory Intake') inbound
+            FROM asset_transactions WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+            GROUP BY DATE(created_at) ORDER BY d")->fetchAll(PDO::FETCH_ASSOC);
+    $statusDist = $d->query("SELECT status, COUNT(*) n FROM assets WHERE deleted_at IS NULL AND archived_at IS NULL AND status <> 'Awaiting Print' GROUP BY status")->fetchAll(PDO::FETCH_ASSOC);
+    $poByStatus = $d->query("SELECT status, COUNT(*) n FROM purchase_orders WHERE deleted_at IS NULL GROUP BY status")->fetchAll(PDO::FETCH_ASSOC);
+    $upcoming = $d->query("SELECT po_number, vendor, expected_delivery FROM purchase_orders WHERE deleted_at IS NULL AND expected_delivery IS NOT NULL AND expected_delivery >= DATE_SUB(CURDATE(), INTERVAL 60 DAY) AND expected_delivery <= DATE_ADD(CURDATE(), INTERVAL 60 DAY)")->fetchAll(PDO::FETCH_ASSOC);
 
     reply(['metrics' => [
         'carrying_value'   => (float)$inv['carrying_value'],
@@ -1152,13 +1203,18 @@ if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
         'supplier_otd'     => $sup['avg_otd'] !== null ? (int)$sup['avg_otd'] : null,
         'supplier_defect'  => $sup['avg_defect'] !== null ? (float)$sup['avg_defect'] : null,
         'logistics_value'  => $logistics,
+    ], 'series' => [
+        'movement_14d' => $moveSeries,
+        'status_dist'  => $statusDist,
+        'po_status'    => $poByStatus,
+        'calendar'     => $upcoming,
     ]]);
 }
 
 // --- Assets Endpoints ---
 if ($method === 'GET' && $path === '/api/v1/assets') {
     auth();
-    reply(db()->query('SELECT * FROM assets ORDER BY name')->fetchAll(PDO::FETCH_ASSOC));
+    reply(db()->query('SELECT * FROM assets WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY name')->fetchAll(PDO::FETCH_ASSOC));
 }
 
 if ($method === 'POST' && $path === '/api/v1/assets') {
@@ -1230,8 +1286,24 @@ if ($method === 'DELETE' && preg_match('#^/api/v1/assets/([^/]+)$#', $path, $m))
               ((float)$a['value'] >= 50000) ? ' — HIGH-VALUE FLAG for compliance review' : ''),
           $u['name'], $u['id'], $_SERVER['REMOTE_ADDR'] ?? null
       ]);
-    $d->prepare('DELETE FROM asset_transactions WHERE asset_id = ?')->execute([$a['id']]);
+    // TRD §7: deletion is now a soft-delete into the Admin retention bin —
+    // the record stays restorable for 30 days, then purges automatically.
+    $d->prepare('UPDATE assets SET deleted_at = NOW() WHERE id = ?')->execute([$a['id']]);
+    logActivity($d, $u, 'Moved asset to deletion bin', 'asset', $a['qr_code'], $a['name']);
+    reply(['ok' => true, 'binned' => true]);
+}
+
+// Pending-row deletion (TRD §3): uncommitted Awaiting-Print serials may be
+// removed outright by warehouse staff — they were never active stock.
+if ($method === 'DELETE' && preg_match('#^/api/v1/inventory/pending/([^/]+)$#', $path, $m)) {
+    $u = auth(['Admin', 'WarehouseStaff']);
+    $d = db();
+    $q = $d->prepare("SELECT id, name FROM assets WHERE qr_code = ? AND status = 'Awaiting Print'");
+    $q->execute([$m[1]]);
+    $a = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$a) reply(['error' => 'Pending serial not found.'], 404);
     $d->prepare('DELETE FROM assets WHERE id = ?')->execute([$a['id']]);
+    logActivity($d, $u, 'Discarded pending serial', 'asset', $m[1], $a['name']);
     reply(['ok' => true]);
 }
 
@@ -1394,6 +1466,7 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
       ->execute([$a['id'], $action, $zone]);
     $d->prepare('INSERT INTO scan_logs(asset_id, qr_code, action, details, scanned_by, user_id, ip_address) VALUES(?,?,?,?,?,?,?)')
       ->execute([$a['id'], $qr, $action, $details, $u['name'], $u['id'], $_SERVER['REMOTE_ADDR'] ?? null]);
+    logActivity($d, $u, 'Scanned asset', 'asset', $qr, $action);
 
     // Automated procurement loop: check-out drains stock -> auto requisition
     $requisitionFired = null;
@@ -1435,7 +1508,7 @@ if ($method === 'GET' && $path === '/api/v1/scan-logs') {
 // --- Purchase Orders (Pending) Endpoints ---
 if ($method === 'GET' && $path === '/api/v1/pos/pending') {
     auth();
-    reply(db()->query('SELECT * FROM purchase_orders ORDER BY updated_at DESC')->fetchAll(PDO::FETCH_ASSOC));
+    reply(db()->query('SELECT * FROM purchase_orders WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC')->fetchAll(PDO::FETCH_ASSOC));
 }
 
 if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) {
@@ -1475,7 +1548,7 @@ if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) 
 // --- Vendors Endpoints ---
 if ($method === 'GET' && $path === '/api/v1/vendors') {
     auth();
-    reply(db()->query('SELECT * FROM vendors ORDER BY on_time_rate DESC')->fetchAll(PDO::FETCH_ASSOC));
+    reply(db()->query('SELECT * FROM vendors WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY on_time_rate DESC')->fetchAll(PDO::FETCH_ASSOC));
 }
 
 // --- Users Endpoints ---
@@ -1861,7 +1934,7 @@ function verifyTOTP($code, $secret) {
 if ($method === 'GET' && $path === '/api/v1/warehouse/zones') {
     auth();
     $d = db();
-    $zones = $d->query('SELECT zone, capacity, occupied, ROUND(occupied/capacity*100) pct FROM warehouse_zones ORDER BY zone')->fetchAll(PDO::FETCH_ASSOC);
+    $zones = $d->query('SELECT zone, capacity, occupied, category, ROUND(occupied/capacity*100) pct FROM warehouse_zones ORDER BY zone')->fetchAll(PDO::FETCH_ASSOC);
     foreach ($zones as &$zone) {
         $stmt = $d->prepare('SELECT row_num AS row, capacity, occupied, ROUND(occupied/capacity*100) pct FROM warehouse_rows WHERE zone = ? ORDER BY row_num');
         $stmt->execute([$zone['zone']]);
@@ -1876,17 +1949,21 @@ if ($method === 'POST' && $path === '/api/v1/warehouse/zones') {
     $zone = trim((string)($x['zone'] ?? ''));
     $capacity = filter_var($x['capacity'] ?? null, FILTER_VALIDATE_INT);
     $rowCount = filter_var($x['row_count'] ?? 4, FILTER_VALIDATE_INT);
+    $zoneCategory = trim((string)($x['category'] ?? ''));
 
     if ($zone === '' || strlen($zone) > 20 || $capacity === false || $capacity < 1 ||
         $rowCount === false || $rowCount < 1 || $rowCount > 20 || $rowCount > $capacity) {
         reply(['error' => 'Enter a zone name, a positive capacity, and 1 to 20 rows not exceeding the capacity.'], 400);
     }
+    if ($zoneCategory === '') {
+        reply(['error' => 'Every zone must have an assigned category.'], 400);
+    }
 
     $d = db();
     try {
         $d->beginTransaction();
-        $d->prepare('INSERT INTO warehouse_zones(zone, capacity, occupied) VALUES(?, ?, 0)')
-          ->execute([$zone, $capacity]);
+        $d->prepare('INSERT INTO warehouse_zones(zone, capacity, occupied, category) VALUES(?, ?, 0, ?)')
+          ->execute([$zone, $capacity, $zoneCategory]);
 
         $baseRowCapacity = intdiv($capacity, $rowCount);
         $remainingCapacity = $capacity % $rowCount;
@@ -1925,7 +2002,9 @@ if ($method === 'GET' && $path === '/api/v1/inventory/assets') {
     // through ?pending=1 for the Pending Stock Adjustments queue.
     $pending = isset($_GET['pending']) && $_GET['pending'] === '1';
     $search = trim((string)($_GET['search'] ?? ''));
-    $where = $pending ? "status = 'Awaiting Print'" : "status <> 'Awaiting Print'";
+    // Archived and binned rows are invisible to the active ledger.
+    $where = ($pending ? "status = 'Awaiting Print'" : "status <> 'Awaiting Print'")
+           . " AND archived_at IS NULL AND deleted_at IS NULL";
     $params = [];
     if ($search !== '') {
         $where .= ' AND (name LIKE ? OR qr_code LIKE ? OR category LIKE ? OR location LIKE ? OR status LIKE ?)';
@@ -1948,6 +2027,7 @@ if ($method === 'POST' && $path === '/api/v1/inventory/assets') {
     $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'],
         (int)($x['quantity'] ?? 1) ?: 1, $x['low_stock_threshold'] !== '' && $x['low_stock_threshold'] !== null ? (int)$x['low_stock_threshold'] : null,
         $x['date_purchased'] ?: null, $x['lifespan_months'] !== '' && $x['lifespan_months'] !== null ? (int)$x['lifespan_months'] : null]);
+    logActivity($d, auth(), 'Registered asset', 'asset', $x['qr_code'], $x['name']);
     reply(['id' => db()->lastInsertId()], 201);
 }
 
@@ -2046,7 +2126,28 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
         $d->prepare('INSERT INTO asset_transactions(asset_id, action, zone, created_at) VALUES(?, ?, ?, NOW())')
           ->execute([$existingAsset['id'], 'Status Updated', $x['location'] ?? 'Unknown']);
     }
-    
+
+    // TRD §2: threshold breach fires an automated dashboard notification.
+    // Only active (non-pending, non-binned) stock triggers alerts, and only
+    // once per breach — a matching Pending notice suppresses repeats.
+    if (array_key_exists('quantity', $x) || array_key_exists('low_stock_threshold', $x)) {
+        $check = $d->prepare("SELECT id, name, quantity, low_stock_threshold, status FROM assets WHERE qr_code = ?");
+        $check->execute([rawurldecode($m[1])]);
+        if ($row = $check->fetch(PDO::FETCH_ASSOC)) {
+            if ($row['status'] === 'In Warehouse' && $row['low_stock_threshold'] !== null
+                && (int)$row['quantity'] < (int)$row['low_stock_threshold']) {
+                $dup = $d->prepare("SELECT id FROM admin_notifications WHERE type = 'low_stock' AND status = 'Pending' AND details LIKE ? LIMIT 1");
+                $dup->execute(['%' . $m[1] . '%']);
+                if (!$dup->fetch()) {
+                    $d->prepare("INSERT INTO admin_notifications(type, title, details) VALUES('low_stock', 'Low Stock Alert', ?)")
+                      ->execute([sprintf('Asset %s ("%s") dropped to %d on hand — minimum is %d.',
+                          $m[1], $row['name'], $row['quantity'], $row['low_stock_threshold'])]);
+                }
+            }
+        }
+    }
+    logActivity($d, auth(), 'Updated asset', 'asset', $m[1], implode(', ', array_keys($x)));
+
     reply(['ok' => true]);
 }
 
@@ -2061,7 +2162,7 @@ if ($method === 'GET' && $path === '/api/v1/inventory/transactions') {
 if ($method === 'GET' && $path === '/api/v1/procurement/requisitions') {
     auth();
     $d = db();
-    $requisitions = $d->query('SELECT r.*, u.full_name AS created_by_name FROM requisitions r LEFT JOIN users u ON r.created_by=u.id ORDER BY r.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
+    $requisitions = $d->query('SELECT r.*, u.full_name AS created_by_name FROM requisitions r LEFT JOIN users u ON r.created_by=u.id WHERE r.deleted_at IS NULL AND r.archived_at IS NULL ORDER BY r.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
     reply(['requisitions' => $requisitions]);
 }
 
@@ -2090,14 +2191,22 @@ if ($method === 'PUT' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$
     $x = body();
     $d = db();
 
-    // TRD §1: approve/reject authority is exclusive to System Administrators.
+    // TRD §4 multi-tier workflow: departments submit (Submitted) → the
+    // manager forwards to inventory (Inventory Review) → the Administrator
+    // performs inventory approval (Inventory Approved) → the procurement
+    // manager completes final approval (Completed). Rejection remains an
+    // Administrator-exclusive decision per TRD §1.
     if (isset($x['status'])) {
-        $allowedStatuses = ['Submitted', 'Pending', 'Approved', 'Rejected', 'Ordered', 'Closed', 'Cancelled'];
+        $allowedStatuses = ['Draft', 'Submitted', 'Pending', 'Inventory Review',
+            'Inventory Approved', 'Completed', 'Approved', 'Rejected', 'Ordered', 'Closed', 'Cancelled'];
         if (!in_array($x['status'], $allowedStatuses, true)) {
             reply(['error' => 'Invalid requisition status.'], 400);
         }
-        if (in_array($x['status'], ['Approved', 'Rejected'], true) && $u['role'] !== 'Admin') {
-            reply(['error' => 'Only a System Administrator may approve or reject requisitions.'], 403);
+        if (in_array($x['status'], ['Inventory Approved', 'Rejected'], true) && $u['role'] !== 'Admin') {
+            reply(['error' => 'Only a System Administrator may perform inventory approval or reject requisitions.'], 403);
+        }
+        if ($x['status'] === 'Inventory Review' && !in_array($u['role'], ['Admin', 'Manager'], true)) {
+            reply(['error' => 'Only a manager may forward a requisition to inventory.'], 403);
         }
     }
 
@@ -2146,6 +2255,7 @@ if ($method === 'PUT' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$
         $d->prepare('INSERT INTO integration_audit_log(external_system, action, entity_type, entity_id, request_data, status) VALUES(?,?,?,?,?,?)')
           ->execute(['SCIM', 'Requisition ' . $x['status'], 'requisition', $req['id'],
                      json_encode(['req_number' => $m[1], 'new_status' => $x['status'], 'actor' => $u['name'] ?? $u['id']]), 'Success']);
+        logActivity($d, $u, 'Requisition ' . $x['status'], 'requisition', $m[1]);
     }
 
     reply(['ok' => true]);
@@ -2162,7 +2272,7 @@ if ($method === 'GET' && $path === '/api/v1/procurement/quotes') {
 if ($method === 'GET' && $path === '/api/v1/suppliers') {
     auth();
     $d = db();
-    $suppliers = $d->query('SELECT * FROM vendors ORDER BY rating DESC')->fetchAll(PDO::FETCH_ASSOC);
+    $suppliers = $d->query('SELECT * FROM vendors WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY rating DESC')->fetchAll(PDO::FETCH_ASSOC);
     reply(['suppliers' => $suppliers]);
 }
 
@@ -2285,7 +2395,7 @@ if ($method === 'PUT' && preg_match('#^/api/v1/vendors/(\d+)$#', $path, $m)) {
 if ($method === 'GET' && $path === '/api/v1/pos') {
     auth();
     $d = db();
-    $pos = $d->query('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id=v.id ORDER BY po.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
+    $pos = $d->query('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id=v.id WHERE po.deleted_at IS NULL AND po.archived_at IS NULL ORDER BY po.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
     reply(['pos' => $pos]);
 }
 
@@ -2306,10 +2416,16 @@ if ($method === 'POST' && $path === '/api/v1/pos') {
     $q = $d->prepare('INSERT INTO purchase_orders(po_number, vendor_id, vendor, items, total, expected_delivery, notes) VALUES(?,?,?,?,?,?,?)');
     $q->execute([$po_number, $vendor_id, $vendor_name, $x['items'], $x['total'], $x['expected_delivery'], $x['notes']]);
     $po_id = $d->lastInsertId();
-    
+
+    // TRD §4: a settlement receipt is generated at order creation and
+    // routes to Settlements; physical verification upgrades it to AP.
+    $d->prepare('INSERT INTO finance_settlements(po_id, po_number, vendor_id, vendor_name, amount, status) VALUES(?,?,?,?,?,?)')
+      ->execute([$po_id, $po_number, $vendor_id, $vendor_name, (float)($x['total'] ?? 0), 'Awaiting Delivery']);
+
     $d->prepare('INSERT INTO po_activity(po_id, action, details) VALUES(?,?,?)')
       ->execute([$po_id, 'Created', 'Purchase order created by ' . auth()['name']]);
-      
+    logActivity($d, auth(), 'Created purchase order', 'purchase_order', $po_number, '₱' . number_format((float)($x['total'] ?? 0), 2) . ' to ' . $vendor_name);
+
     reply(['id' => $po_id, 'po_number' => $po_number], 201);
 }
 
@@ -2410,15 +2526,31 @@ if ($method === 'POST' && $path === '/api/v1/assets/generate-batch') {
     $name = substr(trim($x['name'] ?? ''), 0, 120);
     $category = substr(trim($x['category'] ?? 'IT Equipment'), 0, 60) ?: 'IT Equipment';
     $qty = min(50, max(1, (int)($x['quantity'] ?? 1)));
+    // TRD §2: generation requires a physical destination plus the full
+    // acquisition record — value, purchase date, lifespan, and specs.
+    $location = trim((string)($x['location'] ?? ''));
+    $value = $x['value'] ?? null;
+    $datePurchased = trim((string)($x['date_purchased'] ?? ''));
+    $lifespan = $x['lifespan_months'] ?? null;
+    $specs = trim((string)($x['specs'] ?? ''));
     if ($name === '') reply(['error' => 'Item name is required.'], 400);
+    if ($location === '') reply(['error' => 'Select a physical destination zone before generating serials.'], 400);
+    if ($value === null || $value === '' || !is_numeric($value)) reply(['error' => 'Item value is required.'], 400);
+    if ($datePurchased === '') reply(['error' => 'Purchase date is required.'], 400);
+    if ($lifespan === null || $lifespan === '' || !is_numeric($lifespan)) reply(['error' => 'Asset lifespan (months) is required.'], 400);
+    if ($specs === '') reply(['error' => 'Item specifications are required.'], 400);
     $serials = [];
     for ($i = 0; $i < $qty; $i++) {
         $serial = genAssetSerial($d, $category);
-        $d->prepare("INSERT INTO assets(qr_code, name, category, value, status, location) VALUES(?,?,?,0,'Awaiting Print','Print Queue')")
-          ->execute([$serial, $name, $category]);
+        // Pending-only: serials are staged as Awaiting Print and only commit
+        // to active inventory after a physical intake scan.
+        $thresh = ($x['low_stock_threshold'] ?? '') === '' ? null : (int)$x['low_stock_threshold'];
+        $d->prepare("INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months, specs) VALUES(?,?,?,?,'Awaiting Print',?,1,?,?,?,?)")
+          ->execute([$serial, $name, $category, (float)$value, $location, $thresh, $datePurchased, (int)$lifespan, $specs]);
         $serials[] = $serial;
     }
-    reply(['ok' => true, 'serials' => $serials, 'count' => count($serials)], 201);
+    logActivity($d, $u, 'Generated serial batch', 'asset', $name, "$qty serials for $location");
+    reply(['ok' => true, 'serials' => $serials, 'count' => count($serials), 'destination' => $location], 201);
 }
 
 // ==========================================================================
@@ -2461,15 +2593,34 @@ if ($method === 'GET' && $path === '/api/v1/sync-status') {
 if ($method === 'GET' && $path === '/api/v1/stock-alerts') {
     auth();
     $d = db();
+    // Only active committed stock counts — pending, archived, and binned
+    // rows can never trigger a low-stock alert (TRD §2/§3).
     $alerts = $d->query("SELECT t.category, t.min_quantity,
-            (SELECT COUNT(*) FROM assets a WHERE a.category = t.category AND a.status = 'In Warehouse') AS on_hand
+            (SELECT COUNT(*) FROM assets a WHERE a.category = t.category AND a.status = 'In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL) AS on_hand
             FROM stock_thresholds t ORDER BY on_hand / t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
     foreach ($alerts as &$al) {
         $al['on_hand'] = (int)$al['on_hand'];
         $al['min_quantity'] = (int)$al['min_quantity'];
         $al['deficit'] = $al['on_hand'] < $al['min_quantity'];
     }
-    reply(['items' => $alerts]);
+    // Per-asset threshold alerts, grouped by asset name so repeat serials
+    // collapse into one row (deficit_qty = sum of units below the threshold).
+    $assetAlerts = $d->query("SELECT name, category,
+            SUM(quantity) AS on_hand, MAX(low_stock_threshold) AS min_quantity,
+            COUNT(*) AS serials
+            FROM assets
+            WHERE deleted_at IS NULL AND archived_at IS NULL AND status = 'In Warehouse'
+              AND low_stock_threshold IS NOT NULL
+            GROUP BY name, category
+            HAVING SUM(quantity) < MAX(low_stock_threshold)
+            ORDER BY SUM(quantity) / MAX(low_stock_threshold)")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($assetAlerts as &$aa) {
+        $aa['on_hand'] = (int)$aa['on_hand'];
+        $aa['min_quantity'] = (int)$aa['min_quantity'];
+        $aa['serials'] = (int)$aa['serials'];
+        $aa['deficit'] = true;
+    }
+    reply(['items' => $alerts, 'asset_items' => $assetAlerts]);
 }
 
 // --- Equipment Requests API Endpoints ---
@@ -2611,7 +2762,7 @@ if ($method === 'GET' && preg_match('#^/api/v1/equipment-requests/([^/]+)/activi
 if ($method === 'GET' && $path === '/api/v1/documents') {
     auth();
     $d = db();
-    $documents = $d->query('SELECT * FROM documents ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
+    $documents = $d->query('SELECT * FROM documents WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
     reply(['documents' => $documents]);
 }
 
@@ -3134,6 +3285,189 @@ if ($method === 'GET' && $path === '/api/v1/integration/config') {
     }
     
     reply(['configs' => $configArray]);
+}
+
+// ==========================================================================
+// TRD v4.2 — ARCHIVE, DELETION BIN, ACTIVITY LOG, EXPORT, NAV BADGES
+// ==========================================================================
+
+// Shared entity whitelist for archive / trash / restore / purge.
+// Every key maps to (table, ref column used for display).
+function archiveEntities(): array {
+    return [
+        'asset'       => ['table' => 'assets', 'label' => 'name', 'ref' => 'qr_code'],
+        'po'          => ['table' => 'purchase_orders', 'label' => 'po_number', 'ref' => 'po_number'],
+        'requisition' => ['table' => 'requisitions', 'label' => 'title', 'ref' => 'req_number'],
+        'supplier'    => ['table' => 'vendors', 'label' => 'name', 'ref' => 'id'],
+        'document'    => ['table' => 'documents', 'label' => 'document_type', 'ref' => 'reference_no'],
+    ];
+}
+
+// GET /api/v1/archives — Admin-only centralized archive folder.
+if ($method === 'GET' && $path === '/api/v1/archives') {
+    auth(['Admin']);
+    $d = db();
+    $items = [];
+    foreach (archiveEntities() as $type => $cfg) {
+        $rows = $d->query("SELECT id, {$cfg['label']} AS label, {$cfg['ref']} AS ref, archived_at
+                           FROM {$cfg['table']} WHERE archived_at IS NOT NULL AND deleted_at IS NULL
+                           ORDER BY archived_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) { $r['entity'] = $type; $items[] = $r; }
+    }
+    usort($items, fn($a, $b) => strcmp($b['archived_at'], $a['archived_at']));
+    reply(['items' => $items]);
+}
+
+// GET /api/v1/trash — Admin-only deletion bin with a 30-day retention span;
+// anything past retention is purged automatically on read.
+if ($method === 'GET' && $path === '/api/v1/trash') {
+    auth(['Admin']);
+    $d = db();
+    $retentionDays = 30;
+    foreach (archiveEntities() as $cfg) {
+        $d->exec("DELETE FROM {$cfg['table']} WHERE deleted_at IS NOT NULL AND deleted_at < DATE_SUB(NOW(), INTERVAL $retentionDays DAY)");
+    }
+    $items = [];
+    foreach (archiveEntities() as $type => $cfg) {
+        $rows = $d->query("SELECT id, {$cfg['label']} AS label, {$cfg['ref']} AS ref, deleted_at,
+                           GREATEST(0, $retentionDays - DATEDIFF(NOW(), deleted_at)) AS days_left
+                           FROM {$cfg['table']} WHERE deleted_at IS NOT NULL
+                           ORDER BY deleted_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) { $r['entity'] = $type; $items[] = $r; }
+    }
+    usort($items, fn($a, $b) => strcmp($b['deleted_at'], $a['deleted_at']));
+    reply(['items' => $items, 'retention_days' => $retentionDays]);
+}
+
+// POST /api/v1/records/{entity}/{id}/archive|restore — Admin only.
+if ($method === 'POST' && preg_match('#^/api/v1/records/([a-z]+)/(\d+)/(archive|restore)$#', $path, $m)) {
+    $u = auth(['Admin']);
+    $cfg = archiveEntities()[$m[1]] ?? null;
+    if (!$cfg) reply(['error' => 'Unknown record type.'], 400);
+    $d = db();
+    if ($m[3] === 'archive') {
+        $d->prepare("UPDATE {$cfg['table']} SET archived_at = NOW(), deleted_at = NULL WHERE id = ? AND deleted_at IS NULL")
+          ->execute([(int)$m[2]]);
+        logActivity($d, $u, 'Archived record', $m[1], (string)$m[2]);
+    } else {
+        $d->prepare("UPDATE {$cfg['table']} SET archived_at = NULL, deleted_at = NULL WHERE id = ?")
+          ->execute([(int)$m[2]]);
+        logActivity($d, $u, 'Restored record', $m[1], (string)$m[2]);
+    }
+    reply(['ok' => true]);
+}
+
+// DELETE /api/v1/records/{entity}/{id} — soft-delete to the retention bin.
+// ?permanent=1 purges outright. Both are Admin-only (TRD §7).
+if ($method === 'DELETE' && preg_match('#^/api/v1/records/([a-z]+)/(\d+)$#', $path, $m)) {
+    $u = auth(['Admin']);
+    $cfg = archiveEntities()[$m[1]] ?? null;
+    if (!$cfg) reply(['error' => 'Unknown record type.'], 400);
+    $d = db();
+    if (($_GET['permanent'] ?? '') === '1') {
+        $d->prepare("DELETE FROM {$cfg['table']} WHERE id = ?")->execute([(int)$m[2]]);
+        logActivity($d, $u, 'Permanently deleted record', $m[1], (string)$m[2]);
+    } else {
+        $d->prepare("UPDATE {$cfg['table']} SET deleted_at = NOW() WHERE id = ?")->execute([(int)$m[2]]);
+        logActivity($d, $u, 'Moved record to deletion bin', $m[1], (string)$m[2]);
+    }
+    reply(['ok' => true]);
+}
+
+// GET /api/v1/activity-log — own actions for everyone; ?all=1 shows the
+// platform-wide feed to Admins. Optional ?from=&to=&search= filters.
+if ($method === 'GET' && $path === '/api/v1/activity-log') {
+    $u = auth();
+    $d = db();
+    $where = '1=1';
+    $params = [];
+    if (!($u['role'] === 'Admin' && ($_GET['all'] ?? '') === '1')) {
+        $where .= ' AND user_id = ?';
+        $params[] = $u['id'];
+    }
+    if (!empty($_GET['from'])) { $where .= ' AND created_at >= ?'; $params[] = $_GET['from'] . ' 00:00:00'; }
+    if (!empty($_GET['to']))   { $where .= ' AND created_at <= ?'; $params[] = $_GET['to'] . ' 23:59:59'; }
+    if (!empty($_GET['search'])) {
+        $where .= ' AND (action LIKE ? OR entity_ref LIKE ? OR details LIKE ?)';
+        $like = '%' . $_GET['search'] . '%';
+        $params = array_merge($params, [$like, $like, $like]);
+    }
+    $q = $d->prepare("SELECT * FROM activity_log WHERE $where ORDER BY created_at DESC LIMIT 500");
+    $q->execute($params);
+    reply(['items' => $q->fetchAll(PDO::FETCH_ASSOC), 'can_view_all' => $u['role'] === 'Admin']);
+}
+
+// GET /api/v1/nav-badges — live sidebar counters for every module.
+if ($method === 'GET' && $path === '/api/v1/nav-badges') {
+    auth();
+    $d = db();
+    reply(['badges' => [
+        'pending_adjustments' => (int)$d->query("SELECT COUNT(*) FROM assets WHERE status='Awaiting Print' AND deleted_at IS NULL")->fetchColumn(),
+        'low_stock'           => (int)$d->query("SELECT COUNT(*) FROM assets WHERE status='In Warehouse' AND deleted_at IS NULL AND low_stock_threshold IS NOT NULL AND quantity < low_stock_threshold")->fetchColumn(),
+        'open_requisitions'   => (int)$d->query("SELECT COUNT(*) FROM requisitions WHERE status IN ('Submitted','Inventory Review','Inventory Approved') AND deleted_at IS NULL")->fetchColumn(),
+        'arrived_pos'         => (int)$d->query("SELECT COUNT(*) FROM purchase_orders WHERE status='Arrived' AND deleted_at IS NULL")->fetchColumn(),
+        'pending_docs'        => (int)$d->query("SELECT COUNT(*) FROM documents WHERE status LIKE 'Pending%' AND deleted_at IS NULL")->fetchColumn(),
+        'unread_notices'      => (int)$d->query("SELECT COUNT(*) FROM admin_notifications WHERE status='Pending'")->fetchColumn(),
+    ]]);
+}
+
+// GET /api/v1/export/{entity}.csv-compatible — Excel export for all
+// historical datasets with ?from=&to= date-range filtering.
+if ($method === 'GET' && preg_match('#^/api/v1/export/([a-z_]+)$#', $path, $m)) {
+    $u = auth(['Admin', 'Manager']);
+    $d = db();
+    $exportMap = [
+        'assets'       => ['sql' => "SELECT qr_code AS id, name, category, status, quantity, value, location, date_purchased, lifespan_months, created_at FROM assets WHERE deleted_at IS NULL", 'date' => 'created_at'],
+        'transactions' => ['sql' => "SELECT t.created_at, a.qr_code AS asset_id, a.name AS asset, t.action, t.zone FROM asset_transactions t LEFT JOIN assets a ON a.id=t.asset_id", 'date' => 't.created_at'],
+        'requisitions' => ['sql' => "SELECT req_number, title, department, priority, estimated_cost, actual_cost, status, created_at FROM requisitions WHERE deleted_at IS NULL", 'date' => 'created_at'],
+        'pos'          => ['sql' => "SELECT po_number, vendor, total, status, expected_delivery, created_at, updated_at FROM purchase_orders WHERE deleted_at IS NULL", 'date' => 'created_at'],
+        'settlements'  => ['sql' => "SELECT po_number, vendor_name, amount, status, verification_timestamp, created_at FROM finance_settlements", 'date' => 'created_at'],
+        'scans'        => ['sql' => "SELECT created_at, qr_code, action, details, scanned_by, collision FROM scan_logs", 'date' => 'created_at'],
+        'activity'     => ['sql' => "SELECT created_at, user_name, action, entity, entity_ref, details FROM activity_log", 'date' => 'created_at'],
+        'documents'    => ['sql' => "SELECT reference_no, document_type, owner, related_po, status, due_date, created_at FROM documents WHERE deleted_at IS NULL", 'date' => 'created_at'],
+        'suppliers'    => ['sql' => "SELECT name, email, phone, category, on_time_rate, defect_rate, rating, created_at FROM vendors WHERE deleted_at IS NULL", 'date' => 'created_at'],
+    ];
+    $cfg = $exportMap[$m[1]] ?? null;
+    if (!$cfg) reply(['error' => 'Unknown export dataset.'], 400);
+    $sql = $cfg['sql'];
+    $clauses = [];
+    $params = [];
+    if (!empty($_GET['from'])) { $clauses[] = "{$cfg['date']} >= ?"; $params[] = $_GET['from'] . ' 00:00:00'; }
+    if (!empty($_GET['to']))   { $clauses[] = "{$cfg['date']} <= ?"; $params[] = $_GET['to'] . ' 23:59:59'; }
+    if ($clauses) $sql .= (stripos($sql, 'WHERE') === false ? ' WHERE ' : ' AND ') . implode(' AND ', $clauses);
+    $q = $d->prepare($sql);
+    $q->execute($params);
+    $rows = $q->fetchAll(PDO::FETCH_ASSOC);
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="scim-' . $m[1] . '-' . date('Ymd') . '.csv"');
+    $out = fopen('php://output', 'w');
+    fprintf($out, "\xEF\xBB\xBF"); // BOM so Excel opens UTF-8 correctly
+    if ($rows) fputcsv($out, array_keys($rows[0]));
+    foreach ($rows as $r) fputcsv($out, $r);
+    fclose($out);
+    exit;
+}
+
+// DELETE /api/v1/warehouse/zones/{zone} — Admin only; refuses occupied zones
+// and protects the dedicated DISPOSAL zone.
+if ($method === 'DELETE' && preg_match('#^/api/v1/warehouse/zones/([^/]+)$#', $path, $m)) {
+    $u = auth(['Admin']);
+    $zone = rawurldecode($m[1]);
+    if (strtoupper($zone) === 'DISPOSAL') {
+        reply(['error' => 'The DISPOSAL zone is dedicated to write-offs and cannot be deleted.'], 400);
+    }
+    $d = db();
+    $q = $d->prepare('SELECT occupied FROM warehouse_zones WHERE zone = ?');
+    $q->execute([$zone]);
+    $z = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$z) reply(['error' => 'Zone not found.'], 404);
+    if ((int)$z['occupied'] > 0) {
+        reply(['error' => 'Zone still holds stock — transfer or dispose of its contents first.'], 409);
+    }
+    $d->prepare('DELETE FROM warehouse_rows WHERE zone = ?')->execute([$zone]);
+    $d->prepare('DELETE FROM warehouse_zones WHERE zone = ?')->execute([$zone]);
+    logActivity($d, $u, 'Deleted warehouse zone', 'zone', $zone);
+    reply(['ok' => true]);
 }
 
 // Fallback Route

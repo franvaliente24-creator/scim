@@ -60,8 +60,8 @@ function renderDocumentTable(documents) {
             <td>${doc.due_date ? new Date(doc.due_date).toLocaleDateString() : '—'}</td>
             <td class="whitespace-nowrap">
               <button class="action-btn action-btn-view !px-2" title="View document" aria-label="View document" onclick="viewDocument(${doc.id})"><span class="material-symbols-outlined text-base">visibility</span></button>
-              <button class="action-btn action-btn-edit !px-2" title="Update status" aria-label="Update status" onclick="updateDocStatus(${doc.id}, '${esc(doc.status)}')"><span class="material-symbols-outlined text-base">edit</span></button>
-              <button class="action-btn action-btn-ship" title="Download record" onclick="downloadDocument(${doc.id})"><span class="material-symbols-outlined text-sm align-middle">download</span></button>
+              <button class="action-btn action-btn-view !px-2" title="Download record" aria-label="Download record" onclick="downloadDocument(${doc.id})"><span class="material-symbols-outlined text-base">download</span></button>
+              ${(typeof currentUserRole === 'undefined' || currentUserRole === 'Admin') ? `<button class="action-btn action-btn-view !px-2" title="Archive document" aria-label="Archive document" onclick="archiveRecord('document', ${doc.id}, () => loadDocumentData())"><span class="material-symbols-outlined text-base">archive</span></button>` : ''}
             </td>
           </tr>`).join('')}
       </tbody>
@@ -154,14 +154,10 @@ function applyDocFilters() {
 if (docSearch) docSearch.oninput = applyDocFilters;
 if (statusFilter) statusFilter.onchange = applyDocFilters;
 
-// Document action functions — dedicated modal cards
+// Document action functions — dedicated modal cards (view-only per TRD §6)
 const viewDocModal = $('#viewDocumentModal');
-const updateDocModal = $('#updateDocModal');
-let updateDocId = null;
 
 $('#closeViewDocModal')?.addEventListener('click', () => viewDocModal?.close());
-$('#closeUpdateDocModal')?.addEventListener('click', () => updateDocModal?.close());
-$('#updateDocCancel')?.addEventListener('click', () => updateDocModal?.close());
 
 window.viewDocument = async (docId) => {
   try {
@@ -177,37 +173,6 @@ window.viewDocument = async (docId) => {
     viewDocModal?.showModal();
   } catch (e) { console.error(e); }
 };
-
-window.updateDocStatus = (docId, currentStatus) => {
-  const doc = allDocuments.find((d) => d.id === docId);
-  updateDocId = docId;
-  setText('updateDocRef', doc?.reference_no || '');
-  setText('updateDocCurrent', currentStatus);
-  const sel = $('#updateDocSelect');
-  if (sel) {
-    const opts = Array.from(sel.options).map((o) => o.value);
-    sel.value = opts.includes(currentStatus) ? currentStatus : sel.options[0].value;
-  }
-  updateDocModal?.showModal();
-};
-
-$('#updateDocSave')?.addEventListener('click', async () => {
-  const newStatus = $('#updateDocSelect')?.value;
-  if (!newStatus || updateDocId == null) return;
-  const btn = $('#updateDocSave');
-  btn.disabled = true;
-  btn.textContent = 'Saving...';
-  const res = await fetch(`/api/v1/documents/${updateDocId}/status`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }),
-  });
-  btn.disabled = false;
-  btn.textContent = 'Save Status';
-  if (res.ok) { updateDocModal?.close(); loadDocumentData(); }
-  else {
-    const data = await res.json().catch(() => ({}));
-    alert(data.error || 'Failed to update document status');
-  }
-});
 
 // Document download — exports the tracked record instantly
 window.downloadDocument = (docId) => {

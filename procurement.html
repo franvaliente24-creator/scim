@@ -154,10 +154,9 @@
                 <nav class="hub-tabs" aria-label="Procurement modules">
                     <button class="hub-tab-btn active" data-tab-target="sourcing"><span class="material-symbols-outlined">shopping_bag</span>Sourcing</button>
                     <button class="hub-tab-btn" data-tab-target="orders"><span class="material-symbols-outlined">receipt_long</span>Purchase Orders</button>
-                    <button class="hub-tab-btn" data-tab-target="pipeline"><span class="material-symbols-outlined">account_tree</span>Lifecycle &amp; Activity</button>
-                    <button class="hub-tab-btn" data-tab-target="receiving"><span class="material-symbols-outlined">local_shipping</span>Order Tracking</button>
+                    <button class="hub-tab-btn" data-tab-target="history"><span class="material-symbols-outlined">history</span>PO History</button>
+                    <button class="hub-tab-btn" data-tab-target="receiving"><span class="material-symbols-outlined">local_shipping</span>Delivery &amp; Receiving</button>
                     <button class="hub-tab-btn" data-tab-target="settlement"><span class="material-symbols-outlined">payments</span>Settlements</button>
-                    <button class="hub-tab-btn" data-tab-target="rfp"><span class="material-symbols-outlined">gavel</span>RFP &amp; Bids</button>
                 </nav>
 
                 <section class="hub-section active" data-tab="sourcing">
@@ -175,9 +174,9 @@
                         <small class="text-on-surface-variant text-xs">Awaiting review</small>
                     </div>
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
-                        <p class="text-on-surface-variant text-sm mb-2">Supplier Quotes</p>
-                        <strong class="text-2xl font-headline font-bold text-on-surface" id="totalQuotes">0</strong>
-                        <small class="text-on-surface-variant text-xs">Received quotes</small>
+                        <p class="text-on-surface-variant text-sm mb-2">In Approval</p>
+                        <strong class="text-2xl font-headline font-bold text-on-surface" id="inApproval">0</strong>
+                        <small class="text-on-surface-variant text-xs">Multi-tier review in progress</small>
                     </div>
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
                         <p class="text-on-surface-variant text-sm mb-2">Pipeline Value</p>
@@ -186,43 +185,38 @@
                     </div>
                 </div>
                 
-                <!-- Requisitions and Quotes -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                        <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
+                <!-- Requisitions — full-width table (supplier quotes moved to Supplier Mgmt) -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
+                        <div>
                             <h2 class="text-lg font-headline font-semibold text-on-surface">Requisitions</h2>
-                            <div class="flex items-center gap-3">
-                                <input type="text" id="requisitionSearch" placeholder="Search requisitions..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-                                <button id="viewAllRequisitions" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
-                                    View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
-                                </button>
-                            </div>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Submitted → Inventory Review → Inventory Approved → Completed. Approvals are role-gated.</p>
                         </div>
-                        <div id="requisitionsTable" class="p-6">
-                            <div class="text-on-surface-variant text-sm">Loading requisitions...</div>
-                        </div>
+                        <input type="text" id="requisitionSearch" placeholder="Search requisitions..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                     </div>
-                    <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                        <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center">
-                            <h2 class="text-lg font-headline font-semibold text-on-surface">Supplier Quotes</h2>
-                            <button id="viewAllQuotes" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
-                                View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
-                            </button>
-                        </div>
-                        <div id="quotesTable" class="p-6">
-                            <div class="text-on-surface-variant text-sm">Loading quotes...</div>
-                        </div>
+                    <div id="requisitionsTable" class="p-6 overflow-x-auto">
+                        <div class="text-on-surface-variant text-sm">Loading requisitions...</div>
                     </div>
                 </div>
-                
-                <!-- Sourcing Pipeline -->
+
+                <!-- Sourcing Pipeline — clickable stages + Completed history -->
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30">
                         <h2 class="text-lg font-headline font-semibold text-on-surface">Sourcing Pipeline</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Click a stage to inspect its requisitions.</p>
                     </div>
                     <div id="sourcingPipeline" class="p-6">
                         <div class="text-on-surface-variant text-sm">Loading pipeline...</div>
                     </div>
+                </div>
+
+                <!-- Completed requisitions — historical record -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Completed Requisitions</h2>
+                        <button type="button" class="btn-outline text-xs flex items-center gap-1" onclick="exportCSV('requisitions')"><span class="material-symbols-outlined text-base">download</span>Export CSV</button>
+                    </div>
+                    <div id="completedReqTable" class="p-6 overflow-x-auto"></div>
                 </div>
                 </section>
 
@@ -253,7 +247,10 @@
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200 p-6">
                         <p class="text-on-surface-variant text-sm mb-2">Total Value</p>
                         <strong class="text-2xl font-headline font-bold text-on-surface" id="totalPOValue">₱0</strong>
-                        <small class="text-on-surface-variant text-xs">PO valuation</small>
+                        <small class="text-on-surface-variant text-xs flex items-center gap-1.5 mt-1">
+                            <input type="date" id="poDateFrom" class="px-2 py-1 border border-outline-variant rounded text-[11px]" title="From date">
+                            <input type="date" id="poDateTo" class="px-2 py-1 border border-outline-variant rounded text-[11px]" title="To date">
+                        </small>
                     </div>
                 </div>
 
@@ -269,6 +266,7 @@
                                 <option value="Pending Approval">Pending Approval</option>
                                 <option value="Sent to Vendor">Sent to Vendor</option>
                                 <option value="Shipped">Shipped</option>
+                                <option value="Arrived">Arrived</option>
                                 <option value="Received">Received</option>
                             </select>
                         </div>
@@ -277,32 +275,28 @@
                 </div>
                 </section>
 
-                <!-- Lifecycle & Activity -->
-                <section class="hub-section" data-tab="pipeline">
+                <!-- PO History — static lifecycle record -->
+                <section class="hub-section" data-tab="history">
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
+                        <div>
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">PO History</h2>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Complete purchase-order record — view any order for full details.</p>
+                        </div>
+                        <button type="button" class="btn-outline text-xs flex items-center gap-1" onclick="exportCSV('pos')"><span class="material-symbols-outlined text-base">download</span>Export CSV</button>
+                    </div>
+                    <div id="poHistoryTable" class="data-table-container"></div>
+                </div>
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">PO Lifecycle Pipeline</h2>
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">PO Activity Log</h2>
                     </div>
-                    <div id="poPipeline" class="p-6"></div>
+                    <div id="poActivityLog" class="p-6"></div>
                 </div>
-                <section class="card">
-                    <h2>PO Activity Log</h2>
-                    <div id="poActivityLog"></div>
-                </section>
                 </section>
 
-                <!-- Order Tracking & Receiving -->
+                <!-- Delivery & Receiving -->
                 <section class="hub-section" data-tab="receiving">
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
-                            <span class="material-symbols-outlined text-primary">route</span>
-                            Inbound Order Tracking
-                        </h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Live fulfillment pipeline — each order's position from draft to received, synced from the database.</p>
-                    </div>
-                    <div id="orderTracking" class="p-6 space-y-5"></div>
-                </div>
                 <div id="deliverySim" class="dashboard-card bg-white shadow-sm border border-slate-200 scroll-mt-24">
                     <div class="px-6 py-4 border-b border-outline-variant/30">
                         <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2">
@@ -336,16 +330,7 @@
                 </div>
                 </section>
 
-                <!-- RFP & Bid Comparison -->
-                <section class="hub-section" data-tab="rfp">
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Request for Proposal — Bid Comparison</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Open requisitions and the supplier quotes competing for each award.</p>
-                    </div>
-                    <div id="rfpList" class="p-6 space-y-4"></div>
-                </div>
-                </section>
+
             </div>
         </main>
     </div>
@@ -460,38 +445,13 @@
       </div>
     </dialog>
 
-    <!-- Mark Shipped Modal -->
-    <dialog id="shippedModal">
-      <div class="scanner">
-        <button id="closeShipped" class="close">×</button>
-        <h2>Mark as Shipped</h2>
-        <form id="shippedForm">
-          <input type="hidden" name="po_id" id="shippedPoIdInput">
-          <label>PO Number
-            <input type="text" id="shippedPoNumber" disabled>
-          </label>
-          <label>Tracking Number
-            <input type="text" name="tracking_number" placeholder="Enter tracking number if available">
-          </label>
-          <label>Carrier
-            <select name="carrier">
-              <option value="">Select carrier</option>
-              <option value="FedEx">FedEx</option>
-              <option value="UPS">UPS</option>
-              <option value="DHL">DHL</option>
-              <option value="LBC">LBC</option>
-              <option value="Other">Other</option>
-            </select>
-          </label>
-          <label>Estimated Delivery
-            <input type="date" name="estimated_delivery">
-          </label>
-          <label>Notes
-            <textarea name="notes" rows="2"></textarea>
-          </label>
-          <button type="submit">Mark as Shipped</button>
-        </form>
-      </div>
+    <!-- Requisition stage / detail dialog -->
+    <dialog id="reqStageModal" class="asset-modal">
+        <div class="scanner">
+            <button id="closeReqStage" class="close" type="button" aria-label="Close">×</button>
+            <h2 id="reqStageTitle">Requisitions</h2>
+            <div id="reqStageBody" style="max-height:60vh;overflow:auto;"></div>
+        </div>
     </dialog>
 
     <!-- Receive PO Modal -->
@@ -557,9 +517,9 @@
 
 
         <script src="token.js?v=1"></script>
-        <script src="layout.js?v=9"></script>
+        <script src="layout.js?v=10"></script>
     <script src="permissions.js?v=10"></script>
-    <script src="procurement.js?v=10"></script>
+    <script src="procurement.js?v=11"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

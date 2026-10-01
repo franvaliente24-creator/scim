@@ -2,6 +2,34 @@
 // LAYOUT INTERACTIONS (Sidebar, Profile Dropdown)
 // ==========================================
 
+// Shared CSV export — streams /api/v1/export/{resource} with optional date range.
+window.exportCSV = (resource, from = '', to = '') => {
+  const qs = new URLSearchParams();
+  if (from) qs.set('from', from);
+  if (to) qs.set('to', to);
+  const a = document.createElement('a');
+  a.href = `/api/v1/export/${resource}${qs.toString() ? '?' + qs : ''}`;
+  a.download = `${resource.replace(/\//g, '_')}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+};
+
+// Shared archive action for any data-table row. Entities: asset|po|requisition|supplier|document.
+window.archiveRecord = async (entity, id, onDone) => {
+  const ok = await (window.scimConfirm ? scimConfirm({
+    title: 'Archive record?',
+    message: 'The record leaves the active view and moves to the Archive (Admin-only) where it can be restored.',
+    confirmLabel: 'Archive', icon: 'archive', danger: false,
+  }) : Promise.resolve(confirm('Archive this record?')));
+  if (!ok) return;
+  const res = await fetch(`/api/v1/records/${entity}/${encodeURIComponent(id)}/archive`, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || 'Archive failed.'); return; }
+  if (typeof onDone === 'function') onDone();
+};
+
+
 document.addEventListener('DOMContentLoaded', () => {
   
   // Sidebar Toggle Functionality
@@ -413,164 +441,73 @@ document.addEventListener('DOMContentLoaded', () => {
   })();
 
   // ==========================================
-  // GLOBAL QUICK QR SCAN (floating trigger on every page)
+  // PROFILE DROPDOWN — inject the Activity Log link into every page's menu
+  // (TRD §7: the link lives inside the user Profile dropdown).
   // ==========================================
-  document.body.insertAdjacentHTML('beforeend', `
-    <button id="quickScanFab" type="button" title="Quick QR Scan" aria-label="Quick QR Scan"
-      class="fixed bottom-6 right-6 z-[150] w-14 h-14 rounded-full bg-primary text-white shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform">
-      <span class="material-symbols-outlined text-2xl">qr_code_scanner</span>
-    </button>
-    <div id="quickScanModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[160] hidden items-center justify-center p-4">
-      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
-            <span class="material-symbols-outlined text-primary">qr_code_scanner</span> Quick QR Scan
-          </h2>
-          <button id="quickScanClose" class="text-slate-400 hover:text-slate-600"><span class="material-symbols-outlined">close</span></button>
-        </div>
-        <div class="p-5 space-y-4">
-          <div class="flex gap-2">
-            <select id="quickScanAction" class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm">
-              <option value="Inventory Intake">Inventory Intake</option>
-              <option value="Check-Out">Check-Out (deploy)</option>
-              <option value="Check-In">Check-In (return)</option>
-              <option value="Assign to Staff">Assign to Staff</option>
-              <option value="Move to Zone">Move to Zone</option>
-              <option value="PO Receipt">PO Receipt</option>
-            </select>
-          </div>
-          <div id="quickScanExtra" class="hidden space-y-2">
-            <input id="quickScanExtraInput" type="text" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="">
-          </div>
-          <div class="relative rounded-xl overflow-hidden bg-slate-900 aspect-video">
-            <video id="quickScanVideo" class="w-full h-full object-cover" playsinline muted></video>
-            <div class="absolute inset-0 border-2 border-primary/60 rounded-xl pointer-events-none"></div>
-          </div>
-          <div class="flex gap-2">
-            <input id="quickScanManual" type="text" placeholder="Or type QR code manually…" class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm">
-            <button id="quickScanManualGo" class="px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold">Go</button>
-          </div>
-          <p id="quickScanStatus" class="text-sm text-slate-500 text-center min-h-[20px]"></p>
-        </div>
-      </div>
-    </div>
-  `);
-
-  (function initQuickScan() {
-    const fab = document.getElementById('quickScanFab');
-    const modal = document.getElementById('quickScanModal');
-    const video = document.getElementById('quickScanVideo');
-    const status = document.getElementById('quickScanStatus');
-    const actionSel = document.getElementById('quickScanAction');
-    const extraWrap = document.getElementById('quickScanExtra');
-    const extraInput = document.getElementById('quickScanExtraInput');
-    const manualInput = document.getElementById('quickScanManual');
-    let stream = null;
-    let scanning = false;
-    let lastCode = '';
-
-    function setStatus(msg, ok) {
-      status.textContent = msg || '';
-      status.className = 'text-sm text-center min-h-[20px] ' + (ok === true ? 'text-emerald-600' : ok === false ? 'text-red-600' : 'text-slate-500');
+  const profileMenuEl = document.getElementById('profile-dropdown-menu');
+  if (profileMenuEl && !document.getElementById('activityLogLink')) {
+    const profileAnchor = profileMenuEl.querySelector('a[href="profile.html"]');
+    if (profileAnchor) {
+      profileAnchor.insertAdjacentHTML('afterend', `
+        <a id="activityLogLink" href="profile.html#activity" class="flex items-center gap-3 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low hover:text-primary transition-colors">
+          <span class="material-symbols-outlined text-lg text-on-surface-variant">history</span>
+          <span class="font-medium">Activity Log</span>
+        </a>`);
     }
+  }
 
-    async function submitScan(code) {
-      if (!code || code === lastCode) return;
-      lastCode = code;
-      setStatus('Processing ' + code + '…');
-      const payload = { qr_code: code, action: actionSel.value };
-      if (actionSel.value === 'Assign to Staff') payload.assignee = extraInput.value.trim();
-      if (actionSel.value === 'Move to Zone') payload.zone = extraInput.value.trim();
-      if (actionSel.value === 'PO Receipt' && extraInput.value.trim()) payload.po_number = extraInput.value.trim();
-      try {
-        const res = await fetch('/api/v1/assets/scan', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Scan failed');
-        let msg = `${data.action}: ${data.asset ? data.asset.name : code}`;
-        if (data.auto_created) msg += ' (auto-registered)';
-        if (data.auto_requisition) msg += ` — low stock! Requisition ${data.auto_requisition} created`;
-        setStatus(msg, true);
-      } catch (err) {
-        setStatus(err.message, false);
-      } finally {
-        setTimeout(() => { lastCode = ''; }, 2500);
-      }
-    }
+  // ==========================================
+  // DATA-DRIVEN SIDEBAR BADGES (TRD §1): live counters on nav modules.
+  // ==========================================
+  async function loadNavBadges() {
+    try {
+      const res = await fetch('/api/v1/nav-badges');
+      if (!res.ok) return;
+      const { badges } = await res.json();
+      const map = [
+        ['a[href="inventory.html"]', (badges.pending_adjustments || 0) + (badges.low_stock || 0)],
+        ['a[href="procurement.html"]', (badges.open_requisitions || 0) + (badges.arrived_pos || 0)],
+        ['a[href="documents.html"]', badges.pending_docs || 0],
+        ['a[href="warehousing.html"]', badges.low_stock || 0],
+      ];
+      document.querySelectorAll('.nav-badge').forEach((b) => b.remove());
+      map.forEach(([sel, count]) => {
+        const link = document.querySelector(sel);
+        if (!link || !count) return;
+        const badge = document.createElement('span');
+        badge.className = 'nav-badge ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-100 text-red-600 text-[10px] font-bold flex items-center justify-center';
+        badge.textContent = count > 99 ? '99+' : count;
+        link.appendChild(badge);
+      });
+    } catch (e) { /* badges are cosmetic — never break navigation */ }
+  }
+  loadNavBadges();
+  setInterval(loadNavBadges, 60000); // real-time sidebar sync
 
-    async function startCamera() {
-      setStatus('Starting camera…');
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        video.srcObject = stream;
-        await video.play();
-        scanning = true;
-        if ('BarcodeDetector' in window) {
-          const detector = new BarcodeDetector({ formats: ['qr_code'] });
-          const tick = async () => {
-            if (!scanning) return;
-            try {
-              const codes = await detector.detect(video);
-              if (codes.length) submitScan(codes[0].rawValue);
-            } catch (e) { /* frame not ready */ }
-            requestAnimationFrame(tick);
-          };
-          tick();
-          setStatus('Point the camera at a QR code.');
-        } else if (window.jsQR) {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          const tick = () => {
-            if (!scanning) return;
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-              canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-              ctx.drawImage(video, 0, 0);
-              const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-              const found = window.jsQR(img.data, img.width, img.height);
-              if (found && found.data) submitScan(found.data);
-            }
-            requestAnimationFrame(tick);
-          };
-          tick();
-          setStatus('Point the camera at a QR code.');
-        } else {
-          setStatus('Camera live, but no QR engine loaded — type the code manually.');
-        }
-      } catch (err) {
-        setStatus('Camera unavailable: ' + err.message + ' — use manual entry.', false);
-      }
-    }
-
-    function stopCamera() {
-      scanning = false;
-      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-      video.srcObject = null;
-    }
-
-    function openModal() {
-      modal.classList.remove('hidden'); modal.classList.add('flex');
-      startCamera();
-    }
-    function closeModal() {
-      modal.classList.add('hidden'); modal.classList.remove('flex');
-      stopCamera(); setStatus(''); manualInput.value = '';
-    }
-
-    actionSel.addEventListener('change', () => {
-      const v = actionSel.value;
-      if (v === 'Assign to Staff') { extraWrap.classList.remove('hidden'); extraInput.placeholder = 'Employee name…'; }
-      else if (v === 'Move to Zone') { extraWrap.classList.remove('hidden'); extraInput.placeholder = 'Zone / aisle (e.g. A-02)…'; }
-      else if (v === 'PO Receipt') { extraWrap.classList.remove('hidden'); extraInput.placeholder = 'PO number (optional)…'; }
-      else { extraWrap.classList.add('hidden'); }
+  // ==========================================
+  // AUTO-SAVE ON FORCED LOGOUT (TRD §7): if the session ends while a form
+  // is mid-edit, field values persist per-page and restore on return.
+  // ==========================================
+  window.scimAutosave = function () {
+    const draft = {};
+    document.querySelectorAll('form input, form select, form textarea, dialog input, dialog select, dialog textarea').forEach((el) => {
+      if (!el.name || el.type === 'password' || el.type === 'file') return;
+      if (el.value !== '' && el.value !== el.defaultValue) draft[el.name] = el.value;
     });
-
-    fab.addEventListener('click', openModal);
-    document.getElementById('quickScanClose').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-    document.getElementById('quickScanManualGo').addEventListener('click', () => submitScan(manualInput.value.trim()));
-    manualInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitScan(manualInput.value.trim()); });
-  })();
+    if (Object.keys(draft).length) {
+      try { localStorage.setItem('scim_draft_' + location.pathname, JSON.stringify({ saved_at: Date.now(), fields: draft })); } catch (e) {}
+    }
+  };
+  // Restore any saved draft for this page (banner-less: fields simply refill).
+  try {
+    const saved = JSON.parse(localStorage.getItem('scim_draft_' + location.pathname) || 'null');
+    if (saved && saved.fields) {
+      document.querySelectorAll('form [name], dialog [name]').forEach((el) => {
+        if (saved.fields[el.name] !== undefined && !el.value) el.value = saved.fields[el.name];
+      });
+      localStorage.removeItem('scim_draft_' + location.pathname);
+    }
+  } catch (e) {}
 
   // Profile dropdown links are handled as regular HTML links (<a href="...">)
   // No JavaScript needed for navigation links in the dropdown
@@ -587,7 +524,12 @@ window.initHubTabs = function (defaultTab) {
   const btns = document.querySelectorAll('.hub-tab-btn[data-tab-target]');
   const sections = document.querySelectorAll('.hub-section[data-tab]');
   window.switchModuleTab = (name) => {
-    if (!name || ![...sections].some((s) => s.dataset.tab === name)) return;
+    const target = [...sections].find((s) => s.dataset.tab === name);
+    if (!target) return;
+    // Role-scoped tabs (e.g. Admin-only Archive/Trash) cannot be forced open via hash.
+    const required = target.getAttribute('data-requires-role');
+    if (required && typeof currentUserRole !== 'undefined' && currentUserRole
+        && !required.split(',').map((r) => r.trim()).includes(currentUserRole)) return;
     sections.forEach((s) => s.classList.toggle('active', s.dataset.tab === name));
     btns.forEach((b) => b.classList.toggle('active', b.dataset.tabTarget === name));
     if (('#' + name) !== window.location.hash) history.replaceState(null, '', '#' + name);

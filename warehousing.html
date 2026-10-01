@@ -187,22 +187,6 @@
                         <p class="text-on-surface-variant text-sm col-span-full">Loading zones...</p>
                     </div>
                 </div>
-                
-                <!-- Recent QR Scans -->
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Recent QR Scans</h2>
-                        <div class="flex items-center gap-3">
-                            <input type="text" id="scanSearch" placeholder="Search scans..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-                            <button id="viewAllScans" class="text-sm font-medium text-primary hover:text-on-primary-fixed-variant transition-colors flex items-center gap-1">
-                                View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
-                            </button>
-                        </div>
-                    </div>
-                    <div id="recentScansList" class="p-6">
-                        <div class="text-on-surface-variant text-sm">Loading recent scans...</div>
-                    </div>
-                </div>
                 </section>
 
                 <!-- QR Scanner (inline operations console) -->
@@ -247,7 +231,7 @@
                                 <input id="extraInput" class="w-full px-4 py-3 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="Employee name...">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-on-surface mb-2">QR Serial</label>
+                                <label class="block text-sm font-medium text-on-surface mb-2">QR / Asset ID</label>
                                 <input id="qr" class="w-full px-4 py-3 border border-outline-variant rounded-lg text-sm font-mono focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="AGENCY-ASSET-LAPTOP-000001">
                             </div>
                             <button id="scanNow" class="btn-primary m-0 w-full justify-center">Record Scan</button>
@@ -263,25 +247,51 @@
                     <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
                         <div>
                             <h2 class="text-lg font-headline font-semibold text-on-surface">QR Generate Portal</h2>
-                            <p class="text-xs text-on-surface-variant mt-0.5">Enter item details → generate serialized <code class="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">AGENCY-ASSET-CATEGORY-000000</code> tags → print labels. Serials stay <b>pending</b> (invisible to Asset Inventory) until each physical tag is scanned at intake.</p>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Enter full item details → generate short <code class="bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">AST-000000</code> ID tags → print labels. IDs stay <b>pending</b> (invisible to Asset Inventory) until each physical tag is scanned at intake. All fields are required.</p>
                         </div>
                     </div>
                     <div class="p-6">
                         <form id="qrBatchForm" class="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
                             <div class="sm:col-span-2">
-                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Item Name</label>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Item Name *</label>
                                 <input name="name" required placeholder="e.g. Dell Latitude Laptop" class="w-full px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Category</label>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Category *</label>
                                 <select name="category" class="w-full px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                                     <option>IT Equipment</option><option>Laptop</option><option>Monitor</option>
                                     <option>Peripheral</option><option>Office Supplies</option>
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Quantity</label>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Quantity *</label>
                                 <input name="quantity" type="number" min="1" max="50" value="4" required class="w-full px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Destination Zone *</label>
+                                <select name="location" id="qrBatchZone" required class="w-full px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                                    <option value="">Select a zone…</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Unit Value (₱) *</label>
+                                <input name="value" type="number" min="0" step="0.01" required placeholder="45000" class="w-full px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Purchase Date *</label>
+                                <input name="date_purchased" type="date" required class="w-full px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Lifespan (months) *</label>
+                                <input name="lifespan_months" type="number" min="1" required placeholder="36" class="w-full px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Threshold</label>
+                                <input name="low_stock_threshold" type="number" min="0" placeholder="Low-stock alert at" class="w-full px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            </div>
+                            <div class="sm:col-span-4">
+                                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Item / Laptop Specifications *</label>
+                                <textarea name="specs" rows="2" required placeholder="e.g. i7-1360P · 16GB RAM · 512GB SSD · 14&quot; FHD" class="w-full px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"></textarea>
                             </div>
                             <div class="sm:col-span-4 flex gap-3">
                                 <button type="submit" class="btn-primary m-0 flex items-center gap-2">
@@ -311,7 +321,7 @@
                             <form id="assetForm" class="space-y-4">
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label class="block text-sm font-medium text-on-surface mb-2">QR Code / Serial</label>
+                                        <label class="block text-sm font-medium text-on-surface mb-2">QR Code / Asset ID</label>
                                         <input type="text" name="qr_code" required class="w-full px-4 py-3 border border-outline-variant rounded-lg text-sm font-mono focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="AGENCY-ASSET-LAPTOP-000001">
                                     </div>
                                     <div>
@@ -413,9 +423,23 @@
                 <!-- Cost Reports -->
                 <section class="hub-section" data-tab="costs">
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2"><span class="material-symbols-outlined text-indigo-600">analytics</span>Warehouse Cost Reports</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Inventory valuation grouped by category.</p>
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
+                        <div>
+                            <h2 class="text-lg font-headline font-semibold text-on-surface flex items-center gap-2"><span class="material-symbols-outlined text-indigo-600">analytics</span>Warehouse Cost Reports</h2>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Inventory valuation grouped by category, filtered by acquisition date.</p>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2 text-xs">
+                            <select id="costRangePreset" class="px-3 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
+                                <option value="">All time</option>
+                                <option value="7">Last 7 days</option>
+                                <option value="30" selected>Last 30 days</option>
+                                <option value="90">Last 90 days</option>
+                                <option value="365">Last year</option>
+                                <option value="custom">Custom range</option>
+                            </select>
+                            <input type="date" id="costFrom" class="px-3 py-2 border border-outline-variant rounded-lg text-sm hidden">
+                            <input type="date" id="costTo" class="px-3 py-2 border border-outline-variant rounded-lg text-sm hidden">
+                        </div>
                     </div>
                     <div id="costReportList" class="p-6 overflow-x-auto"></div>
                 </div>
@@ -432,6 +456,13 @@
             <form id="addZoneForm">
                 <label>Zone Name
                     <input name="zone" required maxlength="20" placeholder="E">
+                </label>
+                <label>Assigned Category
+                    <select name="category" required>
+                        <option value="">Select category…</option>
+                        <option>IT Equipment</option><option>Laptop</option><option>Monitor</option>
+                        <option>Peripheral</option><option>Office Supplies</option><option>Disposed Assets</option>
+                    </select>
                 </label>
                 <label>Total Capacity
                     <input name="capacity" type="number" required min="1" step="1" value="100">
@@ -450,8 +481,8 @@
     <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
     <script src="token.js?v=1"></script>
     <script src="permissions.js?v=10"></script>
-    <script src="layout.js?v=9"></script>
-    <script src="warehousing.js?v=10"></script>
+    <script src="layout.js?v=10"></script>
+    <script src="warehousing.js?v=11"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>

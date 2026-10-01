@@ -96,5 +96,31 @@ $('nameEditSave')?.addEventListener('click', async () => {
     }
 });
 
+// Activity Log — personal feed; Admins may toggle the platform-wide view.
+let activityAll = false;
+async function loadActivityLog() {
+    const list = $('activityLogList');
+    if (!list) return;
+    const q = ($('activitySearch')?.value || '').toLowerCase();
+    const res = await fetch('/api/v1/activity-log' + (activityAll ? '?all=1' : ''));
+    const data = await res.json().catch(() => ({}));
+    const rows = (data.items || []).filter((r) => !q || `${r.action} ${r.entity_ref} ${r.details || ''}`.toLowerCase().includes(q));
+    if (data.can_view_all) $('activityAllWrap')?.classList.replace('hidden', 'flex');
+    list.innerHTML = rows.length ? `<table class="w-full text-sm min-w-[560px]"><thead><tr class="border-b border-slate-200 text-left">
+        <th class="py-2 pr-4 font-medium text-slate-600">Time</th><th class="py-2 pr-4 font-medium text-slate-600">User</th>
+        <th class="py-2 pr-4 font-medium text-slate-600">Action</th><th class="py-2 font-medium text-slate-600">Record</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr class="border-b border-slate-100">
+            <td class="py-2.5 pr-4 text-slate-500 text-xs whitespace-nowrap">${new Date(r.created_at).toLocaleString()}</td>
+            <td class="py-2.5 pr-4 text-slate-600">${r.user_name || '—'}</td>
+            <td class="py-2.5 pr-4 font-medium text-slate-800">${r.action}</td>
+            <td class="py-2.5 text-slate-500 text-xs">${r.entity || ''} ${r.entity_ref || ''}</td>
+        </tr>`).join('')}</tbody></table>`
+        : '<p class="text-sm text-slate-400 py-8 text-center">No activity recorded yet.</p>';
+}
+$('activitySearch')?.addEventListener('input', loadActivityLog);
+$('activityAll')?.addEventListener('change', (e) => { activityAll = e.target.checked; loadActivityLog(); });
+if (location.hash === '#activity') setTimeout(() => $('activity')?.scrollIntoView({ behavior: 'smooth' }), 300);
+
 if (typeof initializePermissions === 'function') initializePermissions();
 loadProfileData();
+loadActivityLog();

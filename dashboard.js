@@ -115,11 +115,80 @@ async function load() {
         ['On-Time Delivery', m.on_time_delivery != null ? `${m.on_time_delivery}%` : na, 'POs received by deadline'],
         ['Order Cycle Time', m.cycle_days != null ? `${m.cycle_days}d` : na, 'order → delivery, avg'],
         ['Return Rate', `${m.return_rate ?? 0}%`, 'check-ins vs check-outs, 90d'],
-        ['Supplier Rating', m.supplier_rating != null ? `${m.supplier_rating}/5` : na, 'vendor scorecard average'],
+        ['Supplier Rating', m.supplier_rating != null
+          ? `<span class="inline-flex items-center gap-0.5">${[1,2,3,4,5].map(i => `<span class="material-symbols-outlined text-sm" style="font-variation-settings:'FILL' 1;color:${i <= Math.round(m.supplier_rating) ? '#f59e0b' : '#e2e8f0'}">star</span>`).join('')}</span> <small>${m.supplier_rating}/5</small>`
+          : na, 'vendor scorecard average'],
         ['Supplier OTD', m.supplier_otd != null ? `${m.supplier_otd}%` : na, 'vendor on-time average'],
         ['Logistics Spend', money(m.logistics_value || 0), 'in-transit + received POs'],
       ].map(([l, v, h]) => kpiCell(l, v, h, false)).join('');
     }
+
+    // ---- Charts (Chart.js) + calendar widget (TRD §1) ----
+    const series = kpi.series || {};
+    const CHART_COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#64748b'];
+
+    if (window.Chart) {
+      Chart.defaults.font.family = 'Inter, sans-serif';
+      const zonesData = zones.map(z => ({ label: `Zone ${z.zone}`, pct: z.pct || 0 }));
+      const zc = $('#chartZones');
+      if (zc) new Chart(zc, {
+        type: 'bar',
+        data: { labels: zonesData.map(z => z.label), datasets: [{ label: 'Occupancy %', data: zonesData.map(z => z.pct),
+          backgroundColor: zonesData.map(z => z.pct > 85 ? '#ef4444' : z.pct >= 60 ? '#f59e0b' : '#10b981'), borderRadius: 8 }] },
+        options: { plugins: { legend: { display: false } }, scales: { y: { max: 100, ticks: { callback: v => v + '%' } } } },
+      });
+
+      const dist = series.status_dist || [];
+      const sc = $('#chartStatus');
+      if (sc && dist.length) new Chart(sc, {
+        type: 'doughnut',
+        data: { labels: dist.map(d => d.status), datasets: [{ data: dist.map(d => +d.n), backgroundColor: CHART_COLORS, borderWidth: 2, borderColor: '#fff' }] },
+        options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }, cutout: '62%' },
+      });
+
+      const mv = series.movement_14d || [];
+      const days = [...new Set(mv.map(r => r.d))].sort();
+      const mc = $('#chartMovement');
+      if (mc) new Chart(mc, {
+        type: 'line',
+        data: { labels: days.map(d => new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })),
+          datasets: [
+            { label: 'Inbound', data: days.map(d => +(mv.find(r => r.d === d)?.inbound || 0)), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.12)', fill: true, tension: .35 },
+            { label: 'Outbound', data: days.map(d => +(mv.find(r => r.d === d)?.outbound || 0)), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,.10)', fill: true, tension: .35 },
+          ] },
+        options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+      });
+    }
+
+    // Calendar widget — marks expected PO delivery dates from live records.
+    const calEvents = {};
+    (series.calendar || []).forEach(p => { if (p.expected_delivery) (calEvents[p.expected_delivery] = calEvents[p.expected_delivery] || []).push(p); });
+    let calCursor = new Date(); calCursor.setDate(1);
+    window.renderDashCalendar = () => {
+      const grid = $('#calendarGrid'), lbl = $('#calLabel');
+      if (!grid || !lbl) return;
+      const y = calCursor.getFullYear(), mo = calCursor.getMonth();
+      lbl.textContent = calCursor.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+      const first = new Date(y, mo, 1).getDay();
+      const dim = new Date(y, mo + 1, 0).getDate();
+      const today = new Date().toDateString();
+      let html = '<div class="grid grid-cols-7 gap-1 text-center">' +
+        ['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => `<span class="text-[10px] font-bold text-on-surface-variant uppercase py-1">${d}</span>`).join('');
+      for (let i = 0; i < first; i++) html += '<span></span>';
+      for (let day = 1; day <= dim; day++) {
+        const date = new Date(y, mo, day);
+        const iso = `${y}-${String(mo + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const evs = calEvents[iso] || [];
+        const isToday = date.toDateString() === today;
+        html += `<div class="relative py-1.5 rounded-lg text-xs ${isToday ? 'bg-primary text-white font-bold' : 'text-on-surface hover:bg-slate-100'} ${evs.length ? 'cursor-pointer' : ''}"
+          title="${evs.map(p => p.po_number + ' — ' + (p.vendor || '')).join('\n')}">
+          ${day}${evs.length ? `<span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${isToday ? 'bg-white' : 'bg-amber-500'}"></span>` : ''}</div>`;
+      }
+      grid.innerHTML = html + '</div>';
+    };
+    $('#calPrev')?.addEventListener('click', () => { calCursor.setMonth(calCursor.getMonth() - 1); renderDashCalendar(); });
+    $('#calNext')?.addEventListener('click', () => { calCursor.setMonth(calCursor.getMonth() + 1); renderDashCalendar(); });
+    renderDashCalendar();
 
     // Render Zones - Show message if no data
     const zonesEl = $('#zones');

@@ -252,7 +252,10 @@
                             </h2>
                             <p class="text-xs text-on-surface-variant mt-0.5">Append-only scan ledger — moves, assignments, collisions, and stock mutations.</p>
                         </div>
-                        <input type="text" id="auditSearch" placeholder="Search audit log..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                        <div class="flex items-center gap-2">
+                            <input type="text" id="auditSearch" placeholder="Search audit log..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            <button type="button" class="btn-outline text-xs flex items-center gap-1" onclick="exportCSV('scans')"><span class="material-symbols-outlined text-base">download</span>CSV</button>
+                        </div>
                     </div>
                     <div id="auditList" class="p-6 overflow-x-auto"></div>
                     <div id="auditPager" class="px-6 pb-6 flex items-center justify-between"></div>
@@ -323,41 +326,12 @@
     </dialog>
 
     <!-- Update Document Status Modal -->
-    <dialog id="updateDocModal" class="rounded-2xl border-0 shadow-2xl p-0 w-[94%] max-w-md backdrop:bg-slate-900/50">
-        <div class="p-6">
-            <div class="flex items-start justify-between mb-5">
-                <div class="flex items-center gap-3">
-                    <span class="w-11 h-11 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
-                        <span class="material-symbols-outlined">edit_document</span>
-                    </span>
-                    <div>
-                        <h2 class="text-lg font-bold text-slate-900">Update Status</h2>
-                        <p id="updateDocRef" class="text-xs text-slate-500 font-medium"></p>
-                    </div>
-                </div>
-                <button id="closeUpdateDocModal" class="text-slate-400 hover:text-slate-600 transition-colors" aria-label="Close">
-                    <span class="material-symbols-outlined">close</span>
-                </button>
-            </div>
-            <p class="text-sm text-slate-500 mb-3">Current status: <span id="updateDocCurrent" class="font-bold text-slate-800"></span></p>
-            <select id="updateDocSelect" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 mb-5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
-                <option value="Pending Verification">Pending Verification</option>
-                <option value="Verified">Verified</option>
-                <option value="Signed">Signed</option>
-                <option value="Rejected">Rejected</option>
-                <option value="Expired">Expired</option>
-            </select>
-            <div class="flex gap-3">
-                <button id="updateDocCancel" class="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-colors">Cancel</button>
-                <button id="updateDocSave" class="flex-1 px-4 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition-colors">Save Status</button>
-            </div>
-        </div>
-    </dialog>
+
 
         <script src="token.js?v=1"></script>
-        <script src="layout.js?v=9"></script>
+        <script src="layout.js?v=10"></script>
     <script src="permissions.js?v=10"></script>
-    <script src="documents.js?v=10"></script>
+    <script src="documents.js?v=11"></script>
     <script src="inactivity.js?v=2"></script>
 </body>
 </html>
