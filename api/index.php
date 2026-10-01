@@ -1221,9 +1221,9 @@ if ($method === 'POST' && $path === '/api/v1/assets') {
     auth(['Admin', 'WarehouseStaff']);
     $x = body();
     $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'],
-        (int)($x['quantity'] ?? 1) ?: 1, $x['low_stock_threshold'] !== '' && $x['low_stock_threshold'] !== null ? (int)$x['low_stock_threshold'] : null,
-        $x['date_purchased'] ?: null, $x['lifespan_months'] !== '' && $x['lifespan_months'] !== null ? (int)$x['lifespan_months'] : null]);
+    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'] ?? null,
+        (int)($x['quantity'] ?? 1) ?: 1, ($x['low_stock_threshold'] ?? null) !== '' && ($x['low_stock_threshold'] ?? null) !== null ? (int)$x['low_stock_threshold'] : null,
+        ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null]);
     reply(['id' => db()->lastInsertId()], 201);
 }
 
@@ -2024,9 +2024,9 @@ if ($method === 'POST' && $path === '/api/v1/inventory/assets') {
     auth(['Admin', 'WarehouseStaff']);
     $x = body();
     $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months) VALUES(?,?,?,?,?,?,?,?,?,?)');
-    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'],
-        (int)($x['quantity'] ?? 1) ?: 1, $x['low_stock_threshold'] !== '' && $x['low_stock_threshold'] !== null ? (int)$x['low_stock_threshold'] : null,
-        $x['date_purchased'] ?: null, $x['lifespan_months'] !== '' && $x['lifespan_months'] !== null ? (int)$x['lifespan_months'] : null]);
+    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'] ?? null,
+        (int)($x['quantity'] ?? 1) ?: 1, ($x['low_stock_threshold'] ?? null) !== '' && ($x['low_stock_threshold'] ?? null) !== null ? (int)$x['low_stock_threshold'] : null,
+        ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null]);
     logActivity(db(), auth(), 'Registered asset', 'asset', $x['qr_code'], $x['name']);
     reply(['id' => db()->lastInsertId()], 201);
 }
