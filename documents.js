@@ -13,14 +13,23 @@ let allDocuments = [];
 // categories. document_type values map into one of them; anything
 // unrecognized falls through to the matching rule or "Inbound".
 const DOC_CATEGORIES = [
-  { key: 'inbound',  title: 'Inbound Logistics & Receiving',       sub: 'The Inflow',             icon: 'move_to_inbox',    types: ['ASN', 'Bill of Lading', 'BoL', 'Packing Slip', 'Manifest', 'MRR', 'Goods Receipt Note', 'GRN', 'Delivery Receipt', 'Receipt', 'Invoice'] },
-  { key: 'quality',  title: 'Quality Control & Compliance',        sub: 'The Shield',             icon: 'verified',         types: ['CoA', 'CoC', 'NC', 'NCR', 'Customs Clearance', 'Customs'] },
-  { key: 'internal', title: 'Inventory Control & Warehousing',     sub: 'Internal Operations',    icon: 'inventory_2',      types: ['Cycle Count', 'Physical Inventory', 'Stock Transfer Order', 'STO', 'MSDS', 'SDS'] },
-  { key: 'outbound', title: 'Outbound Logistics & Distribution',   sub: 'The Outflow',            icon: 'local_shipping',   types: ['Pick List', 'Waybill', 'Shipping Label', 'Proof of Delivery', 'PoD', 'Courier'] },
+  { key: 'inbound',  title: 'Inbound Logistics & Receiving',       sub: 'The Inflow',             icon: 'move_to_inbox',    types: ['ASN', 'Bill of Lading', 'BoL', 'Manifest', 'MRR', 'Goods Receipt Note', 'GRN', 'Receipt', 'Invoice'] },
+  { key: 'quality',  title: 'Quality Control & Compliance',        sub: 'The Shield',             icon: 'verified',         types: ['CoA', 'CoC', 'NCR', 'Damage Report', 'Discrepancy Report', 'Customs Clearance', 'Duty Tax', 'Customs'] },
+  { key: 'internal', title: 'Inventory Control & Warehousing',     sub: 'Internal Operations',    icon: 'inventory_2',      types: ['Cycle Count', 'Physical Inventory', 'Stock Transfer Order', 'STO', 'Inventory Adjustment', 'Warehouse Transfer', 'MSDS', 'SDS'] },
+  { key: 'outbound', title: 'Outbound Logistics & Distribution',   sub: 'The Outflow',            icon: 'local_shipping',   types: ['Packing Slip Out', 'Pick List', 'Waybill', 'Shipping Label', 'Fleet Transport Request', 'Delivery Receipt', 'Proof of Delivery', 'PoD', 'Courier'] },
+  // 'Packing Slip' alone is inbound; 'Packing Slip Out' is outbound — longest-match wins below.
 ];
 
 function docCategoryOf(type) {
   const t = String(type || '').toLowerCase();
+  let best = null, bestLen = 0;
+  for (const c of DOC_CATEGORIES) {
+    for (const x of c.types) {
+      const xl = x.toLowerCase();
+      if (xl.length > bestLen && (t === xl || t.startsWith(xl))) { best = c.key; bestLen = xl.length; }
+    }
+  }
+  if (best) return best;
   for (const c of DOC_CATEGORIES) {
     if (c.types.some((x) => t.includes(x.toLowerCase()))) return c.key;
   }
@@ -225,6 +234,23 @@ window.viewDocument = async (docId) => {
     setText('viewDocPO', doc.related_po || '—');
     setText('viewDocSigner', doc.signer_name || '—');
     setText('viewDocDesc', doc.description || 'No description provided.');
+    // §Required Document Metadata — render the linkage fields only when set.
+    const meta = $('#viewDocMeta');
+    if (meta) {
+      const fields = [
+        ['Batch / Lot No.', doc.batch_no], ['SKU / Item Code', doc.sku],
+        ['Asset ID', doc.asset_ref], ['PO Number', doc.po_number || doc.related_po],
+        ['STO Reference', doc.sto_ref], ['Transport Request ID', doc.transport_ref],
+        ['Carrier / Tracking ID', doc.carrier_tracking], ['Warehouse / Zone', doc.zone],
+        ['Expiration Date', doc.expiry_date ? new Date(doc.expiry_date).toLocaleDateString() : null],
+        ['Last Updated By', doc.updated_by],
+      ].filter(([, v]) => v);
+      meta.innerHTML = fields.length
+        ? `<p class="text-[10px] uppercase tracking-wide font-bold text-slate-400 mb-1">Record Linkage</p>
+           <div class="grid grid-cols-2 gap-2 text-xs">${fields.map(([k, v]) =>
+             `<div class="bg-slate-50 rounded-lg px-2.5 py-1.5"><span class="text-slate-400">${k}</span><br><span class="font-semibold text-slate-700">${esc(v)}</span></div>`).join('')}</div>`
+        : '';
+    }
     const statusEl = $('#viewDocStatus');
     if (statusEl) statusEl.innerHTML = `<span class="tag">${esc(doc.status || '')}</span>`;
     viewDocModal?.showModal();
@@ -242,7 +268,16 @@ window.downloadDocument = (docId) => {
     `Type:       ${doc.document_type}`,
     `Owner:      ${doc.owner}`,
     `Status:     ${doc.status}`,
-    `Related PO: ${doc.related_po || 'N/A'}`,
+    `Related PO: ${doc.po_number || doc.related_po || 'N/A'}`,
+    `Batch/Lot:  ${doc.batch_no || 'N/A'}`,
+    `SKU/Item:   ${doc.sku || 'N/A'}`,
+    `Asset ID:   ${doc.asset_ref || 'N/A'}`,
+    `STO Ref:    ${doc.sto_ref || 'N/A'}`,
+    `Transport:  ${doc.transport_ref || 'N/A'}`,
+    `Carrier:    ${doc.carrier_tracking || 'N/A'}`,
+    `Zone:       ${doc.zone || 'N/A'}`,
+    `Expires:    ${doc.expiry_date || 'N/A'}`,
+    `Updated By: ${doc.updated_by || 'N/A'}`,
     `Due Date:   ${doc.due_date || 'N/A'}`,
     `Created:    ${doc.created_at || 'N/A'}`,
     '',

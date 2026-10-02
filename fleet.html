@@ -150,9 +150,15 @@
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
                         <h2 class="text-lg font-headline font-semibold text-on-surface">Transport Requests</h2>
-                        <input type="text" id="fleetSearch" placeholder="Search requests..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                        <div class="flex gap-3">
+                            <input type="text" id="fleetSearch" placeholder="Search requests..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            <select id="fleetRange" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
+                                <option value="0">All time</option><option value="1">Today</option><option value="7">This week</option><option value="30">This month</option><option value="365">This year</option>
+                            </select>
+                        </div>
                     </div>
                     <div id="fleetTable" class="data-table-container"></div>
+                    <div id="fleetPager" class="px-6 py-3 border-t border-slate-100 flex items-center justify-between"></div>
                 </div>
             </div>
         </main>
@@ -170,23 +176,47 @@
             <button class="close" type="button" aria-label="Close" onclick="this.closest('dialog').close()">×</button>
             <h2>New Transport Request</h2>
             <form id="fleetForm" class="space-y-4">
-                <label class="block text-sm">Item / Asset
-                    <input name="item_name" required class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. Dell Latitude Laptop (AST-000123)">
-                </label>
+                <div class="grid grid-cols-2 gap-4">
+                    <label class="block text-sm">Asset ID
+                        <input name="asset_ref" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. AST-IT-0001">
+                    </label>
+                    <label class="block text-sm">Item Name
+                        <input name="item_name" required class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. Dell Latitude Laptop">
+                    </label>
+                </div>
                 <div class="grid grid-cols-2 gap-4">
                     <label class="block text-sm">Quantity
                         <input name="quantity" type="number" min="1" value="1" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm">
                     </label>
-                    <label class="block text-sm">From
+                    <label class="block text-sm">Pickup Location
                         <input name="origin" value="Warehouse" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm">
                     </label>
                 </div>
-                <label class="block text-sm">Deliver To (staff member / department)
-                    <input name="destination" required class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. Juan Dela Cruz — Finance Dept">
+                <div class="grid grid-cols-2 gap-4">
+                    <label class="block text-sm">Recipient Name
+                        <input name="recipient_name" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. Juan Dela Cruz">
+                    </label>
+                    <label class="block text-sm">Recipient Department
+                        <input name="recipient_dept" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. Finance">
+                    </label>
+                </div>
+                <label class="block text-sm">Delivery Location
+                    <input name="destination" required class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. Finance Dept, Main Office">
                 </label>
-                <label class="block text-sm">Notes
-                    <textarea name="notes" rows="2" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="Handling instructions, schedule preference…"></textarea>
+                <div class="grid grid-cols-2 gap-4">
+                    <label class="block text-sm">Requested Delivery Date
+                        <input name="requested_date" type="date" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm">
+                    </label>
+                    <label class="block text-sm">Priority
+                        <select name="priority" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm">
+                            <option>Normal</option><option>High</option><option>Urgent</option><option>Low</option>
+                        </select>
+                    </label>
+                </div>
+                <label class="block text-sm">Special Instructions
+                    <textarea name="special_instructions" rows="2" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="Handling instructions, schedule preference…"></textarea>
                 </label>
+                <input name="notes" type="hidden" value="">
                 <button type="submit" class="btn-primary m-0 w-full">Submit to Fleet &amp; Vehicle Management</button>
             </form>
         </div>
@@ -196,7 +226,7 @@
     <script src="token.js?v=1"></script>
     <script src="permissions.js?v=10"></script>
     <script src="layout.js?v=10"></script>
-    <script src="fleet.js?v=1"></script>
+    <script src="fleet.js?v=2"></script>
     <script src="inactivity.js?v=3"></script>
 </body>
 </html>

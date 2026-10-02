@@ -218,6 +218,11 @@ function openAssetForm(asset = null) {
   assetForm.elements.low_stock_threshold.value = asset?.low_stock_threshold ?? '';
   assetForm.elements.date_purchased.value = asset?.date_purchased || '';
   assetForm.elements.lifespan_months.value = asset?.lifespan_months ?? '';
+  assetForm.elements.manufacturer.value = asset?.manufacturer || '';
+  assetForm.elements.model.value = asset?.model || '';
+  assetForm.elements.serial_number.value = asset?.serial_number || '';
+  assetForm.elements.warranty_expiry.value = asset?.warranty_expiry || '';
+  assetForm.elements.specs.value = asset?.specs || '';
   assetFormError.hidden = true;
   assetFormError.textContent = '';
   showDialog(assetModal);
@@ -310,17 +315,28 @@ window.viewAsset = async (qrCode) => {
     }
 
     const details = $('#viewAssetDetails');
+    const row = (k, v) => `<div class="flex justify-between gap-4 py-1.5 border-b border-slate-100"><dt class="text-slate-500">${k}</dt><dd class="font-medium text-slate-800 text-right">${v ?? '—'}</dd></div>`;
+    // §QR profile — the QR encodes only the Asset ID; the record opens here,
+    // split into static (fixed at registration) vs dynamic (changing) data.
     details.innerHTML = `
-      <div><dt>QR Code</dt><dd>${escapeHTML(asset.qr_code)}</dd></div>
-      <div><dt>Name</dt><dd>${escapeHTML(asset.name)}</dd></div>
-      <div><dt>Category</dt><dd>${escapeHTML(asset.category)}</dd></div>
-      <div><dt>Status</dt><dd>${escapeHTML(asset.status)}</dd></div>
-      <div><dt>Value</dt><dd>${escapeHTML(money(asset.value))}</dd></div>
-      <div><dt>Location</dt><dd>${escapeHTML(asset.location || 'N/A')}</dd></div>
-      <div><dt>Quantity</dt><dd>${escapeHTML(asset.quantity ?? 1)}</dd></div>
-      <div><dt>Low-Stock Threshold</dt><dd>${asset.low_stock_threshold ?? '—'}</dd></div>
-      <div><dt>Date Purchased</dt><dd>${asset.date_purchased ? new Date(asset.date_purchased).toLocaleDateString() : '—'}</dd></div>
-      <div><dt>Lifespan</dt><dd>${asset.lifespan_months != null ? asset.lifespan_months + ' months' : '—'}</dd></div>`;
+      <p class="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">Identity &amp; Static Attributes</p>
+      ${row('Asset ID', `<span class="font-mono">${escapeHTML(asset.qr_code)}</span>`)}
+      ${row('Item Name', escapeHTML(asset.name))}
+      ${row('Category', escapeHTML(asset.category))}
+      ${row('Manufacturer', escapeHTML(asset.manufacturer))}
+      ${row('Model', escapeHTML(asset.model))}
+      ${row('Serial Number', escapeHTML(asset.serial_number))}
+      ${row('Specifications', escapeHTML(asset.specs))}
+      ${row('Value', escapeHTML(money(asset.value)))}
+      ${row('Purchase Date', asset.date_purchased ? new Date(asset.date_purchased).toLocaleDateString() : null)}
+      ${row('Warranty Expiry', asset.warranty_expiry ? new Date(asset.warranty_expiry).toLocaleDateString() : null)}
+      ${row('Lifespan', asset.lifespan_months != null ? asset.lifespan_months + ' months' : null)}
+      <p class="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-4 mb-1">Dynamic Attributes</p>
+      ${row('Status', escapeHTML(asset.status))}
+      ${row('Zone / Location', escapeHTML(asset.location || 'Receiving Dock'))}
+      ${row('Assigned To', escapeHTML(asset.external_employee_name))}
+      ${row('Quantity', asset.quantity ?? 1)}
+      ${row('Low-Stock Threshold', asset.low_stock_threshold ?? null)}`;
     showDialog($('#viewAssetModal'));
   } catch (error) {
     console.error('Error viewing asset:', error);
@@ -417,43 +433,80 @@ function reqStatusBadge(s) {
 
 // §5: requisition submission lives here (relocated from Procurement Sourcing).
 // Open/active requisitions list; decided ones flow to the Requisition Log tab.
+let invReqPage = 1;
+const INV_REQ_PAGE = 10;
 async function loadInvRequisitions() {
   const res = await api('procurement/requisitions');
   const reqs = (res.requisitions || []).filter(r => !['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered', 'Completed'].includes(r.status));
   const search = $('#invReqSearch');
+  const rangeSel = $('#invReqRange');
+  const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
+  const canDecide = isAdmin || (typeof currentUserRole !== 'undefined' && currentUserRole === 'Manager');
   const render = () => {
     const q = (search?.value || '').toLowerCase().trim();
-    const filtered = q ? reqs.filter(r => [r.req_number, r.title, r.status, r.department, r.purpose].some(v => (v || '').toLowerCase().includes(q))) : reqs;
+    const days = parseInt(rangeSel?.value || '0', 10);
+    const cutoff = days ? Date.now() - days * 86400000 : 0;
+    const filtered = reqs.filter(r =>
+      (!q || [r.req_number, r.title, r.status, r.department, r.purpose].some(v => (v || '').toLowerCase().includes(q)))
+      && (!cutoff || (r.created_at && new Date(r.created_at).getTime() >= cutoff)));
+    const pages = Math.max(1, Math.ceil(filtered.length / INV_REQ_PAGE));
+    if (invReqPage > pages) invReqPage = pages;
+    const slice = filtered.slice((invReqPage - 1) * INV_REQ_PAGE, invReqPage * INV_REQ_PAGE);
     const tbl = $('#invRequisitionsTable');
     if (!tbl) return;
-    tbl.innerHTML = filtered.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-      <th class="text-left p-4">Req ID</th><th class="text-left p-4">Title</th><th class="text-left p-4">Purpose</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Needed By</th></tr></thead>
-      <tbody>${filtered.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
-      <td class="p-4 text-on-surface-variant">${escapeHTML(r.purpose || '—')}</td>
+    // Spec §Requisitions: Purpose is the primary column (not Title); actions
+    // stay inline — Approve (Admin/Manager), Reject (Admin-only, API-enforced).
+    tbl.innerHTML = slice.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+      <th class="text-left p-4">Req ID</th><th class="text-left p-4">Purpose</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Needed By</th><th class="text-left p-4">Actions</th></tr></thead>
+      <tbody>${slice.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td>
+      <td class="p-4 font-medium">${escapeHTML(r.purpose || r.title || '—')}</td>
       <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
       <td class="p-4">${escapeHTML(r.priority || 'Normal')}</td><td class="p-4">${reqStatusBadge(r.status)}</td>
-      <td class="p-4 text-on-surface-variant">${r.needed_by ? new Date(r.needed_by).toLocaleDateString() : '—'}</td></tr>`).join('')}</tbody></table>`
+      <td class="p-4 text-on-surface-variant">${r.needed_by ? new Date(r.needed_by).toLocaleDateString() : '—'}</td>
+      <td class="p-4 whitespace-nowrap">${canDecide
+        ? `<button type="button" title="Approve" aria-label="Approve requisition" class="action-btn !px-2 text-emerald-600" data-req-action="approve" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">check_circle</span></button>` +
+          (isAdmin ? ` <button type="button" title="Reject" aria-label="Reject requisition" class="action-btn !px-2 text-red-600" data-req-action="reject" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">cancel</span></button>` : '')
+        : '<span class="text-xs text-on-surface-variant">—</span>'}</td></tr>`).join('')}</tbody></table>`
       : '<div class="p-10 text-center text-on-surface-variant text-sm">No open requisitions — submit one with "New Requisition".</div>';
+    const pager = $('#invReqPager');
+    if (pager) pager.innerHTML = filtered.length ? `<span class="text-xs text-slate-500">${filtered.length} requisitions · page ${invReqPage} of ${pages}</span>
+      <div class="flex gap-2"><button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${invReqPage <= 1 ? 'disabled' : ''} onclick="invReqPage--; document.dispatchEvent(new CustomEvent('inv:req-render'))">Prev</button>
+      <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${invReqPage >= pages ? 'disabled' : ''} onclick="invReqPage++; document.dispatchEvent(new CustomEvent('inv:req-render'))">Next</button></div>` : '';
   };
-  if (search && !search.dataset.bound) { search.dataset.bound = '1'; search.addEventListener('input', render); }
+  if (search && !search.dataset.bound) { search.dataset.bound = '1'; search.addEventListener('input', () => { invReqPage = 1; render(); }); }
+  if (rangeSel && !rangeSel.dataset.bound) { rangeSel.dataset.bound = '1'; rangeSel.addEventListener('change', () => { invReqPage = 1; render(); }); }
+  if (!document._invReqRenderBound) { document._invReqRenderBound = true; document.addEventListener('inv:req-render', render); }
   render();
 }
 
 // Requisition Log (last tab): the full decided history — approved, rejected,
 // completed, and ordered requests with their lifecycle timestamps.
+let reqLogPage = 1;
+const REQ_LOG_PAGE = 15;
 async function loadReqLog() {
   const res = await api('procurement/requisitions');
   const reqs = (res.requisitions || []).filter(r => ['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered', 'Completed'].includes(r.status));
+  const rangeSel = $('#reqLogRange');
+  const days = parseInt(rangeSel?.value || '0', 10);
+  const cutoff = days ? Date.now() - days * 86400000 : 0;
+  const filtered = reqs.filter(r => !cutoff || (r.created_at && new Date(r.created_at).getTime() >= cutoff));
+  const pages = Math.max(1, Math.ceil(filtered.length / REQ_LOG_PAGE));
+  if (reqLogPage > pages) reqLogPage = pages;
+  const slice = filtered.slice((reqLogPage - 1) * REQ_LOG_PAGE, reqLogPage * REQ_LOG_PAGE);
   const el = $('#reqLogTable');
   if (!el) return;
-  el.innerHTML = reqs.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Req ID</th><th class="text-left p-4">Title</th><th class="text-left p-4">Purpose</th><th class="text-left p-4">Requested By</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Status</th><th class="text-left p-4">Decided</th></tr></thead>
-    <tbody>${reqs.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
-    <td class="p-4 text-on-surface-variant">${escapeHTML(r.purpose || '—')}</td>
+  el.innerHTML = slice.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+    <th class="text-left p-4">Req ID</th><th class="text-left p-4">Purpose</th><th class="text-left p-4">Requested By</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Status</th><th class="text-left p-4">Decided</th></tr></thead>
+    <tbody>${slice.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td>
+    <td class="p-4 font-medium">${escapeHTML(r.purpose || r.title || '—')}</td>
     <td class="p-4 text-on-surface-variant">${escapeHTML(r.created_by_name || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
     <td class="p-4">${reqStatusBadge(r.status)}</td>
     <td class="p-4 text-on-surface-variant text-xs">${r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</td></tr>`).join('')}</tbody></table>`
     : '<div class="p-10 text-center text-on-surface-variant text-sm">No decided requisitions yet — approved and rejected requests land here.</div>';
+  const pager = $('#reqLogPager');
+  if (pager) pager.innerHTML = filtered.length ? `<span class="text-xs text-slate-500">${filtered.length} records · page ${reqLogPage} of ${pages}</span>
+    <div class="flex gap-2"><button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${reqLogPage <= 1 ? 'disabled' : ''} onclick="reqLogPage--; loadReqLog()">Prev</button>
+    <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${reqLogPage >= pages ? 'disabled' : ''} onclick="reqLogPage++; loadReqLog()">Next</button></div>` : '';
 }
 
 // New Requisition modal — purpose checkboxes plus a custom text box (§5).
@@ -534,13 +587,19 @@ document.addEventListener('click', async (event) => {
   const btn = event.target.closest('[data-req-action][data-req-id]');
   if (!btn) return;
   const status = btn.dataset.reqAction === 'approve' ? 'Approved' : 'Rejected';
+  const ok = await (window.scimConfirm ? scimConfirm({
+    title: `${status === 'Rejected' ? 'Reject' : 'Approve'} requisition?`,
+    message: `This marks the request as ${status} and records the decision in the activity log.`,
+    confirmLabel: status === 'Rejected' ? 'Reject' : 'Approve', icon: status === 'Rejected' ? 'cancel' : 'check_circle', danger: status === 'Rejected',
+  }) : Promise.resolve(true));
+  if (!ok) return;
   const res = await fetch(`/api/v1/procurement/requisitions/${encodeURIComponent(btn.dataset.reqId)}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) { alert(data.error || `Unable to ${status.toLowerCase()} requisition.`); return; }
-  invLoaded.approvals = false; invLoaded.requisitions = false;
-  loadInvApprovals();
+  invLoaded.approvals = false; invLoaded.requisitions = false; invLoaded.reqlog = false;
+  loadInvApprovals(); loadInvRequisitions();
 });
 
 async function loadValuation() {
@@ -560,15 +619,28 @@ async function loadValuation() {
     : '<div class="text-sm text-on-surface-variant text-center py-8">No valuation data.</div>';
 }
 
+let invHistPage = 1;
+const INV_HIST_PAGE = 20;
 async function loadInvHistory() {
   const res = await api('inventory/transactions');
-  $('#invHistoryList').innerHTML = (res.transactions || []).length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+  let tx = res.transactions || [];
+  const days = parseInt($('#invHistRange')?.value || '0', 10);
+  const cutoff = days ? Date.now() - days * 86400000 : 0;
+  if (cutoff) tx = tx.filter(t => t.created_at && new Date(t.created_at).getTime() >= cutoff);
+  const pages = Math.max(1, Math.ceil(tx.length / INV_HIST_PAGE));
+  if (invHistPage > pages) invHistPage = pages;
+  const slice = tx.slice((invHistPage - 1) * INV_HIST_PAGE, invHistPage * INV_HIST_PAGE);
+  $('#invHistoryList').innerHTML = slice.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
     <th class="text-left p-4">Timestamp</th><th class="text-left p-4">Asset</th><th class="text-left p-4">Transaction</th><th class="text-left p-4">Zone / Location</th></tr></thead>
-    <tbody>${res.transactions.map(t => `<tr class="border-b border-slate-50"><td class="p-4 text-on-surface-variant text-xs">${new Date(t.created_at).toLocaleString()}</td>
+    <tbody>${slice.map(t => `<tr class="border-b border-slate-50"><td class="p-4 text-on-surface-variant text-xs">${new Date(t.created_at).toLocaleString()}</td>
     <td class="p-4"><span class="font-mono text-xs">${escapeHTML(t.qr_code || '—')}</span><div class="text-xs text-on-surface-variant">${escapeHTML(t.asset_name || '')}</div></td>
     <td class="p-4"><span class="px-2 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-700">${escapeHTML(t.action || '—')}</span></td>
     <td class="p-4 text-on-surface-variant">${escapeHTML(t.zone || '—')}</td></tr>`).join('')}</tbody></table>`
     : '<div class="text-sm text-on-surface-variant text-center py-8">No transaction history.</div>';
+  const pager = $('#invHistPager');
+  if (pager) pager.innerHTML = tx.length ? `<span class="text-xs text-slate-500">${tx.length} events · page ${invHistPage} of ${pages}</span>
+    <div class="flex gap-2"><button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${invHistPage <= 1 ? 'disabled' : ''} onclick="invHistPage--; loadInvHistory()">Prev</button>
+    <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${invHistPage >= pages ? 'disabled' : ''} onclick="invHistPage++; loadInvHistory()">Next</button></div>` : '';
 }
 
 // Centralized Archive — GET /api/v1/archives lists every entity; filtered client-side.
@@ -577,15 +649,17 @@ async function loadArchiveTable() {
   const entity = $('#archiveResource')?.value || 'asset';
   const q = ($('#archiveSearch')?.value || '').toLowerCase();
   const data = await api('archives').catch(() => ({}));
-  const rows = (data.items || []).filter((r) => r.entity === entity && (!q || `${r.label} ${r.ref}`.toLowerCase().includes(q)));
+  const rows = (data.items || []).filter((r) => r.entity === entity && (!q || `${r.label} ${r.ref} ${r.archived_by || ''}`.toLowerCase().includes(q)));
   const el = $('#archiveTable');
   if (!el) return;
   el.innerHTML = rows.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Ref</th><th class="text-left p-4">Record</th><th class="text-left p-4">Archived</th><th class="text-left p-4">Action</th></tr></thead>
+    <th class="text-left p-4">Ref</th><th class="text-left p-4">Record</th><th class="text-left p-4">Archived By</th><th class="text-left p-4">Archived At</th><th class="text-left p-4">Reason</th><th class="text-left p-4">Action</th></tr></thead>
     <tbody>${rows.map((r) => `<tr class="border-b border-slate-50">
       <td class="p-4 font-mono text-xs">${escapeHTML(r.ref || r.id)}</td>
       <td class="p-4 font-medium">${escapeHTML(r.label)}</td>
+      <td class="p-4 text-on-surface-variant text-xs">${escapeHTML(r.archived_by || '—')}</td>
       <td class="p-4 text-on-surface-variant text-xs">${r.archived_at ? new Date(r.archived_at).toLocaleString() : '—'}</td>
+      <td class="p-4 text-on-surface-variant text-xs">${escapeHTML(r.archive_reason || '—')}</td>
       <td class="p-4"><button type="button" title="Restore" aria-label="Restore record" class="action-btn action-btn-view !px-2" data-restore-res="${r.entity}" data-restore-id="${r.id}"><span class="material-symbols-outlined text-base">unarchive</span></button></td></tr>`).join('')}</tbody></table>`
     : '<div class="p-10 text-center text-on-surface-variant text-sm">Archive is empty.</div>';
 }

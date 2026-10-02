@@ -53,35 +53,49 @@ function complianceSummary(s) {
   return flags.length ? flags.join(' ') : '<span class="text-emerald-600 text-[10px] font-bold">COMPLIANT</span>';
 }
 
+let supplierPage = 1;
+const SUP_PAGE = 12;
+
+// §Supplier Partner Status — verification badge colours.
+const VERIFICATION_BADGE = (v) => {
+  const map = { Verified: 'bg-emerald-100 text-emerald-700', 'In Review': 'bg-blue-100 text-blue-700',
+                Suspended: 'bg-red-100 text-red-700' };
+  return `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${map[v] || 'bg-amber-100 text-amber-700'}">${esc(v || 'Pending')}</span>`;
+};
+
 function renderSupplierTable(suppliers) {
   const el = $('#supplierTable');
   if (!el) return;
   if (!suppliers.length) {
     el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No suppliers yet. Click "Add Supplier" to create one.</p>';
+    const p = $('#supplierPager'); if (p) p.innerHTML = '';
     return;
   }
+  const pages = Math.max(1, Math.ceil(suppliers.length / SUP_PAGE));
+  if (supplierPage > pages) supplierPage = pages;
+  const slice = suppliers.slice((supplierPage - 1) * SUP_PAGE, supplierPage * SUP_PAGE);
   const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
   const canArchive = isAdmin || currentUserRole === 'Manager';
   el.innerHTML = `
     <table class="data-table w-full text-sm">
       <thead>
-        <tr><th>Supplier</th><th>Status</th><th>Tier</th><th>Compliance</th><th>Rating</th><th>On-Time</th><th>Defects</th><th>Contact</th><th class="text-right">Actions</th></tr>
+        <tr><th>Supplier</th><th>Status</th><th>Verification</th><th>Tier</th><th>Compliance</th><th>Rating</th><th>On-Time</th><th>Defects</th><th class="text-right">Actions</th></tr>
       </thead>
       <tbody>
-        ${suppliers.map((s) => {
+        ${slice.map((s) => {
           const t = supplierTier(s);
           const active = (s.status || 'Active') === 'Active';
           const autoPO = Number(s.auto_approve) === 1;
           return `
           <tr>
-            <td><b>${esc(s.name)}</b>${autoPO ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-bold" title="Auto-PO Approval — Inventory may send POs without procurement review">PRE-CLEARED</span>' : ''}</td>
+            <td><b>${esc(s.name)}</b><div class="text-[10px] text-slate-400 font-mono">${esc(s.vendor_code || '—')}</div>${autoPO ? '<span class="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-bold" title="Auto-PO Approval — Inventory may send POs without procurement review">PRE-CLEARED</span>' : ''}</td>
             <td><span class="inline-flex items-center gap-1 text-[11px] font-bold ${active ? 'text-emerald-600' : 'text-slate-400'}"><span class="h-2 w-2 rounded-full ${active ? 'bg-emerald-500' : 'bg-slate-300'}"></span>${active ? 'Active' : 'Inactive'}</span></td>
+            <td>${VERIFICATION_BADGE(s.verification_status)}<div class="text-[10px] text-slate-400 mt-0.5">${esc(s.onboarding_stage || 'Supplier Intake')}</div></td>
             <td><span class="inline-flex items-center gap-1 px-2 py-1 rounded-full border text-[11px] font-bold ${t.cls}" title="Computed from rating, on-time %, and defect rate"><span class="material-symbols-outlined text-sm">${t.icon}</span>${t.label}</span></td>
             <td>${complianceSummary(s)}</td>
             <td>★ ${(parseFloat(s.rating) || 0).toFixed(1)}</td>
             <td>${esc(s.on_time_rate ?? 0)}%</td>
             <td>${esc(s.defect_rate ?? 0)}%</td>
-            <td class="text-xs"><div>${esc(s.email || '—')}</div><div class="text-slate-400">${esc(s.phone || '')}</div></td>
             <td class="whitespace-nowrap text-right">
               <button class="action-btn action-btn-view !px-2" title="View profile" aria-label="View profile" onclick="viewSupplierProfile(${s.id})"><span class="material-symbols-outlined text-base">visibility</span></button>
               ${isAdmin ? `<button class="action-btn action-btn-edit !px-2" title="Edit supplier" aria-label="Edit supplier" onclick="editSupplier(${s.id})"><span class="material-symbols-outlined text-base">edit</span></button>` : ''}
@@ -91,30 +105,65 @@ function renderSupplierTable(suppliers) {
         }).join('')}
       </tbody>
     </table>`;
+  const pager = $('#supplierPager');
+  if (pager) pager.innerHTML = `<span class="text-xs text-slate-500">${suppliers.length} suppliers · page ${supplierPage} of ${pages}</span>
+    <div class="flex gap-2"><button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${supplierPage <= 1 ? 'disabled' : ''} onclick="supplierPage--; applySupplierFilters()">Prev</button>
+    <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${supplierPage >= pages ? 'disabled' : ''} onclick="supplierPage++; applySupplierFilters()">Next</button></div>`;
 }
 
-// Comprehensive profile — status, tier, compliance, contract, performance.
+// §Supplier Qualification / Onboarding — the 7-stage verification pipeline.
+const ONBOARDING_STAGES = ['Supplier Intake', 'Document Verification', 'Due Diligence',
+  'Contract & Agreement', 'System Registration', 'Approval & Activation', 'Ongoing Monitoring'];
+
+function onboardingTracker(stage) {
+  const idx = Math.max(0, ONBOARDING_STAGES.indexOf(stage));
+  return `<div class="flex items-center gap-1 my-3">${ONBOARDING_STAGES.map((st, i) => `
+    <div class="flex-1 text-center">
+      <div class="h-1.5 rounded-full ${i <= idx ? 'bg-primary' : 'bg-slate-200'}"></div>
+      <div class="text-[9px] mt-1 ${i === idx ? 'font-bold text-primary' : 'text-slate-400'}">${st}</div>
+    </div>`).join('')}</div>`;
+}
+
+// Comprehensive profile (§Supplier Profile spec): identity, classification,
+// verification, contract, compliance, auto-PO, and performance metrics.
 window.viewSupplierProfile = (id) => {
   const s = allSuppliers.find((x) => x.id === id);
   if (!s) return;
   const t = supplierTier(s);
   const coiExpired = s.coi_expiry && new Date(s.coi_expiry) < new Date();
+  const contractExpired = s.contract_expiry && new Date(s.contract_expiry) < new Date();
+  const otif = parseFloat(s.otif_rate ?? s.on_time_rate ?? 0);
+  const quality = 100 - (parseFloat(s.defect_rate) || 0);
+  const row = (k, v, cls = '') => `<div><dt class="text-xs text-slate-500">${k}</dt><dd class="font-medium ${cls}">${v ?? '—'}</dd></div>`;
   $('#spName').textContent = s.name || 'Supplier Profile';
   $('#spBody').innerHTML = `
-    <div class="flex items-center gap-2 mb-4">
+    <div class="flex items-center gap-2 mb-2 flex-wrap">
       <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-bold ${t.cls}"><span class="material-symbols-outlined text-sm">${t.icon}</span>${t.label}</span>
       <span class="px-2 py-1 rounded-full text-xs font-bold ${(s.status || 'Active') === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}">${esc(s.status || 'Active')}</span>
+      ${VERIFICATION_BADGE(s.verification_status)}
       ${Number(s.auto_approve) ? '<span class="px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">Auto-PO Pre-Cleared</span>' : ''}
     </div>
+    <p class="text-[10px] uppercase tracking-wide font-bold text-slate-400">Supplier Qualification / Onboarding</p>
+    ${onboardingTracker(s.onboarding_stage)}
     <dl class="grid grid-cols-2 gap-3 text-sm">
-      <div><dt class="text-xs text-slate-500">Category</dt><dd class="font-medium">${esc(s.category || '—')}</dd></div>
-      <div><dt class="text-xs text-slate-500">Contact</dt><dd>${esc(s.email || '—')}<br>${esc(s.phone || '')}</dd></div>
-      <div><dt class="text-xs text-slate-500">Rating</dt><dd>★ ${(parseFloat(s.rating) || 0).toFixed(1)}</dd></div>
-      <div><dt class="text-xs text-slate-500">On-Time / Defects</dt><dd>${esc(s.on_time_rate ?? 0)}% / ${esc(s.defect_rate ?? 0)}%</dd></div>
-      <div><dt class="text-xs text-slate-500">Contract Ref</dt><dd class="font-mono">${esc(s.contract_ref || '—')}</dd></div>
-      <div><dt class="text-xs text-slate-500">Certifications</dt><dd>${esc(s.certs || '—')}</dd></div>
-      <div><dt class="text-xs text-slate-500">COI Expiry</dt><dd class="${coiExpired ? 'text-red-600 font-bold' : ''}">${s.coi_expiry ? new Date(s.coi_expiry).toLocaleDateString() + (coiExpired ? ' (EXPIRED)' : '') : '—'}</dd></div>
-      <div><dt class="text-xs text-slate-500">Tax / Anti-Bribery</dt><dd>${Number(s.tax_compliant) ? '✓' : '✗'} tax · ${Number(s.anti_bribery_clear) ? '✓' : '✗'} clearance</dd></div>
+      ${row('Vendor ID', `<span class="font-mono">${esc(s.vendor_code || 'VND-' + String(s.id).padStart(4, '0'))}</span>`)}
+      ${row('Category', esc(s.category))}
+      ${row('Contact', `${esc(s.email || '—')}<br>${esc(s.phone || '')}`)}
+      ${row('Contract Ref', `<span class="font-mono">${esc(s.contract_ref)}</span>`)}
+      ${row('Contract Status', s.contract_ref ? (contractExpired ? 'Expired' : 'On File') : 'None on file', contractExpired ? 'text-red-600' : '')}
+      ${row('Contract Expiry', s.contract_expiry ? new Date(s.contract_expiry).toLocaleDateString() + (contractExpired ? ' (EXPIRED)' : '') : null, contractExpired ? 'text-red-600 font-bold' : '')}
+      ${row('Compliance', `${Number(s.tax_compliant) ? '✓' : '✗'} tax · ${Number(s.anti_bribery_clear) ? '✓' : '✗'} anti-bribery`)}
+      ${row('Certifications', esc(s.certs))}
+      ${row('Insurance (COI)', s.coi_expiry ? new Date(s.coi_expiry).toLocaleDateString() + (coiExpired ? ' (EXPIRED)' : '') : 'Not on file', coiExpired ? 'text-red-600 font-bold' : '')}
+    </dl>
+    <p class="text-[10px] uppercase tracking-wide font-bold text-slate-400 mt-4">Performance Metrics</p>
+    <dl class="grid grid-cols-2 gap-3 text-sm">
+      ${row('OTIF Rate', otif.toFixed(1) + '%')}
+      ${row('Quality Acceptance', quality.toFixed(1) + '%')}
+      ${row('Avg. Lead Time', s.lead_time_days != null ? s.lead_time_days + ' days' : null)}
+      ${row('Purchase Orders', s.po_count ?? 0)}
+      ${row('Late Deliveries', s.late_deliveries ?? 0)}
+      ${row('Returns / Discrepancies', s.returns_discrepancies ?? s.discrepancies ?? 0)}
     </dl>`;
   $('#supplierProfileModal')?.showModal();
 };
@@ -181,7 +230,11 @@ window.editSupplier = (id) => {
   $('#editSupplierEmail').value = s.email || '';
   $('#editSupplierPhone').value = s.phone || '';
   $('#editSupplierStatus').value = s.status || 'Active';
+  $('#editSupplierVerification').value = s.verification_status || 'Pending';
+  $('#editSupplierOnboarding').value = s.onboarding_stage || 'Supplier Intake';
   $('#editSupplierContract').value = s.contract_ref || '';
+  $('#editSupplierContractExpiry').value = s.contract_expiry || '';
+  $('#editSupplierLeadTime').value = s.lead_time_days ?? '';
   $('#editSupplierCerts').value = s.certs || '';
   $('#editSupplierCoi').value = s.coi_expiry || '';
   $('#editSupplierTax').checked = !!Number(s.tax_compliant);
@@ -206,7 +259,11 @@ $('#editSupplierForm')?.addEventListener('submit', async (e) => {
       email: $('#editSupplierEmail').value.trim(),
       phone: $('#editSupplierPhone').value.trim(),
       status: $('#editSupplierStatus').value,
+      verification_status: $('#editSupplierVerification').value,
+      onboarding_stage: $('#editSupplierOnboarding').value,
       contract_ref: $('#editSupplierContract').value.trim(),
+      contract_expiry: $('#editSupplierContractExpiry').value || null,
+      lead_time_days: $('#editSupplierLeadTime').value === '' ? null : parseInt($('#editSupplierLeadTime').value, 10),
       certs: $('#editSupplierCerts').value.trim(),
       coi_expiry: $('#editSupplierCoi').value || null,
       tax_compliant: $('#editSupplierTax').checked ? 1 : 0,

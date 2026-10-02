@@ -616,24 +616,36 @@ if (returnReasonSubmit) {
 }
 
 // --- Activity Log tab (immutable scan ledger: action, operator name + ID) ---
+let whActPage = 1;
+const WH_ACT_PAGE = 20;
 async function loadAssetHistory() {
   const el = $('#assetHistoryList');
   if (!el) return;
   const data = await api('scan-logs').catch(() => ({}));
-  const tx = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
-  el.innerHTML = tx.length === 0
+  let tx = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+  const days = parseInt($('#whActRange')?.value || '0', 10);
+  const cutoff = days ? Date.now() - days * 86400000 : 0;
+  if (cutoff) tx = tx.filter((t) => t.created_at && new Date(t.created_at).getTime() >= cutoff);
+  const pages = Math.max(1, Math.ceil(tx.length / WH_ACT_PAGE));
+  if (whActPage > pages) whActPage = pages;
+  const slice = tx.slice((whActPage - 1) * WH_ACT_PAGE, whActPage * WH_ACT_PAGE);
+  el.innerHTML = slice.length === 0
     ? '<p class="text-slate-500 text-sm text-center py-8">No activity yet.</p>'
     : `<table class="w-full text-sm min-w-[640px]"><thead><tr class="border-b border-slate-200 text-left">
         <th class="py-2 pr-4 font-medium text-slate-600">Time</th><th class="py-2 pr-4 font-medium text-slate-600">ID</th>
         <th class="py-2 pr-4 font-medium text-slate-600">Action</th><th class="py-2 pr-4 font-medium text-slate-600">Details</th>
         <th class="py-2 font-medium text-slate-600">Scanned By</th></tr></thead>
-        <tbody>${tx.map((t) => `<tr class="border-b border-slate-100">
+        <tbody>${slice.map((t) => `<tr class="border-b border-slate-100">
           <td class="py-2.5 pr-4 text-slate-500 text-xs whitespace-nowrap">${new Date(t.created_at).toLocaleString()}</td>
           <td class="py-2.5 pr-4 font-mono text-xs">${t.qr_code || '—'}</td>
           <td class="py-2.5 pr-4 text-slate-800">${t.action}</td>
           <td class="py-2.5 pr-4 text-slate-600 text-xs">${t.details || '—'}</td>
           <td class="py-2.5 text-slate-600">${t.scanned_by || '—'}${t.user_id ? ` <small class="text-slate-400">(#${t.user_id})</small>` : ''}</td>
         </tr>`).join('')}</tbody></table>`;
+  const pager = $('#whActPager');
+  if (pager) pager.innerHTML = tx.length ? `<span class="text-xs text-slate-500">${tx.length} events · page ${whActPage} of ${pages}</span>
+    <div class="flex gap-2"><button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${whActPage <= 1 ? 'disabled' : ''} onclick="whActPage--; loadAssetHistory()">Prev</button>
+    <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${whActPage >= pages ? 'disabled' : ''} onclick="whActPage++; loadAssetHistory()">Next</button></div>` : '';
 }
 
 const whTabLoaders = {

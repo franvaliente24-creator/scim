@@ -712,6 +712,59 @@ function migrate(PDO $d): void {
         requested_by INT,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )");
+    // Internal delivery detail fields (§Fleet): asset link, recipient,
+    // requested delivery date, priority, and special instructions.
+    foreach ([
+        'asset_ref VARCHAR(60) NULL',
+        'recipient_name VARCHAR(120) NULL',
+        'recipient_dept VARCHAR(80) NULL',
+        'requested_date DATE NULL',
+        "priority VARCHAR(20) NOT NULL DEFAULT 'Normal'",
+        'special_instructions TEXT NULL',
+    ] as $col) {
+        try { $d->exec("ALTER TABLE fleet_requests ADD COLUMN $col"); } catch (Exception $e) {}
+    }
+
+    // Static asset attributes (QR/Asset Profile): manufacturer, model,
+    // serial number, and warranty — fixed at registration, while zone,
+    // assigned user, and status remain dynamic.
+    foreach (['assets'] as $t) {
+        try { $d->exec("ALTER TABLE $t ADD COLUMN manufacturer VARCHAR(120) NULL"); } catch (Exception $e) {}
+        try { $d->exec("ALTER TABLE $t ADD COLUMN model VARCHAR(120) NULL"); } catch (Exception $e) {}
+        try { $d->exec("ALTER TABLE $t ADD COLUMN serial_number VARCHAR(60) NULL"); } catch (Exception $e) {}
+        try { $d->exec("ALTER TABLE $t ADD COLUMN warranty_expiry DATE NULL"); } catch (Exception $e) {}
+    }
+
+    // Archive audit trail (§8): who archived the record and why.
+    foreach (['assets', 'purchase_orders', 'requisitions', 'vendors', 'documents'] as $t) {
+        try { $d->exec("ALTER TABLE $t ADD COLUMN archived_by VARCHAR(160) NULL"); } catch (Exception $e) {}
+        try { $d->exec("ALTER TABLE $t ADD COLUMN archive_reason VARCHAR(255) NULL"); } catch (Exception $e) {}
+    }
+
+    // Supplier onboarding (§Supplier Qualification): Vendor ID, verification
+    // status, onboarding stage, contract expiry, and delivery lead time.
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN vendor_code VARCHAR(30) NULL"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN verification_status VARCHAR(40) NOT NULL DEFAULT 'Pending'"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN onboarding_stage VARCHAR(60) NOT NULL DEFAULT 'Supplier Intake'"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN contract_expiry DATE NULL"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN lead_time_days INT NULL"); } catch (Exception $e) {}
+    $d->exec("UPDATE vendors SET vendor_code = CONCAT('VND-', LPAD(id, 4, '0')) WHERE vendor_code IS NULL OR vendor_code = ''");
+
+    // Document repository metadata (§Documents): searchable record links.
+    foreach ([
+        'batch_no VARCHAR(60) NULL',
+        'sku VARCHAR(60) NULL',
+        'asset_ref VARCHAR(60) NULL',
+        'po_number VARCHAR(30) NULL',
+        'sto_ref VARCHAR(40) NULL',
+        'transport_ref VARCHAR(40) NULL',
+        'carrier_tracking VARCHAR(80) NULL',
+        'zone VARCHAR(20) NULL',
+        'expiry_date DATE NULL',
+        'updated_by VARCHAR(120) NULL',
+    ] as $col) {
+        try { $d->exec("ALTER TABLE documents ADD COLUMN $col"); } catch (Exception $e) {}
+    }
 
     // Fixed category → zone mapping (§3): Zone A IT Equipment, B Laptops,
     // C Monitors, D Peripheral, E Office Supplies, DISPOSAL for write-offs.
@@ -1315,10 +1368,11 @@ if ($method === 'GET' && $path === '/api/v1/assets') {
 if ($method === 'POST' && $path === '/api/v1/assets') {
     auth(['Admin', 'WarehouseStaff']);
     $x = body();
-    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months, specs, manufacturer, model, serial_number, warranty_expiry) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'] ?? null,
         (int)($x['quantity'] ?? 1) ?: 1, ($x['low_stock_threshold'] ?? null) !== '' && ($x['low_stock_threshold'] ?? null) !== null ? (int)$x['low_stock_threshold'] : null,
-        ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null]);
+        ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null,
+        $x['specs'] ?? null, $x['manufacturer'] ?? null, $x['model'] ?? null, $x['serial_number'] ?? null, ($x['warranty_expiry'] ?? null) ?: null]);
     reply(['id' => db()->lastInsertId()], 201);
 }
 
@@ -1658,7 +1712,9 @@ if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) 
 // --- Vendors Endpoints ---
 if ($method === 'GET' && $path === '/api/v1/vendors') {
     auth();
-    reply(db()->query('SELECT * FROM vendors WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY on_time_rate DESC')->fetchAll(PDO::FETCH_ASSOC));
+    reply(db()->query("SELECT v.*,
+            (SELECT COUNT(*) FROM purchase_orders po WHERE po.vendor_id = v.id AND po.deleted_at IS NULL) AS po_count
+        FROM vendors v WHERE v.deleted_at IS NULL AND v.archived_at IS NULL ORDER BY v.on_time_rate DESC")->fetchAll(PDO::FETCH_ASSOC));
 }
 
 // --- Users Endpoints ---
@@ -2144,10 +2200,11 @@ if ($method === 'GET' && $path === '/api/v1/inventory/assets') {
 if ($method === 'POST' && $path === '/api/v1/inventory/assets') {
     auth(['Admin', 'WarehouseStaff']);
     $x = body();
-    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months) VALUES(?,?,?,?,?,?,?,?,?,?)');
+    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months, specs, manufacturer, model, serial_number, warranty_expiry) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'] ?? null,
         (int)($x['quantity'] ?? 1) ?: 1, ($x['low_stock_threshold'] ?? null) !== '' && ($x['low_stock_threshold'] ?? null) !== null ? (int)$x['low_stock_threshold'] : null,
-        ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null]);
+        ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null,
+        $x['specs'] ?? null, $x['manufacturer'] ?? null, $x['model'] ?? null, $x['serial_number'] ?? null, ($x['warranty_expiry'] ?? null) ?: null]);
     logActivity(db(), auth(), 'Registered asset', 'asset', $x['qr_code'], $x['name']);
     reply(['id' => db()->lastInsertId()], 201);
 }
@@ -2221,7 +2278,15 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
         $updateFields[] = 'lifespan_months = ?';
         $params[] = $x['lifespan_months'] === null || $x['lifespan_months'] === '' ? null : (int)$x['lifespan_months'];
     }
-    
+    // Static attributes — manufacturer/model/serial/warranty.
+    foreach (['specs', 'manufacturer', 'model', 'serial_number'] as $field) {
+        if (array_key_exists($field, $x)) { $updateFields[] = "$field = ?"; $params[] = $x[$field]; }
+    }
+    if (array_key_exists('warranty_expiry', $x)) {
+        $updateFields[] = 'warranty_expiry = ?';
+        $params[] = $x['warranty_expiry'] ?: null;
+    }
+
     if (empty($updateFields)) {
         reply(['error' => 'No fields to update'], 400);
     }
@@ -2393,7 +2458,13 @@ if ($method === 'GET' && $path === '/api/v1/procurement/quotes') {
 if ($method === 'GET' && $path === '/api/v1/suppliers') {
     auth();
     $d = db();
-    $suppliers = $d->query('SELECT * FROM vendors WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY rating DESC')->fetchAll(PDO::FETCH_ASSOC);
+    // Per-supplier performance metrics (§Supplier Profile): PO count,
+    // late deliveries (arrived after expected date), and returns/discrepancies.
+    $suppliers = $d->query("SELECT v.*,
+            (SELECT COUNT(*) FROM purchase_orders po WHERE po.vendor_id = v.id AND po.deleted_at IS NULL) AS po_count,
+            (SELECT COUNT(*) FROM purchase_orders po WHERE po.vendor_id = v.id AND po.expected_delivery IS NOT NULL AND po.arrived_at IS NOT NULL AND po.arrived_at > po.expected_delivery) AS late_deliveries,
+            (SELECT COUNT(*) FROM purchase_orders po WHERE po.vendor_id = v.id AND po.status = 'Cancelled') AS discrepancies
+        FROM vendors v WHERE v.deleted_at IS NULL AND v.archived_at IS NULL ORDER BY v.rating DESC")->fetchAll(PDO::FETCH_ASSOC);
     reply(['suppliers' => $suppliers]);
 }
 
@@ -2424,11 +2495,17 @@ if ($method === 'PUT' && preg_match('#^/api/v1/suppliers/(\d+)$#', $path, $m)) {
     $updateFields = [];
     $params = [];
 
-    foreach (['name', 'email', 'phone', 'address', 'category', 'status', 'certs', 'coi_expiry', 'contract_ref'] as $field) {
+    foreach (['name', 'email', 'phone', 'address', 'category', 'status', 'certs', 'coi_expiry', 'contract_ref',
+              'contract_expiry', 'verification_status', 'onboarding_stage'] as $field) {
         if (array_key_exists($field, $x)) {
             $updateFields[] = $field . ' = ?';
             $params[] = $x[$field];
         }
+    }
+
+    if (array_key_exists('lead_time_days', $x)) {
+        $updateFields[] = 'lead_time_days = ?';
+        $params[] = $x['lead_time_days'] !== null ? (int)$x['lead_time_days'] : null;
     }
 
     if (array_key_exists('on_time_rate', $x)) {
@@ -2490,11 +2567,17 @@ if ($method === 'PUT' && preg_match('#^/api/v1/vendors/(\d+)$#', $path, $m)) {
     $updateFields = [];
     $params = [];
 
-    foreach (['name', 'email', 'phone', 'address', 'category', 'status', 'certs', 'coi_expiry', 'contract_ref'] as $field) {
+    foreach (['name', 'email', 'phone', 'address', 'category', 'status', 'certs', 'coi_expiry', 'contract_ref',
+              'contract_expiry', 'verification_status', 'onboarding_stage'] as $field) {
         if (array_key_exists($field, $x)) {
             $updateFields[] = $field . ' = ?';
             $params[] = $x[$field];
         }
+    }
+
+    if (array_key_exists('lead_time_days', $x)) {
+        $updateFields[] = 'lead_time_days = ?';
+        $params[] = $x['lead_time_days'] !== null ? (int)$x['lead_time_days'] : null;
     }
 
     if (array_key_exists('on_time_rate', $x)) {
@@ -2913,17 +2996,25 @@ if ($method === 'GET' && $path === '/api/v1/documents') {
 }
 
 if ($method === 'POST' && $path === '/api/v1/documents') {
-    auth(['Admin', 'Manager']);
+    $u = auth(['Admin', 'Manager']);
     $x = body();
     $d = db();
     $doc_count = (int)$d->query("SELECT COUNT(*)+1 FROM documents WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
     $ref_number = substr($x['document_type'], 0, 3) . '-' . date('Y') . '-' . str_pad((string)$doc_count, 3, '0', STR_PAD_LEFT);
-    $q = $d->prepare('INSERT INTO documents(document_type, reference_no, owner, description, related_po, due_date) VALUES(?,?,?,?,?,?)');
-    $q->execute([$x['document_type'], $ref_number, $x['owner'], $x['description'], $x['related_po'], $x['due_date']]);
+    // §7 document metadata: every record is searchable/linkable via batch,
+    // SKU, asset, PO, STO, transport, carrier, and zone references.
+    $q = $d->prepare('INSERT INTO documents(document_type, reference_no, owner, description, related_po, due_date,
+        batch_no, sku, asset_ref, po_number, sto_ref, transport_ref, carrier_tracking, zone, expiry_date, updated_by)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    $q->execute([$x['document_type'], $ref_number, $x['owner'], $x['description'] ?? null,
+        $x['po_number'] ?? ($x['related_po'] ?? null), $x['due_date'] ?: null,
+        $x['batch_no'] ?? null, $x['sku'] ?? null, $x['asset_ref'] ?? null, $x['po_number'] ?? null,
+        $x['sto_ref'] ?? null, $x['transport_ref'] ?? null, $x['carrier_tracking'] ?? null, $x['zone'] ?? null,
+        $x['expiry_date'] ?: null, $u['name']]);
     $doc_id = $d->lastInsertId();
-    
+
     $d->prepare('INSERT INTO document_activity(document_id, action, details) VALUES(?,?,?)')
-      ->execute([$doc_id, 'Created', 'Document created by ' . auth()['name']]);
+      ->execute([$doc_id, 'Created', 'Document created by ' . $u['name']]);
       
     reply(['id' => $doc_id, 'reference_no' => $ref_number], 201);
 }
@@ -3455,7 +3546,8 @@ if ($method === 'GET' && $path === '/api/v1/archives') {
     $d = db();
     $items = [];
     foreach (archiveEntities() as $type => $cfg) {
-        $rows = $d->query("SELECT id, {$cfg['label']} AS label, {$cfg['ref']} AS ref, archived_at
+        $rows = $d->query("SELECT id, {$cfg['label']} AS label, {$cfg['ref']} AS ref, archived_at,
+                                  archived_by, archive_reason
                            FROM {$cfg['table']} WHERE archived_at IS NOT NULL AND deleted_at IS NULL
                            ORDER BY archived_at DESC")->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as $r) { $r['entity'] = $type; $items[] = $r; }
@@ -3499,11 +3591,14 @@ if ($method === 'POST' && preg_match('#^/api/v1/records/([a-z]+)/(\d+)/(archive|
     if ($m[3] === 'archive') {
         $reason = trim((string)(body()['reason'] ?? ''));
         if ($reason === '') reply(['error' => 'An archiving reason is required.'], 400);
-        $d->prepare("UPDATE {$cfg['table']} SET archived_at = NOW(), deleted_at = NULL WHERE id = ? AND deleted_at IS NULL")
-          ->execute([(int)$m[2]]);
+        // Record the actor's name + user ID and the reason on the record
+        // itself so the archive list can display who/when/why.
+        $archivedBy = $u['name'] . ' (ID ' . $u['id'] . ')';
+        $d->prepare("UPDATE {$cfg['table']} SET archived_at = NOW(), archived_by = ?, archive_reason = ?, deleted_at = NULL WHERE id = ? AND deleted_at IS NULL")
+          ->execute([$archivedBy, $reason, (int)$m[2]]);
         logActivity($d, $u, 'Archived record', $m[1], (string)$m[2], 'Reason: ' . $reason);
     } else {
-        $d->prepare("UPDATE {$cfg['table']} SET archived_at = NULL, deleted_at = NULL WHERE id = ?")
+        $d->prepare("UPDATE {$cfg['table']} SET archived_at = NULL, archived_by = NULL, archive_reason = NULL, deleted_at = NULL WHERE id = ?")
           ->execute([(int)$m[2]]);
         logActivity($d, $u, 'Restored record', $m[1], (string)$m[2]);
     }
@@ -3570,8 +3665,11 @@ if ($method === 'POST' && $path === '/api/v1/fleet-requests') {
     $d = db();
     $n = (int)$d->query("SELECT COUNT(*)+1 FROM fleet_requests WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
     $ref = 'FLT-' . date('Y') . '-' . str_pad((string)$n, 3, '0', STR_PAD_LEFT);
-    $d->prepare('INSERT INTO fleet_requests(req_number, item_name, quantity, origin, destination, notes, requested_by) VALUES(?,?,?,?,?,?,?)')
-      ->execute([$ref, $item, max(1, (int)($x['quantity'] ?? 1)), $x['origin'] ?? 'Warehouse', $destination, $x['notes'] ?? null, $u['id']]);
+    $d->prepare('INSERT INTO fleet_requests(req_number, item_name, quantity, origin, destination, notes, requested_by, asset_ref, recipient_name, recipient_dept, requested_date, priority, special_instructions) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      ->execute([$ref, $item, max(1, (int)($x['quantity'] ?? 1)), $x['origin'] ?? 'Warehouse', $destination, $x['notes'] ?? null, $u['id'],
+                 $x['asset_ref'] ?? null, $x['recipient_name'] ?? null, $x['recipient_dept'] ?? null,
+                 $x['requested_date'] ?: null, in_array($x['priority'] ?? '', ['Low', 'Normal', 'High', 'Urgent'], true) ? $x['priority'] : 'Normal',
+                 $x['special_instructions'] ?? null]);
     logActivity($d, $u, 'Requested fleet transport', 'fleet_request', $ref, "$item → $destination");
     // Outbound hand-off marker for the Fleet & Vehicle Management system.
     $d->prepare('INSERT INTO integration_audit_log(external_system, action, entity_type, entity_id, request_data, status) VALUES(?,?,?,?,?,?)')

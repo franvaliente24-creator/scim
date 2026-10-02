@@ -583,53 +583,8 @@ window.generateQRPDF = async (poId) => {
 
 
 // ==========================================
-// INBOUND DELIVERY SIMULATION (Digital Twin)
-// + PROCUREMENT COST SETTLEMENT (outbound → AP)
+// PROCUREMENT COST SETTLEMENT (outbound → AP)
 // ==========================================
-function renderDeliverySim(purchaseOrders) {
-  const el = $('#deliverySimList');
-  if (!el) return;
-  const simulatable = purchaseOrders.filter((po) => ['Sent to Vendor', 'Ordered', 'Shipped'].includes(po.status));
-  const arrived = purchaseOrders.filter((po) => po.status === 'Arrived');
-  if (!simulatable.length && !arrived.length) {
-    el.innerHTML = '<p class="text-slate-500 text-sm text-center py-6">No orders are in transit. Send a PO to its vendor first.</p>';
-    return;
-  }
-  el.innerHTML = `
-    ${simulatable.map((po) => `
-      <div class="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl border border-slate-200 mb-3">
-        <div>
-          <p class="text-sm font-bold text-slate-900">${po.po_number}</p>
-          <p class="text-xs text-slate-500">${po.vendor_name || po.vendor} · ${po.status}</p>
-        </div>
-        <button class="action-btn action-btn-ship" onclick="simulateArrival(${po.id}, '${po.po_number}')">
-          <span class="material-symbols-outlined text-sm align-middle">rocket_launch</span> Simulate Arrival
-        </button>
-      </div>`).join('')}
-    ${arrived.length ? `<p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-5 mb-2">Arrived — assets staged at Receiving Dock</p>` : ''}
-    ${arrived.map((po) => `
-      <div class="flex items-center justify-between gap-3 p-3 rounded-xl border border-emerald-200 bg-emerald-50/50 mb-2">
-        <p class="text-sm font-semibold text-emerald-800">${po.po_number}</p>
-        <span class="text-xs text-emerald-600 font-medium">Arrived${po.arrived_at ? ' · ' + new Date(po.arrived_at).toLocaleString() : ''}</span>
-      </div>`).join('')}`;
-}
-
-window.simulateArrival = async (poId, poNumber) => {
-  const ok = await confirmStep({
-    title: 'Simulate Supplier Arrival?',
-    message: `This marks ${poNumber} as Arrived and generates serialized asset placeholders at the Receiving Dock.`,
-    confirmLabel: 'Simulate Arrival', icon: 'rocket_launch', danger: false,
-  });
-  if (!ok) return;
-  const res = await fetch(`/api/v1/pos/${poId}/simulate-arrival`, { method: 'POST' });
-  const data = await res.json();
-  if (!res.ok) {
-    alert(data.error || 'Simulation failed.');
-    return;
-  }
-  alert(`${data.count} serialized asset(s) staged for ${data.po_number}. Print their QR labels or scan to stock them.`);
-  loadPOData();
-};
 
 async function loadSettlements() {
   const el = $('#settlementList');
