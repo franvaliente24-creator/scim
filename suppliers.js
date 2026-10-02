@@ -79,7 +79,7 @@ function renderSupplierTable(suppliers) {
   el.innerHTML = `
     <table class="data-table w-full text-sm">
       <thead>
-        <tr><th>Supplier</th><th>Status</th><th>Verification</th><th>Tier</th><th>Compliance</th><th>Rating</th><th>On-Time</th><th>Defects</th><th class="text-right">Actions</th></tr>
+        <tr><th>Supplier</th><th>Status</th><th>Tier</th><th>Compliance</th><th>Rating</th><th>On-Time</th><th>Defects</th><th class="text-right">Actions</th></tr>
       </thead>
       <tbody>
         ${slice.map((s) => {
@@ -90,7 +90,6 @@ function renderSupplierTable(suppliers) {
           <tr>
             <td><b>${esc(s.name)}</b><div class="text-[10px] text-slate-400 font-mono">${esc(s.vendor_code || '—')}</div>${autoPO ? '<span class="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-bold" title="Auto-PO Approval — Inventory may send POs without procurement review">PRE-CLEARED</span>' : ''}</td>
             <td><span class="inline-flex items-center gap-1 text-[11px] font-bold ${active ? 'text-emerald-600' : 'text-slate-400'}"><span class="h-2 w-2 rounded-full ${active ? 'bg-emerald-500' : 'bg-slate-300'}"></span>${active ? 'Active' : 'Inactive'}</span></td>
-            <td>${VERIFICATION_BADGE(s.verification_status)}<div class="text-[10px] text-slate-400 mt-0.5">${esc(s.onboarding_stage || 'Supplier Intake')}</div></td>
             <td><span class="inline-flex items-center gap-1 px-2 py-1 rounded-full border text-[11px] font-bold ${t.cls}" title="Computed from rating, on-time %, and defect rate"><span class="material-symbols-outlined text-sm">${t.icon}</span>${t.label}</span></td>
             <td>${complianceSummary(s)}</td>
             <td>★ ${(parseFloat(s.rating) || 0).toFixed(1)}</td>

@@ -18,7 +18,7 @@ register_shutdown_function(function () {
 // Bump whenever schema changes are added to migrate() — the gate uses it to
 // decide whether the (idempotent) migration set must re-run. Declared before
 // the CLI hook because `const` is a runtime statement, not hoisted.
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 // CLI deploy hook — `php api/index.php migrate [--force]` applies schema
 // migrations at deploy time so no HTTP request ever pays the cost.
@@ -1016,6 +1016,22 @@ function migrate(PDO $d, bool $force = false): void {
           AND a.deleted_at IS NULL AND a.archived_at IS NULL)");
     $d->exec('UPDATE warehouse_rows SET occupied = 0');
 
+    // v4: normalize free-text zone values written into assets.location
+    // ("Zone B", "B-02", "b") to canonical warehouse_zones codes so occupancy
+    // counts match.
+    $zoneRows = $d->query('SELECT zone FROM warehouse_zones')->fetchAll(PDO::FETCH_COLUMN);
+    $zoneMap = [];
+    foreach ($zoneRows as $z) $zoneMap[strtoupper($z)] = $z;
+    $locRows = $d->query('SELECT id, location FROM assets WHERE location IS NOT NULL AND location != \'\'')->fetchAll(PDO::FETCH_ASSOC);
+    $updLoc = $d->prepare('UPDATE assets SET location = ? WHERE id = ?');
+    foreach ($locRows as $r) {
+        $clean = strtoupper(trim(preg_replace('/^ZONE\s+/i', '', trim($r['location']))));
+        $clean = trim(preg_replace('/\s*[-–].*$/', '', $clean));
+        if (isset($zoneMap[$clean]) && $zoneMap[$clean] !== $r['location']) {
+            $updLoc->execute([$zoneMap[$clean], $r['id']]);
+        }
+    }
+
     $d->prepare('INSERT INTO schema_migrations(version) VALUES(?)')->execute([SCHEMA_VERSION]);
 }
 
@@ -1077,6 +1093,20 @@ function passwordMeetsPolicy(string $p): bool {
     return strlen($p) >= 8 && strlen($p) <= 15
         && preg_match('/[a-z]/', $p) && preg_match('/[A-Z]/', $p)
         && preg_match('/\d/', $p) && preg_match('/[^a-zA-Z\d]/', $p);
+}
+
+// Zone inputs arrive as free text ("Zone B", "B-02", "b"). Occupancy counts
+// match assets.location to warehouse_zones.zone exactly, so normalize any
+// typed variant to the canonical zone code before storing it.
+function normalizeZone(PDO $d, ?string $zone): ?string {
+    $zone = trim((string)$zone);
+    if ($zone === '') return null;
+    $clean = strtoupper(trim(preg_replace('/^ZONE\s+/i', '', $zone)));
+    $clean = trim(preg_replace('/\s*[-–].*$/', '', $clean));
+    $q = $d->prepare('SELECT zone FROM warehouse_zones WHERE UPPER(zone) = ? LIMIT 1');
+    $q->execute([$clean]);
+    $hit = $q->fetchColumn();
+    return $hit !== false ? $hit : $zone;
 }
 
 // Fixed category → zone mapping (§3): assets route to their category's
@@ -1522,7 +1552,7 @@ if ($method === 'POST' && $path === '/api/v1/assets') {
     auth(['Admin', 'WarehouseStaff']);
     $x = body();
     $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months, specs, manufacturer, model, serial_number, warranty_expiry) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'] ?? null,
+    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', normalizeZone(db(), $x['location'] ?? null),
         (int)($x['quantity'] ?? 1) ?: 1, ($x['low_stock_threshold'] ?? null) !== '' && ($x['low_stock_threshold'] ?? null) !== null ? (int)$x['low_stock_threshold'] : null,
         ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null,
         $x['specs'] ?? null, $x['manufacturer'] ?? null, $x['model'] ?? null, $x['serial_number'] ?? null, ($x['warranty_expiry'] ?? null) ?: null]);
@@ -1548,7 +1578,7 @@ if ($method === 'PUT' && preg_match('#^/api/v1/assets/([^/]+)$#', $path, $m)) {
     foreach (['name', 'category', 'status', 'location'] as $field) {
         if (array_key_exists($field, $x)) {
             $updateFields[] = $field . ' = ?';
-            $params[] = $x[$field];
+            $params[] = $field === 'location' ? normalizeZone($d, $x[$field]) : $x[$field];
         }
     }
 
@@ -1615,7 +1645,7 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
     $d = db();
     $qr = trim($x['qr_code'] ?? '');
     $action = $x['action'] ?? 'Inventory Intake';
-    $zone = $x['zone'] ?? null;
+    $zone = normalizeZone($d, $x['zone'] ?? null);
     $autoCreated = false;
 
     // §3: a returned asset requires a reason — selected via checkbox plus an
@@ -2363,7 +2393,7 @@ if ($method === 'POST' && $path === '/api/v1/inventory/assets') {
     auth(['Admin', 'WarehouseStaff']);
     $x = body();
     $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months, specs, manufacturer, model, serial_number, warranty_expiry) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $x['location'] ?? null,
+    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', normalizeZone(db(), $x['location'] ?? null),
         (int)($x['quantity'] ?? 1) ?: 1, ($x['low_stock_threshold'] ?? null) !== '' && ($x['low_stock_threshold'] ?? null) !== null ? (int)$x['low_stock_threshold'] : null,
         ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null,
         $x['specs'] ?? null, $x['manufacturer'] ?? null, $x['model'] ?? null, $x['serial_number'] ?? null, ($x['warranty_expiry'] ?? null) ?: null]);
@@ -2422,7 +2452,7 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
     }
     if (array_key_exists('location', $x)) {
         $updateFields[] = 'location = ?';
-        $params[] = $x['location'];
+        $params[] = normalizeZone($d, $x['location']);
     }
     if (array_key_exists('quantity', $x)) {
         $updateFields[] = 'quantity = ?';

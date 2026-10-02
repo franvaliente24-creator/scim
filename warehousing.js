@@ -37,6 +37,10 @@ async function loadWarehouseData() {
 
     // Render warehouse grid
     renderWarehouseGrid(zones);
+
+    // Zone suggestions for "Move to Zone" scans — real zone codes only.
+    const dl = $('#zoneSuggestions');
+    if (dl) dl.innerHTML = zones.map((z) => `<option value="${z.zone}">${z.category || ''}</option>`).join('');
   } catch (error) {
     console.error('Error loading warehouse data:', error);
   }
@@ -271,7 +275,11 @@ const updateScanExtraFields = () => {
   if (labels[currentAction]) {
     wrap.classList.remove('hidden');
     input.placeholder = labels[currentAction];
+  }
+  if (currentAction === 'Move to Zone') {
+    input.setAttribute('list', 'zoneSuggestions');
   } else {
+    input.removeAttribute('list');
     wrap.classList.add('hidden');
   }
 };

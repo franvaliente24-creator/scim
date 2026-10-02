@@ -43,6 +43,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     await initializePermissions();
     await loadInventoryData();
+    // Populate the location datalist with real zone codes so typed locations
+    // match warehouse zones (occupancy counts by exact zone name).
+    const zl = $('#assetZoneList');
+    if (zl) {
+      const zd = await api('warehouse/zones').catch(() => ({}));
+      const zones = Array.isArray(zd.zones) ? zd.zones : [];
+      zl.innerHTML = zones.map((z) => `<option value="${z.zone}">${z.category || ''}</option>`).join('');
+    }
   } catch (error) {
     console.error('Error initializing page:', error);
     showError('#assetTable', 'Failed to load data. Please refresh the page.');
