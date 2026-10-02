@@ -18,7 +18,7 @@ register_shutdown_function(function () {
 // Bump whenever schema changes are added to migrate() — the gate uses it to
 // decide whether the (idempotent) migration set must re-run. Declared before
 // the CLI hook because `const` is a runtime statement, not hoisted.
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 // CLI deploy hook — `php api/index.php migrate [--force]` applies schema
 // migrations at deploy time so no HTTP request ever pays the cost.
@@ -977,6 +977,32 @@ function migrate(PDO $d, bool $force = false): void {
         expires_at INT NOT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )");
+
+    // Perf indexes (v2): cover the columns used in the hot WHERE/ORDER BY
+    // clauses — soft-delete/archive filters, status filters, and the date
+    // ranges the dashboard queries scan. CREATE INDEX throws if it exists;
+    // try/catch keeps this idempotent.
+    foreach ([
+        'assets'             => ['idx_assets_status' => 'status', 'idx_assets_deleted' => 'deleted_at',
+                                 'idx_assets_archived' => 'archived_at', 'idx_assets_category' => 'category',
+                                 'idx_assets_created' => 'created_at'],
+        'purchase_orders'    => ['idx_pos_status' => 'status', 'idx_pos_deleted' => 'deleted_at',
+                                 'idx_pos_expected' => 'expected_delivery'],
+        'asset_transactions' => ['idx_txn_created' => 'created_at', 'idx_txn_action' => 'action',
+                                 'idx_txn_zone' => 'zone'],
+        'scan_logs'          => ['idx_scan_asset' => 'asset_id', 'idx_scan_created' => 'created_at'],
+        'documents'          => ['idx_docs_status' => 'status', 'idx_docs_deleted' => 'deleted_at'],
+        'requisitions'       => ['idx_reqs_status' => 'status', 'idx_reqs_deleted' => 'deleted_at'],
+        'session_tokens'     => ['idx_tokens_expires' => 'expires_at'],
+        'admin_notifications'=> ['idx_notif_status' => 'status'],
+        'vendors'            => ['idx_vendors_deleted' => 'deleted_at', 'idx_vendors_archived' => 'archived_at'],
+        'fleet_requests'     => ['idx_fleet_status' => 'status', 'idx_fleet_created' => 'created_at'],
+        'po_activity'        => ['idx_poact_created' => 'created_at'],
+    ] as $table => $idx) {
+        foreach ($idx as $name => $col) {
+            try { $d->exec("CREATE INDEX $name ON $table($col)"); } catch (Exception $e) {}
+        }
+    }
 
     $d->prepare('INSERT INTO schema_migrations(version) VALUES(?)')->execute([SCHEMA_VERSION]);
 }
