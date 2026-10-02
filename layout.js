@@ -16,14 +16,20 @@ window.exportCSV = (resource, from = '', to = '') => {
 };
 
 // Shared archive action for any data-table row. Entities: asset|po|requisition|supplier|document.
+// §4: archiving requires a reason — the warning prompt collects it inline and
+// the API records actor name, user ID, timestamp, and reason.
 window.archiveRecord = async (entity, id, onDone) => {
-  const ok = await (window.scimConfirm ? scimConfirm({
+  const reason = await (window.scimConfirm ? scimConfirm({
     title: 'Archive record?',
-    message: 'The record leaves the active view and moves to the Archive (Admin-only) where it can be restored.',
+    message: 'The record leaves the active view and moves to the Archive. An archiving reason is required.',
     confirmLabel: 'Archive', icon: 'archive', danger: false,
-  }) : Promise.resolve(confirm('Archive this record?')));
-  if (!ok) return;
-  const res = await fetch(`/api/v1/records/${entity}/${encodeURIComponent(id)}/archive`, { method: 'POST' });
+    reasonInput: true,
+  }) : Promise.resolve(prompt('Archiving reason (required):')));
+  if (!reason) return;
+  const res = await fetch(`/api/v1/records/${entity}/${encodeURIComponent(id)}/archive`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) { alert(data.error || 'Archive failed.'); return; }
   if (typeof onDone === 'function') onDone();
@@ -457,32 +463,23 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================
-  // DATA-DRIVEN SIDEBAR BADGES (TRD §1): live counters on nav modules.
+  // SIDEBAR ARCHIVES ENTRY (§8): the centralized archive lives in the
+  // sidebar for Admins — deep-links into the Inventory hub's Archive tab.
   // ==========================================
-  async function loadNavBadges() {
+  (async () => {
     try {
-      const res = await fetch('/api/v1/nav-badges');
-      if (!res.ok) return;
-      const { badges } = await res.json();
-      const map = [
-        ['a[href="inventory.html"]', (badges.pending_adjustments || 0) + (badges.low_stock || 0)],
-        ['a[href="procurement.html"]', (badges.open_requisitions || 0) + (badges.arrived_pos || 0)],
-        ['a[href="documents.html"]', badges.pending_docs || 0],
-        ['a[href="warehousing.html"]', badges.low_stock || 0],
-      ];
-      document.querySelectorAll('.nav-badge').forEach((b) => b.remove());
-      map.forEach(([sel, count]) => {
-        const link = document.querySelector(sel);
-        if (!link || !count) return;
-        const badge = document.createElement('span');
-        badge.className = 'nav-badge ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-100 text-red-600 text-[10px] font-bold flex items-center justify-center';
-        badge.textContent = count > 99 ? '99+' : count;
-        link.appendChild(badge);
-      });
-    } catch (e) { /* badges are cosmetic — never break navigation */ }
-  }
-  loadNavBadges();
-  setInterval(loadNavBadges, 60000); // real-time sidebar sync
+      const me = await fetch('/api/v1/auth/me').then((r) => r.json());
+      const role = me.user?.role || currentUserRole;
+      if (role !== 'Admin') return;
+      const nav = document.querySelector('#sidebar-subsystem-modules-nav, .sidebar-subsystem-modules');
+      if (!nav || nav.querySelector('a[href*="inventory.html#archive"]')) return;
+      nav.insertAdjacentHTML('beforeend', `
+        <a class="sidebar-subsystem-link" href="inventory.html#archive">
+          <span class="material-symbols-outlined">archive</span>
+          <span class="sidebar-link-label">Archives</span>
+        </a>`);
+    } catch (e) { /* cosmetic — never break navigation */ }
+  })();
 
   // ==========================================
   // AUTO-SAVE ON FORCED LOGOUT (TRD §7): if the session ends while a form
@@ -561,7 +558,8 @@ window.scimConfirm = function (opts) {
             <span class="material-symbols-outlined text-3xl">${opts.icon || (danger ? 'warning' : 'help')}</span>
           </div>
           <h2 class="text-xl font-bold text-slate-900 mb-2">${safeText(opts.title || 'Are you sure?')}</h2>
-          <p class="text-sm text-slate-500 leading-relaxed mb-7">${safeText(opts.message || '')}</p>
+          <p class="text-sm text-slate-500 leading-relaxed mb-5">${safeText(opts.message || '')}</p>
+          ${opts.reasonInput ? '<textarea data-reason rows="2" placeholder="Reason (required)…" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm mb-5 focus:outline-none focus:border-indigo-500"></textarea>' : ''}
           <div class="flex gap-3">
             <button data-c="no" class="flex-1 px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancel</button>
             <button data-c="yes" class="flex-1 px-5 py-2.5 rounded-xl ${btnColor} text-white font-semibold text-sm transition-colors">${safeText(opts.confirmLabel || 'Confirm')}</button>
@@ -570,7 +568,14 @@ window.scimConfirm = function (opts) {
       </div>`);
     const modal = document.getElementById(id);
     const done = (v) => { modal.remove(); resolve(v); };
-    modal.querySelector('[data-c="yes"]').onclick = () => done(true);
+    modal.querySelector('[data-c="yes"]').onclick = () => {
+      if (opts.reasonInput) {
+        const v = (modal.querySelector('[data-reason]')?.value || '').trim();
+        if (!v) { modal.querySelector('[data-reason]')?.focus(); return; }
+        return done(v);
+      }
+      done(true);
+    };
     modal.querySelector('[data-c="no"]').onclick = () => done(false);
     modal.onclick = (e) => { if (e.target === modal) done(false); };
     document.addEventListener('keydown', function esc(e) {

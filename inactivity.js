@@ -70,7 +70,7 @@ class InactivityTimer {
         <div style="font-size: 48px; margin-bottom: 16px;">⏰</div>
         <h2 style="margin: 0 0 12px; color: #172033;">Session Expiring Soon</h2>
         <p style="margin: 0 0 20px; color: #64748b;">
-          Your session will expire in ${this.warningMinutes} minutes due to inactivity.
+          Your session will expire in ${this.warningMinutes} minute${this.warningMinutes === 1 ? '' : 's'} due to inactivity.
         </p>
         <button id="extendSession" style="background: #4f46e5; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 700; cursor: pointer; width: 100%;">
           Extend Session
@@ -159,7 +159,7 @@ class InactivityTimer {
 document.addEventListener('DOMContentLoaded', () => {
   // Only start on authenticated pages (not login page)
   if (!window.location.pathname.includes('login.html')) {
-    const inactivityTimer = new InactivityTimer(30, 3); // 30 min timeout, 3 min warning
+    const inactivityTimer = new InactivityTimer(5, 3); // 5 min timeout, warning 3 min before
     inactivityTimer.start();
   }
 });

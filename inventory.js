@@ -87,42 +87,10 @@ async function loadInventoryData(updateStats = true) {
   }
 }
 
-// Batch selection state for bulk delete (Admin only).
-const selectedAssets = new Set();
+// §8: no delete buttons on sidebar pages — records leave via Archive (with a
+// mandatory reason) and only the Admin Trash Bin can erase them.
 const isAdminUser = () => typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
-
-function renderBatchBar(assets) {
-  const bar = $('#assetBatchBar');
-  if (!bar) return;
-  const n = [...selectedAssets].filter((qr) => assets.some((a) => a.qr_code === qr)).length;
-  if (!n || !isAdminUser()) { bar.innerHTML = ''; return; }
-  bar.innerHTML = `<div class="flex items-center gap-3 px-4 py-2.5 bg-red-50 border-b border-red-100 text-sm">
-      <span class="font-semibold text-red-700">${n} selected</span>
-      <button type="button" id="batchDeleteBtn" class="px-3 py-1 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-700">Delete Selected</button>
-      <button type="button" id="batchClearBtn" class="text-xs text-slate-500 hover:underline">Clear</button>
-    </div>`;
-  $('#batchDeleteBtn')?.addEventListener('click', () => batchDeleteAssets(assets));
-  $('#batchClearBtn')?.addEventListener('click', () => { selectedAssets.clear(); renderAssetTable(assets); });
-}
-
-async function batchDeleteAssets(assets) {
-  const qrs = [...selectedAssets].filter((qr) => assets.some((a) => a.qr_code === qr));
-  if (!qrs.length) return;
-  const ok = await (window.scimConfirm ? scimConfirm({
-    title: `Delete ${qrs.length} assets?`,
-    message: 'Selected records move to the Trash Bin for the retention period before permanent deletion. Audit entries are written for each.',
-    confirmLabel: 'Delete', icon: 'delete_forever',
-  }) : Promise.resolve(confirm(`Delete ${qrs.length} assets?`)));
-  if (!ok) return;
-  let failed = 0;
-  for (const qr of qrs) {
-    const res = await fetch(`/api/v1/assets/${encodeURIComponent(qr)}`, { method: 'DELETE' });
-    if (!res.ok) failed++;
-  }
-  selectedAssets.clear();
-  if (failed) alert(`${failed} record(s) could not be deleted.`);
-  loadInventoryData();
-}
+const canArchive = () => typeof currentUserRole === 'undefined' || ['Admin', 'Manager'].includes(currentUserRole);
 
 // Taxonomy-grouped ledger: category header rows carry the product hierarchy
 // (Category ▸ items) with per-group counts and subtotal value.
@@ -133,7 +101,6 @@ function renderAssetTable(assets) {
   if (!assets.length) {
     el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No assets match. Register one with "Add Asset", or scan a pending serial into stock.</p>';
     if (pager) pager.innerHTML = '';
-    renderBatchBar(assets);
     return;
   }
 
@@ -147,17 +114,16 @@ function renderAssetTable(assets) {
   const iconBtn = (action, icon, title, cls, extra = '') =>
     `<button type="button" title="${title}" aria-label="${title}" class="action-btn ${cls} !px-2" data-asset-action="${action}" ${extra}><span class="material-symbols-outlined text-base">${icon}</span></button>`;
 
-  const adminCols = isAdminUser();
+  const adminCols = canArchive();
   el.innerHTML = `<table class="data-table">
     <thead><tr>
-      ${adminCols ? '<th class="w-8"><input type="checkbox" id="assetSelectAll" title="Select all on this page" aria-label="Select all"></th>' : ''}
       <th>ID</th><th>Asset Name</th><th>Qty</th><th>Status</th><th>Value</th>
       <th>Purchased</th><th>Lifespan</th><th>Location</th><th>Actions</th>
     </tr></thead>
     <tbody>${Object.entries(groups).map(([cat, items]) => {
       const subtotal = items.reduce((s, a) => s + Number(a.value || 0) * (Number(a.quantity) || 1), 0);
       const lowFlag = items.filter(a => a.low_stock_threshold != null && Number(a.quantity) < Number(a.low_stock_threshold)).length;
-      return `<tr class="bg-slate-50/80"><td colspan="${adminCols ? 10 : 9}" class="!py-2.5">
+      return `<tr class="bg-slate-50/80"><td colspan="9" class="!py-2.5">
           <span class="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-on-surface-variant">
             <span class="material-symbols-outlined text-sm">folder</span>${escapeHTML(cat)}
             <span class="font-normal normal-case">· ${items.length} asset${items.length === 1 ? '' : 's'} · ${money(subtotal)}</span>
@@ -167,7 +133,6 @@ function renderAssetTable(assets) {
           const qty = Number(a.quantity ?? 1);
           const low = a.low_stock_threshold != null && qty < Number(a.low_stock_threshold);
           return `<tr>
-            ${adminCols ? `<td><input type="checkbox" class="asset-row-check" data-qr="${escapeHTML(a.qr_code)}" ${selectedAssets.has(a.qr_code) ? 'checked' : ''} aria-label="Select ${escapeHTML(a.qr_code)}"></td>` : ''}
             <td><span class="tag">${escapeHTML(a.qr_code)}</span></td>
             <td><b>${escapeHTML(a.name)}</b></td>
             <td class="${low ? 'text-red-600 font-bold' : ''}">${qty}${a.low_stock_threshold != null ? ` <small class="text-on-surface-variant font-normal">/ min ${a.low_stock_threshold}</small>` : ''}</td>
@@ -180,8 +145,7 @@ function renderAssetTable(assets) {
               ${iconBtn('view', 'visibility', 'View', 'action-btn-view', `data-qr-code="${escapeHTML(a.qr_code)}"`)}
               ${iconBtn('edit', 'edit', 'Edit', 'action-btn-edit', `data-qr-code="${escapeHTML(a.qr_code)}"`)}
               ${adminCols
-                ? iconBtn('archive', 'archive', 'Archive', 'action-btn-view', `data-qr-code="${escapeHTML(a.qr_code)}" data-asset-id="${a.id}"`) +
-                  iconBtn('delete', 'delete', 'Delete', 'action-btn-danger', `data-qr-code="${escapeHTML(a.qr_code)}" data-asset-name="${escapeHTML(a.name)}"`)
+                ? iconBtn('archive', 'archive', 'Archive', 'action-btn-view', `data-qr-code="${escapeHTML(a.qr_code)}" data-asset-id="${a.id}"`)
                 : ''}
             </td></tr>`;
         }).join('');
@@ -199,18 +163,6 @@ function renderAssetTable(assets) {
     $('#assetNext')?.addEventListener('click', () => { assetPage++; renderAssetTable(assets); });
   }
 
-  // Batch-select wiring
-  el.querySelectorAll('.asset-row-check').forEach((cb) => {
-    cb.addEventListener('change', () => {
-      cb.checked ? selectedAssets.add(cb.dataset.qr) : selectedAssets.delete(cb.dataset.qr);
-      renderBatchBar(assets);
-    });
-  });
-  $('#assetSelectAll')?.addEventListener('change', (e) => {
-    rows.forEach((a) => e.target.checked ? selectedAssets.add(a.qr_code) : selectedAssets.delete(a.qr_code));
-    renderAssetTable(assets);
-  });
-  renderBatchBar(assets);
 }
 
 function escapeHTML(value) {
@@ -231,24 +183,7 @@ document.addEventListener('click', (event) => {
   if (assetAction === 'view') window.viewAsset(qrCode);
   if (assetAction === 'edit') window.editAsset(qrCode);
   if (assetAction === 'archive') window.archiveRecord('asset', button.dataset.assetId, () => loadInventoryData());
-  if (assetAction === 'delete') window.deleteAsset(qrCode, button.dataset.assetName || qrCode);
 });
-
-// Asset deletion — Admin only server-side, compliance-logged.
-// Soft-deletes to the Trash Bin for the retention window.
-window.deleteAsset = async (qrCode, name) => {
-  if (!isAdminUser()) return;
-  const ok = await (window.scimConfirm ? scimConfirm({
-    title: 'Delete Asset?',
-    message: `"${name}" moves to the Trash Bin for the retention period. A compliance record is written to the audit log. Restore it there, or purge permanently.`,
-    confirmLabel: 'Delete', icon: 'delete_forever',
-  }) : Promise.resolve(confirm(`Delete asset "${name}"?`)));
-  if (!ok) return;
-  const res = await fetch(`/api/v1/assets/${encodeURIComponent(qrCode)}`, { method: 'DELETE' });
-  const data = await res.json().catch(() => ({}));
-  if (res.ok) loadInventoryData();
-  else alert(data.error || 'Failed to delete asset');
-};
 
 const assetModal = $('#assetModal');
 const assetForm = $('#assetForm');
@@ -472,53 +407,111 @@ async function loadAdjustments() {
 }
 
 function reqStatusBadge(s) {
-  const cls = s === 'Approved' ? 'bg-emerald-100 text-emerald-700'
+  const cls = ['Approved', 'Completed', 'Inventory Approved'].includes(s) ? 'bg-emerald-100 text-emerald-700'
     : s === 'Rejected' || s === 'Cancelled' ? 'bg-red-100 text-red-700'
     : s === 'Ordered' || s === 'Closed' ? 'bg-blue-100 text-blue-700'
+    : s === 'Inventory Review' ? 'bg-indigo-100 text-indigo-700'
     : 'bg-amber-100 text-amber-700';
   return `<span class="px-2 py-1 rounded text-xs font-semibold ${cls}">${escapeHTML(s || 'Submitted')}</span>`;
 }
 
-// Submission lives in Procurement & Sourcing — this tab is history/visibility.
+// §5: requisition submission lives here (relocated from Procurement Sourcing).
+// Open/active requisitions list; decided ones flow to the Requisition Log tab.
 async function loadInvRequisitions() {
   const res = await api('procurement/requisitions');
-  const reqs = res.requisitions || [];
+  const reqs = (res.requisitions || []).filter(r => !['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered', 'Completed'].includes(r.status));
   const search = $('#invReqSearch');
   const render = () => {
     const q = (search?.value || '').toLowerCase().trim();
-    const filtered = q ? reqs.filter(r => [r.req_number, r.title, r.status, r.department].some(v => (v || '').toLowerCase().includes(q))) : reqs;
+    const filtered = q ? reqs.filter(r => [r.req_number, r.title, r.status, r.department, r.purpose].some(v => (v || '').toLowerCase().includes(q))) : reqs;
     const tbl = $('#invRequisitionsTable');
     if (!tbl) return;
     tbl.innerHTML = filtered.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-      <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Requested</th></tr></thead>
+      <th class="text-left p-4">Req ID</th><th class="text-left p-4">Title</th><th class="text-left p-4">Purpose</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Needed By</th></tr></thead>
       <tbody>${filtered.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
+      <td class="p-4 text-on-surface-variant">${escapeHTML(r.purpose || '—')}</td>
       <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
       <td class="p-4">${escapeHTML(r.priority || 'Normal')}</td><td class="p-4">${reqStatusBadge(r.status)}</td>
-      <td class="p-4 text-on-surface-variant">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td></tr>`).join('')}</tbody></table>`
-      : '<div class="p-10 text-center text-on-surface-variant text-sm">No requisitions found.</div>';
+      <td class="p-4 text-on-surface-variant">${r.needed_by ? new Date(r.needed_by).toLocaleDateString() : '—'}</td></tr>`).join('')}</tbody></table>`
+      : '<div class="p-10 text-center text-on-surface-variant text-sm">No open requisitions — submit one with "New Requisition".</div>';
   };
   if (search && !search.dataset.bound) { search.dataset.bound = '1'; search.addEventListener('input', render); }
   render();
 }
 
+// Requisition Log (last tab): the full decided history — approved, rejected,
+// completed, and ordered requests with their lifecycle timestamps.
+async function loadReqLog() {
+  const res = await api('procurement/requisitions');
+  const reqs = (res.requisitions || []).filter(r => ['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered', 'Completed'].includes(r.status));
+  const el = $('#reqLogTable');
+  if (!el) return;
+  el.innerHTML = reqs.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+    <th class="text-left p-4">Req ID</th><th class="text-left p-4">Title</th><th class="text-left p-4">Purpose</th><th class="text-left p-4">Requested By</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Status</th><th class="text-left p-4">Decided</th></tr></thead>
+    <tbody>${reqs.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
+    <td class="p-4 text-on-surface-variant">${escapeHTML(r.purpose || '—')}</td>
+    <td class="p-4 text-on-surface-variant">${escapeHTML(r.created_by_name || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
+    <td class="p-4">${reqStatusBadge(r.status)}</td>
+    <td class="p-4 text-on-surface-variant text-xs">${r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="p-10 text-center text-on-surface-variant text-sm">No decided requisitions yet — approved and rejected requests land here.</div>';
+}
+
+// New Requisition modal — purpose checkboxes plus a custom text box (§5).
+const reqModal = $('#reqModal');
+$('#newRequisition')?.addEventListener('click', () => {
+  $('#reqForm')?.reset();
+  $('#reqPurposeCustom')?.classList.add('hidden');
+  showDialog(reqModal);
+});
+document.addEventListener('change', (e) => {
+  if (e.target.name === 'reqPurpose' && e.target.value === 'Other') {
+    $('#reqPurposeCustom')?.classList.remove('hidden');
+  }
+});
+$('#reqForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const purposes = [...form.querySelectorAll('input[name="reqPurpose"]:checked')].map((c) => c.value);
+  const custom = (form.querySelector('#reqPurposeCustom')?.value || '').trim();
+  let purpose = purposes.filter((p) => p !== 'Other').join(', ');
+  if (purposes.includes('Other')) purpose = (purpose ? purpose + ', ' : '') + 'Other' + (custom ? `: ${custom}` : '');
+  const f = Object.fromEntries(new FormData(form).entries());
+  const res = await fetch('/api/v1/procurement/requisitions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: f.title, department: f.department, purpose: purpose || null,
+      description: f.description, estimated_cost: f.estimated_cost,
+      priority: f.priority, needed_by: f.needed_by || null,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || 'Unable to submit requisition.'); return; }
+  closeDialog(reqModal);
+  form.reset();
+  invLoaded.requisitions = false;
+  loadInvRequisitions();
+});
+
 // Approve / Reject controls — rendered only for Admins; the API enforces
 // the exclusive authority server-side (403 for non-Admin status changes).
 async function loadInvApprovals() {
   const res = await api('procurement/requisitions');
-  const pending = (res.requisitions || []).filter(r => !['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered'].includes(r.status));
+  const pending = (res.requisitions || []).filter(r => !['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered', 'Completed'].includes(r.status));
   const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
+  const isManager = currentUserRole === 'Manager';
   const el = $('#invApprovalsTable');
   if (!el) return;
   el.innerHTML = pending.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Requested</th><th class="text-left p-4">Action</th></tr></thead>
+    <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Requested</th><th class="text-left p-4">Action</th></tr></thead>
     <tbody>${pending.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
     <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
     <td class="p-4">${escapeHTML(r.priority || 'Normal')}</td>
+    <td class="p-4">${reqStatusBadge(r.status)}</td>
     <td class="p-4 text-on-surface-variant">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
-    <td class="p-4 whitespace-nowrap">${isAdmin
-      ? `<button type="button" title="Approve" aria-label="Approve requisition" class="action-btn !px-2 text-emerald-600" data-req-action="approve" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">check_circle</span></button>
-         <button type="button" title="Reject" aria-label="Reject requisition" class="action-btn !px-2 text-red-600" data-req-action="reject" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">cancel</span></button>`
-      : '<span class="text-xs text-on-surface-variant">Admin review required</span>'}</td></tr>`).join('')}</tbody></table>`
+    <td class="p-4 whitespace-nowrap">${(isAdmin || isManager)
+      ? `<button type="button" title="Approve" aria-label="Approve requisition" class="action-btn !px-2 text-emerald-600" data-req-action="approve" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">check_circle</span></button>` +
+        (isAdmin ? ` <button type="button" title="Reject" aria-label="Reject requisition" class="action-btn !px-2 text-red-600" data-req-action="reject" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">cancel</span></button>` : '')
+      : '<span class="text-xs text-on-surface-variant">Manager review required</span>'}</td></tr>`).join('')}</tbody></table>`
     : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending approvals — all requisitions have been decided.</div>';
 }
 
@@ -661,7 +654,14 @@ const invTabLoaders = {
   history: loadInvHistory,
   archive: loadArchiveTable,
   trash: loadTrashTable,
+  reqlog: loadReqLog,
 };
+
+// Real-time sync (§4): the ledger refreshes itself while the tab is open so
+// scan commits land without a manual page refresh.
+setInterval(() => {
+  if (document.querySelector('.hub-section.active[data-tab="ledger"]')) loadInventoryData(false);
+}, 30000);
 
 window.refreshInvTab = (name) => { invLoaded[name] = false; if (invTabLoaders[name]) return invTabLoaders[name](); };
 

@@ -32,16 +32,25 @@ async function loadSupplierData() {
   }
 }
 
-// TRD §6 — systematic performance tiering. Computed dynamically from the
-// three dashboard scorecard metrics (rating, on-time rate, defect rate).
+// §6 — systematic performance tiering. Computed dynamically from the three
+// dashboard scorecard metrics (rating, on-time rate, defect rate).
 function supplierTier(s) {
   const rating = parseFloat(s.rating) || 0;
   const otd = parseFloat(s.on_time_rate) || 0;
   const defect = parseFloat(s.defect_rate) || 0;
-  if (rating >= 4.5 && otd >= 95 && defect <= 2) return { label: 'Strategic', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: 'military_tech' };
-  if (rating >= 4 && otd >= 85 && defect <= 5) return { label: 'Preferred', cls: 'bg-blue-100 text-blue-700 border-blue-200', icon: 'verified' };
-  if (rating >= 3 && otd >= 75 && defect <= 10) return { label: 'Approved', cls: 'bg-slate-100 text-slate-700 border-slate-200', icon: 'check_circle' };
+  if (rating >= 4.5 && otd >= 95 && defect <= 2) return { label: 'Strategic Partner', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: 'military_tech' };
+  if (rating >= 4 && otd >= 85 && defect <= 5) return { label: 'Tier 1 Supplier', cls: 'bg-blue-100 text-blue-700 border-blue-200', icon: 'verified' };
+  if (rating >= 3 && otd >= 75 && defect <= 10) return { label: 'Preferred Vendor', cls: 'bg-slate-100 text-slate-700 border-slate-200', icon: 'check_circle' };
   return { label: 'Probationary', cls: 'bg-amber-100 text-amber-700 border-amber-200', icon: 'warning' };
+}
+
+// Compliance summary chip — flags expired COI and missing clearances.
+function complianceSummary(s) {
+  const flags = [];
+  if (s.coi_expiry && new Date(s.coi_expiry) < new Date()) flags.push('<span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold" title="Certificate of Insurance expired">COI EXPIRED</span>');
+  if (!Number(s.tax_compliant)) flags.push('<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold" title="Tax registration not marked compliant">TAX</span>');
+  if (!Number(s.anti_bribery_clear)) flags.push('<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold" title="No anti-bribery clearance on file">ABC</span>');
+  return flags.length ? flags.join(' ') : '<span class="text-emerald-600 text-[10px] font-bold">COMPLIANT</span>';
 }
 
 function renderSupplierTable(suppliers) {
@@ -51,32 +60,65 @@ function renderSupplierTable(suppliers) {
     el.innerHTML = '<p class="text-sm text-slate-400 py-6 text-center">No suppliers yet. Click "Add Supplier" to create one.</p>';
     return;
   }
+  const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
+  const canArchive = isAdmin || currentUserRole === 'Manager';
   el.innerHTML = `
     <table class="data-table w-full text-sm">
       <thead>
-        <tr><th>Supplier</th><th>Tier</th><th>Category</th><th>Rating</th><th>On-Time</th><th>Defects</th><th>Contact</th><th>Actions</th></tr>
+        <tr><th>Supplier</th><th>Status</th><th>Tier</th><th>Compliance</th><th>Rating</th><th>On-Time</th><th>Defects</th><th>Contact</th><th class="text-right">Actions</th></tr>
       </thead>
       <tbody>
         ${suppliers.map((s) => {
           const t = supplierTier(s);
+          const active = (s.status || 'Active') === 'Active';
+          const autoPO = Number(s.auto_approve) === 1;
           return `
           <tr>
-            <td><b>${esc(s.name)}</b></td>
+            <td><b>${esc(s.name)}</b>${autoPO ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-bold" title="Auto-PO Approval — Inventory may send POs without procurement review">PRE-CLEARED</span>' : ''}</td>
+            <td><span class="inline-flex items-center gap-1 text-[11px] font-bold ${active ? 'text-emerald-600' : 'text-slate-400'}"><span class="h-2 w-2 rounded-full ${active ? 'bg-emerald-500' : 'bg-slate-300'}"></span>${active ? 'Active' : 'Inactive'}</span></td>
             <td><span class="inline-flex items-center gap-1 px-2 py-1 rounded-full border text-[11px] font-bold ${t.cls}" title="Computed from rating, on-time %, and defect rate"><span class="material-symbols-outlined text-sm">${t.icon}</span>${t.label}</span></td>
-            <td>${esc(s.category)}</td>
+            <td>${complianceSummary(s)}</td>
             <td>★ ${(parseFloat(s.rating) || 0).toFixed(1)}</td>
             <td>${esc(s.on_time_rate ?? 0)}%</td>
             <td>${esc(s.defect_rate ?? 0)}%</td>
             <td class="text-xs"><div>${esc(s.email || '—')}</div><div class="text-slate-400">${esc(s.phone || '')}</div></td>
-            <td class="whitespace-nowrap">
-              <button class="action-btn action-btn-edit !px-2" title="Edit supplier" aria-label="Edit supplier" onclick="editSupplier(${s.id})"><span class="material-symbols-outlined text-base">edit</span></button>
-              <button class="action-btn action-btn-danger !px-2" title="Delete supplier" aria-label="Delete supplier" onclick="deleteSupplier(${s.id})"><span class="material-symbols-outlined text-base">delete</span></button>
+            <td class="whitespace-nowrap text-right">
+              <button class="action-btn action-btn-view !px-2" title="View profile" aria-label="View profile" onclick="viewSupplierProfile(${s.id})"><span class="material-symbols-outlined text-base">visibility</span></button>
+              ${isAdmin ? `<button class="action-btn action-btn-edit !px-2" title="Edit supplier" aria-label="Edit supplier" onclick="editSupplier(${s.id})"><span class="material-symbols-outlined text-base">edit</span></button>` : ''}
+              ${canArchive ? `<button class="action-btn action-btn-danger !px-2" title="Archive supplier" aria-label="Archive supplier" onclick="archiveSupplier(${s.id}, '${esc(s.name).replace(/'/g, "\\'")}')"><span class="material-symbols-outlined text-base">archive</span></button>` : ''}
             </td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>`;
 }
+
+// Comprehensive profile — status, tier, compliance, contract, performance.
+window.viewSupplierProfile = (id) => {
+  const s = allSuppliers.find((x) => x.id === id);
+  if (!s) return;
+  const t = supplierTier(s);
+  const coiExpired = s.coi_expiry && new Date(s.coi_expiry) < new Date();
+  $('#spName').textContent = s.name || 'Supplier Profile';
+  $('#spBody').innerHTML = `
+    <div class="flex items-center gap-2 mb-4">
+      <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-bold ${t.cls}"><span class="material-symbols-outlined text-sm">${t.icon}</span>${t.label}</span>
+      <span class="px-2 py-1 rounded-full text-xs font-bold ${(s.status || 'Active') === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}">${esc(s.status || 'Active')}</span>
+      ${Number(s.auto_approve) ? '<span class="px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">Auto-PO Pre-Cleared</span>' : ''}
+    </div>
+    <dl class="grid grid-cols-2 gap-3 text-sm">
+      <div><dt class="text-xs text-slate-500">Category</dt><dd class="font-medium">${esc(s.category || '—')}</dd></div>
+      <div><dt class="text-xs text-slate-500">Contact</dt><dd>${esc(s.email || '—')}<br>${esc(s.phone || '')}</dd></div>
+      <div><dt class="text-xs text-slate-500">Rating</dt><dd>★ ${(parseFloat(s.rating) || 0).toFixed(1)}</dd></div>
+      <div><dt class="text-xs text-slate-500">On-Time / Defects</dt><dd>${esc(s.on_time_rate ?? 0)}% / ${esc(s.defect_rate ?? 0)}%</dd></div>
+      <div><dt class="text-xs text-slate-500">Contract Ref</dt><dd class="font-mono">${esc(s.contract_ref || '—')}</dd></div>
+      <div><dt class="text-xs text-slate-500">Certifications</dt><dd>${esc(s.certs || '—')}</dd></div>
+      <div><dt class="text-xs text-slate-500">COI Expiry</dt><dd class="${coiExpired ? 'text-red-600 font-bold' : ''}">${s.coi_expiry ? new Date(s.coi_expiry).toLocaleDateString() + (coiExpired ? ' (EXPIRED)' : '') : '—'}</dd></div>
+      <div><dt class="text-xs text-slate-500">Tax / Anti-Bribery</dt><dd>${Number(s.tax_compliant) ? '✓' : '✗'} tax · ${Number(s.anti_bribery_clear) ? '✓' : '✗'} clearance</dd></div>
+    </dl>`;
+  $('#supplierProfileModal')?.showModal();
+};
+document.getElementById('closeSupplierProfile')?.addEventListener('click', () => $('#supplierProfileModal')?.close());
 
 // ==========================================
 // EVENT LISTENERS
@@ -138,6 +180,13 @@ window.editSupplier = (id) => {
   $('#editSupplierCategory').value = s.category || '';
   $('#editSupplierEmail').value = s.email || '';
   $('#editSupplierPhone').value = s.phone || '';
+  $('#editSupplierStatus').value = s.status || 'Active';
+  $('#editSupplierContract').value = s.contract_ref || '';
+  $('#editSupplierCerts').value = s.certs || '';
+  $('#editSupplierCoi').value = s.coi_expiry || '';
+  $('#editSupplierTax').checked = !!Number(s.tax_compliant);
+  $('#editSupplierAbc').checked = !!Number(s.anti_bribery_clear);
+  $('#editSupplierAutoApprove').checked = !!Number(s.auto_approve);
   editSupplierModal?.showModal();
 };
 
@@ -156,6 +205,13 @@ $('#editSupplierForm')?.addEventListener('submit', async (e) => {
       category: $('#editSupplierCategory').value.trim(),
       email: $('#editSupplierEmail').value.trim(),
       phone: $('#editSupplierPhone').value.trim(),
+      status: $('#editSupplierStatus').value,
+      contract_ref: $('#editSupplierContract').value.trim(),
+      certs: $('#editSupplierCerts').value.trim(),
+      coi_expiry: $('#editSupplierCoi').value || null,
+      tax_compliant: $('#editSupplierTax').checked ? 1 : 0,
+      anti_bribery_clear: $('#editSupplierAbc').checked ? 1 : 0,
+      auto_approve: $('#editSupplierAutoApprove').checked ? 1 : 0,
     }),
   });
   btn.disabled = false;
@@ -166,19 +222,24 @@ $('#editSupplierForm')?.addEventListener('submit', async (e) => {
   }
 });
 
-window.deleteSupplier = async (id) => {
-  const s = allSuppliers.find((x) => x.id === id);
+// Archive instead of delete — records who/why via the reason prompt; the
+// record lands in the centralized Archive folder (Admin review/restore).
+window.archiveSupplier = async (id, name) => {
+  const reason = prompt(`Archive supplier "${name}"?\n\nProvide an archiving reason (recorded in the activity log):`, '');
+  if (reason === null) return;
+  if (!reason.trim()) { alert('An archiving reason is required.'); return; }
   const ok = await (window.scimConfirm ? scimConfirm({
-    title: 'Delete Supplier?',
-    message: `This will permanently remove ${s ? s.name : 'this supplier'} from the vendor directory. This action cannot be undone.`,
-    confirmLabel: 'Delete',
-    icon: 'business',
-  }) : Promise.resolve(confirm('Delete this supplier?')));
+    title: 'Archive Supplier?',
+    message: `"${name}" will be moved to the Archive folder (admin review). It is hidden from the directory but recoverable.`,
+    confirmLabel: 'Archive', icon: 'archive', danger: true,
+  }) : Promise.resolve(true));
   if (!ok) return;
-  const res = await fetch(`/api/v1/suppliers/${id}`, { method: 'DELETE' });
+  const res = await fetch(`/api/v1/records/supplier/${id}/archive`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reason.trim() }),
+  });
   const data = await res.json().catch(() => ({}));
-  if (res.ok) { loadSupplierData(); }
-  else alert(data.error || 'Failed to delete supplier');
+  if (res.ok) loadSupplierData();
+  else alert(data.error || 'Failed to archive supplier');
 };
 
 // Supplier Quotes — relocated from Procurement & Sourcing (TRD §5).
@@ -213,52 +274,6 @@ document.addEventListener('DOMContentLoaded', function () {
   loadSupplierData();
   loadQuotes();
 });
-
-// ==========================================
-// SUPPLIER ITEM CATALOGS — pricing index from sourcing quotes
-// ==========================================
-let catalogItems = [];
-
-async function loadCatalog() {
-  const el = $('#catalogList');
-  if (!el) return;
-  const res = await fetch('/api/v1/procurement/quotes');
-  const data = await res.json().catch(() => ({}));
-  catalogItems = Array.isArray(data.quotes) ? data.quotes : [];
-  renderCatalog();
-}
-
-function renderCatalog() {
-  const el = $('#catalogList');
-  if (!el) return;
-  const term = ($('#catalogSearch')?.value || '').toLowerCase();
-  const rows = catalogItems.filter((q) =>
-    !term || `${q.vendor} ${q.req_number} ${q.notes || ''}`.toLowerCase().includes(term));
-  if (!rows.length) {
-    el.innerHTML = '<p class="text-slate-500 text-sm text-center py-6">No catalog entries yet — approved sourcing quotes appear here.</p>';
-    return;
-  }
-  el.innerHTML = `
-    <table class="w-full text-sm min-w-[520px]">
-      <thead><tr class="border-b border-slate-200 text-left">
-        <th class="py-2 pr-4 font-medium text-slate-600">Requisition</th>
-        <th class="py-2 pr-4 font-medium text-slate-600">Approved Seller</th>
-        <th class="py-2 pr-4 font-medium text-slate-600">Quoted Price</th>
-        <th class="py-2 font-medium text-slate-600">Status</th>
-      </tr></thead>
-      <tbody>${rows.map((q) => `
-        <tr class="border-b border-slate-100 hover:bg-slate-50">
-          <td class="py-2.5 pr-4 font-semibold text-slate-900">${q.req_number || '—'}</td>
-          <td class="py-2.5 pr-4 text-slate-600">${q.vendor || '—'}</td>
-          <td class="py-2.5 pr-4 text-slate-900 font-medium">₱${Number(q.quote_amount || 0).toLocaleString()}</td>
-          <td class="py-2.5"><span class="px-2 py-1 rounded-full text-xs font-semibold ${q.status === 'Accepted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${q.status}</span></td>
-        </tr>`).join('')}</tbody>
-    </table>`;
-}
-
-const catalogSearchEl = document.getElementById('catalogSearch');
-if (catalogSearchEl) catalogSearchEl.oninput = renderCatalog;
-loadCatalog();
 
 
 if (window.initHubTabs) initHubTabs('directory');

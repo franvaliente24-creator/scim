@@ -444,9 +444,14 @@ function migrate(PDO $d): void {
         $q->execute(['System Administrator', 'admin@greatsolomon.test', password_hash('Welcome123!', PASSWORD_DEFAULT), 'Admin']);
     }
     
+    // Zone categorization column must exist before the seed below writes it.
+    try { $d->exec("ALTER TABLE warehouse_zones ADD COLUMN category VARCHAR(60) NULL"); } catch (Exception $e) {}
+
     // Insert sample warehouse zones if not exists
     if (!(int)$d->query('SELECT COUNT(*) FROM warehouse_zones')->fetchColumn()) {
-        $d->exec("INSERT INTO warehouse_zones(zone, capacity, occupied) VALUES ('A', 100, 32), ('B', 100, 68), ('C', 100, 91), ('D', 100, 48)");
+        $d->exec("INSERT INTO warehouse_zones(zone, capacity, occupied, category) VALUES
+            ('A', 100, 32, 'IT Equipment'), ('B', 100, 68, 'Laptops'), ('C', 100, 91, 'Monitors'),
+            ('D', 100, 48, 'Peripheral'), ('E', 100, 0, 'Office Supplies')");
         $d->exec("INSERT INTO warehouse_rows(zone, row_num, capacity, occupied) VALUES 
             ('A', '1', 20, 6), ('A', '2', 20, 8), ('A', '3', 20, 10), ('A', '4', 20, 8),
             ('B', '1', 20, 12), ('B', '2', 20, 14), ('B', '3', 20, 18), ('B', '4', 20, 24),
@@ -679,6 +684,47 @@ function migrate(PDO $d): void {
         INDEX idx_activity_created (created_at)
     )");
 
+    // Requisition purpose code (§5): checkbox-driven purpose + custom text.
+    try { $d->exec("ALTER TABLE requisitions ADD COLUMN purpose VARCHAR(200) NULL"); } catch (Exception $e) {}
+
+    // Supplier governance (§6): active flag, pre-cleared auto-PO approval,
+    // tax/legal compliance, anti-bribery clearance, certifications,
+    // certificate-of-insurance expiry, and contract reference.
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'Active'"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN auto_approve TINYINT(1) NOT NULL DEFAULT 0"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN tax_compliant TINYINT(1) NOT NULL DEFAULT 0"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN anti_bribery_clear TINYINT(1) NOT NULL DEFAULT 0"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN certs VARCHAR(255) NULL"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN coi_expiry DATE NULL"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE vendors ADD COLUMN contract_ref VARCHAR(200) NULL"); } catch (Exception $e) {}
+
+    // Internal logistics transport requests routed to Fleet & Vehicle
+    // Management (§4) — inventory submits, fleet fulfills.
+    $d->exec("CREATE TABLE IF NOT EXISTS fleet_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        req_number VARCHAR(30) UNIQUE NOT NULL,
+        item_name VARCHAR(200) NOT NULL,
+        quantity INT NOT NULL DEFAULT 1,
+        origin VARCHAR(120) DEFAULT 'Warehouse',
+        destination VARCHAR(200) NOT NULL,
+        notes TEXT,
+        status VARCHAR(40) DEFAULT 'Submitted',
+        requested_by INT,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    // Fixed category → zone mapping (§3): Zone A IT Equipment, B Laptops,
+    // C Monitors, D Peripheral, E Office Supplies, DISPOSAL for write-offs.
+    $zoneCategories = ['A' => 'IT Equipment', 'B' => 'Laptops', 'C' => 'Monitors',
+                       'D' => 'Peripheral', 'E' => 'Office Supplies', 'DISPOSAL' => 'Disposed Assets'];
+    foreach ($zoneCategories as $z => $cat) {
+        $d->prepare("UPDATE warehouse_zones SET category = ? WHERE zone = ? AND (category IS NULL OR category = '')")
+          ->execute([$cat, $z]);
+    }
+    $d->exec("INSERT IGNORE INTO warehouse_zones(zone, capacity, occupied, category)
+              SELECT 'E', 100, 0, 'Office Supplies' FROM DUAL
+              WHERE NOT EXISTS (SELECT 1 FROM warehouse_zones WHERE zone = 'E')");
+
     // TRD §4 schema: consumable quantity, custom low-stock threshold,
     // acquisition date, and usable lifespan (months) per asset record
     try {
@@ -899,6 +945,36 @@ function genAssetSerial(PDO $d, string $category): string {
     $q = $d->query("SELECT MAX(CAST(SUBSTRING(qr_code, 5) AS UNSIGNED)) FROM assets WHERE qr_code LIKE 'AST-%'");
     $seq = ((int)$q->fetchColumn()) + 1;
     return sprintf('AST-%06d', $seq);
+}
+
+// Password policy (§1): 8-15 chars with upper, lower, digit, and symbol.
+function passwordMeetsPolicy(string $p): bool {
+    return strlen($p) >= 8 && strlen($p) <= 15
+        && preg_match('/[a-z]/', $p) && preg_match('/[A-Z]/', $p)
+        && preg_match('/\d/', $p) && preg_match('/[^a-zA-Z\d]/', $p);
+}
+
+// Fixed category → zone mapping (§3): assets route to their category's
+// designated zone automatically on generation and intake.
+function zoneForCategory(PDO $d, string $category): ?string {
+    static $map = ['IT Equipment' => 'A', 'Laptop' => 'B', 'Laptops' => 'B',
+                   'Monitor' => 'C', 'Monitors' => 'C', 'Peripheral' => 'D',
+                   'Office Supplies' => 'E'];
+    $zone = $map[$category] ?? null;
+    if (!$zone) {
+        $q = $d->prepare('SELECT zone FROM warehouse_zones WHERE category = ? LIMIT 1');
+        $q->execute([$category]);
+        $zone = $q->fetchColumn() ?: null;
+    }
+    return $zone;
+}
+
+// Default usable lifespan (months) per category — auto-populated on the
+// serial's static attributes at generation time (§3).
+function lifespanForCategory(string $category): int {
+    return ['IT Equipment' => 48, 'Laptop' => 48, 'Laptops' => 48,
+            'Monitor' => 60, 'Monitors' => 60, 'Peripheral' => 36,
+            'Office Supplies' => 12][$category] ?? 36;
 }
 
 // Comprehensive activity log (TRD §7): every mutating user action appends
@@ -1177,6 +1253,24 @@ if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
     $sup = $d->query("SELECT ROUND(AVG(rating),1) avg_rating, ROUND(AVG(on_time_rate)) avg_otd, ROUND(AVG(defect_rate),1) avg_defect FROM vendors")->fetch(PDO::FETCH_ASSOC);
     $logistics = (float)$d->query("SELECT COALESCE(SUM(total),0) FROM purchase_orders WHERE status IN ('Shipped','Arrived','Received','Order Received') AND deleted_at IS NULL")->fetchColumn();
 
+    // Rolling supplier scorecard (§2): OTIF = on-time-in-full deliveries
+    // (received on/before the promised date), Quality = defect-free
+    // acceptance (100 - avg defect rate), SLA = share of received orders
+    // completed inside the 14-day service window.
+    $slaRows = $d->query("SELECT COUNT(*) total, SUM(DATEDIFF(pa.created_at, po.created_at) <= 14) within_sla
+                          FROM purchase_orders po JOIN po_activity pa ON pa.po_id=po.id AND pa.action='Received'")->fetch(PDO::FETCH_ASSOC);
+    $scorecard = [
+        'otif'    => $otd,
+        'quality' => $sup['avg_defect'] !== null ? round(100 - (float)$sup['avg_defect'], 1) : null,
+        'sla'     => ((int)($slaRows['total'] ?? 0)) ? round($slaRows['within_sla'] / $slaRows['total'] * 100) : null,
+    ];
+
+    // Zone activity line series (§2): scans/movements per zone over 14 days.
+    $zoneSeries = $d->query("SELECT zone, DATE(created_at) d, COUNT(*) n
+            FROM asset_transactions WHERE zone IS NOT NULL AND zone != ''
+              AND created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+            GROUP BY zone, DATE(created_at) ORDER BY d")->fetchAll(PDO::FETCH_ASSOC);
+
     // Chart series for the dashboard overhaul (TRD §1)
     $moveSeries = $d->query("SELECT DATE(created_at) d,
             SUM(action LIKE 'Check-Out%' OR action LIKE 'Assign%') outbound,
@@ -1203,11 +1297,12 @@ if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
         'supplier_otd'     => $sup['avg_otd'] !== null ? (int)$sup['avg_otd'] : null,
         'supplier_defect'  => $sup['avg_defect'] !== null ? (float)$sup['avg_defect'] : null,
         'logistics_value'  => $logistics,
-    ], 'series' => [
+    ], 'scorecard' => $scorecard, 'series' => [
         'movement_14d' => $moveSeries,
         'status_dist'  => $statusDist,
         'po_status'    => $poByStatus,
         'calendar'     => $upcoming,
+        'zone_activity'=> $zoneSeries,
     ]]);
 }
 
@@ -1316,6 +1411,12 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
     $zone = $x['zone'] ?? null;
     $autoCreated = false;
 
+    // §3: a returned asset requires a reason — selected via checkbox plus an
+    // optional free-text explanation from the scanning operator.
+    if ($action === 'Check-In' && trim((string)($x['reason'] ?? '')) === '') {
+        reply(['error' => 'A return reason is required — pick a reason (and describe it if Other) before checking the asset back in.'], 400);
+    }
+
     // ---- External boundary: Purchase Order Mgmt -------------------------
     // Inbound intake against a PO contract requires the PO to exist and be
     // in a receivable state (sent to vendor / shipped) before stock injects.
@@ -1403,6 +1504,12 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
         }
     }
 
+    // §3 category → zone mapping: when no explicit zone is given, intake and
+    // check-in route the asset to its category's designated zone.
+    if (!$zone && in_array($action, ['Inventory Intake', 'Check-In'], true)) {
+        $zone = zoneForCategory($d, $a['category'] ?? '');
+    }
+
     // Apply the physical-state change implied by the scan action
     $updates = [];
     $params = [];
@@ -1422,6 +1529,7 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
             $checkInAssignee = $a['external_employee_name'] ?? '';
             $updates = ['status = ?', 'external_employee_name = NULL']; $params[] = 'In Warehouse';
             if ($zone) { $updates[] = 'location = ?'; $params[] = $zone; }
+            $details .= ' — return reason: ' . trim($x['reason']);
             break;
         case 'Assign to Staff':
             $updates = ['status = ?', 'external_employee_name = ?', 'assignment_date = CURDATE()'];
@@ -1527,16 +1635,18 @@ if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) 
     $d->prepare('UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?')
       ->execute([$newStatus, $m[1]]);
 
-    // Log activity with notes
-    $actionDetails = 'Status changed to ' . $newStatus;
+    // Log activity with notes — receiver identity (name + user ID) is
+    // captured on arrival/receipt per §5.
+    $actionDetails = 'Status changed to ' . $newStatus . ' by ' . $u['name'] . ' (ID ' . $u['id'] . ')';
     if (!empty($x['notes'])) {
         $actionDetails .= '. Notes: ' . $x['notes'];
     }
     $d->prepare('INSERT INTO po_activity(po_id, action, details) VALUES(?, ?, ?)')
       ->execute([$m[1], 'Status Updated', $actionDetails]);
 
-    // Outbound stream: a received/fulfilled order settles to Accounts Payable
-    if (in_array($newStatus, ['Received', 'Fulfilled'], true)) {
+    // Outbound stream: a verified-and-arrived order settles a receipt to
+    // Accounts Payable (Financial Management).
+    if (in_array($newStatus, ['Received', 'Fulfilled', 'Arrived'], true)) {
         $pq = $d->prepare('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id = v.id WHERE po.id = ?');
         $pq->execute([$m[1]]);
         if ($po = $pq->fetch(PDO::FETCH_ASSOC)) forwardToFinance($d, $po);
@@ -1560,6 +1670,9 @@ if ($method === 'GET' && $path === '/api/v1/users') {
 if ($method === 'POST' && $path === '/api/v1/users') {
     auth(['Admin']);
     $x = body();
+    if (!passwordMeetsPolicy((string)($x['password'] ?? ''))) {
+        reply(['error' => 'Password must be 8-15 characters with uppercase, lowercase, a number, and a special character.'], 422);
+    }
     $q = db()->prepare('INSERT INTO users(full_name, email, password_hash, role) VALUES(?, ?, ?, ?)');
     $q->execute([$x['full_name'], strtolower($x['email']), password_hash($x['password'], PASSWORD_DEFAULT), $x['role'] ?? 'WarehouseStaff']);
     reply(['id' => db()->lastInsertId()], 201);
@@ -1585,6 +1698,9 @@ if ($method === 'PUT' && preg_match('#^/api/v1/users/(\d+)$#', $path, $m)) {
         $params[] = $x['role'];
     }
     if (!empty($x['password'])) {
+        if (!passwordMeetsPolicy((string)$x['password'])) {
+            reply(['error' => 'Password must be 8-15 characters with uppercase, lowercase, a number, and a special character.'], 422);
+        }
         $updateFields[] = 'password_hash = ?';
         $params[] = password_hash($x['password'], PASSWORD_DEFAULT);
     }
@@ -1822,6 +1938,11 @@ if ($method === 'POST' && $path === '/api/v1/mfa/login-verify') {
     
     $token = bin2hex(random_bytes(32));
     $d->prepare('DELETE FROM session_tokens WHERE expires_at < NOW()')->execute();
+    // Admin single-device policy (§1): an Administrator login revokes every
+    // other live session token for the account — one active device only.
+    if ($user['role'] === 'Admin') {
+        $d->prepare('DELETE FROM session_tokens WHERE user_id = ?')->execute([$userId]);
+    }
     $d->prepare('INSERT INTO session_tokens(token, user_id, expires_at) VALUES(?, ?, DATE_ADD(NOW(), INTERVAL 8 HOUR))')
       ->execute([$token, $userId]);
     
@@ -2172,8 +2293,8 @@ if ($method === 'POST' && $path === '/api/v1/procurement/requisitions') {
     $x = body();
     $d = db();
     $req_count = (int)$d->query("SELECT COUNT(*)+1 FROM requisitions WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
-    $req_number='REQ-'.date('Y').'-'.str_pad((string)$req_count,3,'0',STR_PAD_LEFT);    $q = $d->prepare('INSERT INTO requisitions(req_number, title, department, description, estimated_cost, priority, needed_by, created_by) VALUES(?,?,?,?,?,?,?,?)');
-    $q->execute([$req_number, $x['title'], $x['department'], $x['description'], $x['estimated_cost'], $x['priority'], $x['needed_by'], $u['id']]);
+    $req_number='REQ-'.date('Y').'-'.str_pad((string)$req_count,3,'0',STR_PAD_LEFT);    $q = $d->prepare("INSERT INTO requisitions(req_number, title, department, purpose, description, estimated_cost, priority, needed_by, status, created_by) VALUES(?,?,?,?,?,?,?,?,'Submitted',?)");
+    $q->execute([$req_number, $x['title'], $x['department'], $x['purpose'] ?? null, $x['description'], $x['estimated_cost'], $x['priority'], $x['needed_by'], $u['id']]);
     reply(['id' => $d->lastInsertId(), 'req_number' => $req_number], 201);
 }
 
@@ -2221,7 +2342,7 @@ if ($method === 'PUT' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$
     $updateFields = [];
     $params = [];
 
-    foreach (['title', 'department', 'description', 'priority', 'status'] as $field) {
+    foreach (['title', 'department', 'purpose', 'description', 'priority', 'status'] as $field) {
         if (array_key_exists($field, $x)) {
             $updateFields[] = $field . ' = ?';
             $params[] = $x[$field];
@@ -2279,8 +2400,11 @@ if ($method === 'GET' && $path === '/api/v1/suppliers') {
 if ($method === 'POST' && $path === '/api/v1/suppliers') {
     auth(['Admin', 'Manager']);
     $x = body();
-    $q = db()->prepare('INSERT INTO vendors(name, email, phone, address, category) VALUES(?,?,?,?,?)');
-    $q->execute([$x['name'], $x['email'], $x['phone'], $x['address'], $x['category']]);
+    $q = db()->prepare('INSERT INTO vendors(name, email, phone, address, category, status, auto_approve, tax_compliant, anti_bribery_clear, certs, coi_expiry, contract_ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
+    $q->execute([$x['name'], $x['email'], $x['phone'], $x['address'], $x['category'],
+        $x['status'] ?? 'Active', !empty($x['auto_approve']) ? 1 : 0,
+        !empty($x['tax_compliant']) ? 1 : 0, !empty($x['anti_bribery_clear']) ? 1 : 0,
+        $x['certs'] ?? null, $x['coi_expiry'] ?? null, $x['contract_ref'] ?? null]);
     reply(['id' => db()->lastInsertId()], 201);
 }
 
@@ -2300,7 +2424,7 @@ if ($method === 'PUT' && preg_match('#^/api/v1/suppliers/(\d+)$#', $path, $m)) {
     $updateFields = [];
     $params = [];
 
-    foreach (['name', 'email', 'phone', 'address', 'category'] as $field) {
+    foreach (['name', 'email', 'phone', 'address', 'category', 'status', 'certs', 'coi_expiry', 'contract_ref'] as $field) {
         if (array_key_exists($field, $x)) {
             $updateFields[] = $field . ' = ?';
             $params[] = $x[$field];
@@ -2320,6 +2444,13 @@ if ($method === 'PUT' && preg_match('#^/api/v1/suppliers/(\d+)$#', $path, $m)) {
     if (array_key_exists('rating', $x)) {
         $updateFields[] = 'rating = ?';
         $params[] = $x['rating'];
+    }
+
+    foreach (['auto_approve', 'tax_compliant', 'anti_bribery_clear'] as $flag) {
+        if (array_key_exists($flag, $x)) {
+            $updateFields[] = $flag . ' = ?';
+            $params[] = !empty($x[$flag]) ? 1 : 0;
+        }
     }
 
     if (empty($updateFields)) {
@@ -2359,7 +2490,7 @@ if ($method === 'PUT' && preg_match('#^/api/v1/vendors/(\d+)$#', $path, $m)) {
     $updateFields = [];
     $params = [];
 
-    foreach (['name', 'email', 'phone', 'address', 'category'] as $field) {
+    foreach (['name', 'email', 'phone', 'address', 'category', 'status', 'certs', 'coi_expiry', 'contract_ref'] as $field) {
         if (array_key_exists($field, $x)) {
             $updateFields[] = $field . ' = ?';
             $params[] = $x[$field];
@@ -2379,6 +2510,13 @@ if ($method === 'PUT' && preg_match('#^/api/v1/vendors/(\d+)$#', $path, $m)) {
     if (array_key_exists('rating', $x)) {
         $updateFields[] = 'rating = ?';
         $params[] = $x['rating'];
+    }
+
+    foreach (['auto_approve', 'tax_compliant', 'anti_bribery_clear'] as $flag) {
+        if (array_key_exists($flag, $x)) {
+            $updateFields[] = $flag . ' = ?';
+            $params[] = !empty($x[$flag]) ? 1 : 0;
+        }
     }
 
     if (empty($updateFields)) {
@@ -2406,15 +2544,21 @@ if ($method === 'POST' && $path === '/api/v1/pos') {
     $po_count = (int)$d->query("SELECT COUNT(*)+1 FROM purchase_orders WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
     $po_number='PO-'.date('Y').'-'.str_pad((string)$po_count,3,'0',STR_PAD_LEFT);    $vendor_id = $x['vendor_id'] ?? null;
     $vendor_name = $x['vendor'] ?? 'Unknown';
-    
+    $autoApprove = false;
+
     if ($vendor_id) {
-        $v = $d->prepare('SELECT name FROM vendors WHERE id = ?');
+        $v = $d->prepare('SELECT name, auto_approve FROM vendors WHERE id = ?');
         $v->execute([$vendor_id]);
-        $vendor_name = $v->fetchColumn() ?: 'Unknown';
+        $vrow = $v->fetch(PDO::FETCH_ASSOC);
+        $vendor_name = $vrow['name'] ?? 'Unknown';
+        // Pre-cleared purchasing (§6): a trusted vendor's flag lets the PO
+        // go straight to the supplier without manual procurement review.
+        $autoApprove = (int)($vrow['auto_approve'] ?? 0) === 1;
     }
-    
-    $q = $d->prepare('INSERT INTO purchase_orders(po_number, vendor_id, vendor, items, total, expected_delivery, notes) VALUES(?,?,?,?,?,?,?)');
-    $q->execute([$po_number, $vendor_id, $vendor_name, $x['items'], $x['total'], $x['expected_delivery'], $x['notes']]);
+
+    $initialStatus = $autoApprove ? 'Sent to Vendor' : 'Draft';
+    $q = $d->prepare('INSERT INTO purchase_orders(po_number, vendor_id, vendor, items, total, status, expected_delivery, notes) VALUES(?,?,?,?,?,?,?,?)');
+    $q->execute([$po_number, $vendor_id, $vendor_name, $x['items'], $x['total'], $initialStatus, $x['expected_delivery'], $x['notes']]);
     $po_id = $d->lastInsertId();
 
     // TRD §4: a settlement receipt is generated at order creation and
@@ -2422,8 +2566,14 @@ if ($method === 'POST' && $path === '/api/v1/pos') {
     $d->prepare('INSERT INTO finance_settlements(po_id, po_number, vendor_id, vendor_name, amount, status) VALUES(?,?,?,?,?,?)')
       ->execute([$po_id, $po_number, $vendor_id, $vendor_name, (float)($x['total'] ?? 0), 'Awaiting Delivery']);
 
+    $createNote = 'Purchase order created by ' . auth()['name'];
+    if ($autoApprove) {
+        $createNote .= ' — auto-approved and sent to vendor (pre-cleared purchasing)';
+        $d->prepare('INSERT INTO po_activity(po_id, action, details) VALUES(?,?,?)')
+          ->execute([$po_id, 'Sent to Vendor', 'Auto-PO approval: pre-cleared supplier ' . $vendor_name]);
+    }
     $d->prepare('INSERT INTO po_activity(po_id, action, details) VALUES(?,?,?)')
-      ->execute([$po_id, 'Created', 'Purchase order created by ' . auth()['name']]);
+      ->execute([$po_id, 'Created', $createNote]);
     logActivity($d, auth(), 'Created purchase order', 'purchase_order', $po_number, '₱' . number_format((float)($x['total'] ?? 0), 2) . ' to ' . $vendor_name);
 
     reply(['id' => $po_id, 'po_number' => $po_number], 201);
@@ -2526,27 +2676,23 @@ if ($method === 'POST' && $path === '/api/v1/assets/generate-batch') {
     $name = substr(trim($x['name'] ?? ''), 0, 120);
     $category = substr(trim($x['category'] ?? 'IT Equipment'), 0, 60) ?: 'IT Equipment';
     $qty = min(50, max(1, (int)($x['quantity'] ?? 1)));
-    // TRD §2: generation requires a physical destination plus the full
-    // acquisition record — value, purchase date, lifespan, and specs.
-    $location = trim((string)($x['location'] ?? ''));
-    $value = $x['value'] ?? null;
-    $datePurchased = trim((string)($x['date_purchased'] ?? ''));
-    $lifespan = $x['lifespan_months'] ?? null;
-    $specs = trim((string)($x['specs'] ?? ''));
     if ($name === '') reply(['error' => 'Item name is required.'], 400);
-    if ($location === '') reply(['error' => 'Select a physical destination zone before generating serials.'], 400);
-    if ($value === null || $value === '' || !is_numeric($value)) reply(['error' => 'Item value is required.'], 400);
-    if ($datePurchased === '') reply(['error' => 'Purchase date is required.'], 400);
-    if ($lifespan === null || $lifespan === '' || !is_numeric($lifespan)) reply(['error' => 'Asset lifespan (months) is required.'], 400);
-    if ($specs === '') reply(['error' => 'Item specifications are required.'], 400);
+    // §3: each serial's static attributes are fixed at generation — the
+    // destination zone, purchase date, and lifespan auto-populate from the
+    // item's category mapping instead of a manual form.
+    $location = zoneForCategory($d, $category) ?: 'Receiving Dock';
+    $datePurchased = date('Y-m-d');
+    $lifespan = lifespanForCategory($category);
+    $value = is_numeric($x['value'] ?? null) ? (float)$x['value'] : 0.0;
+    $specs = trim((string)($x['specs'] ?? '')) ?: null;
+    $thresh = ($x['low_stock_threshold'] ?? '') === '' ? null : (int)$x['low_stock_threshold'];
     $serials = [];
     for ($i = 0; $i < $qty; $i++) {
         $serial = genAssetSerial($d, $category);
         // Pending-only: serials are staged as Awaiting Print and only commit
         // to active inventory after a physical intake scan.
-        $thresh = ($x['low_stock_threshold'] ?? '') === '' ? null : (int)$x['low_stock_threshold'];
         $d->prepare("INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months, specs) VALUES(?,?,?,?,'Awaiting Print',?,1,?,?,?,?)")
-          ->execute([$serial, $name, $category, (float)$value, $location, $thresh, $datePurchased, (int)$lifespan, $specs]);
+          ->execute([$serial, $name, $category, $value, $location, $thresh, $datePurchased, $lifespan, $specs]);
         $serials[] = $serial;
     }
     logActivity($d, $u, 'Generated serial batch', 'asset', $name, "$qty serials for $location");
@@ -3339,16 +3485,23 @@ if ($method === 'GET' && $path === '/api/v1/trash') {
     reply(['items' => $items, 'retention_days' => $retentionDays]);
 }
 
-// POST /api/v1/records/{entity}/{id}/archive|restore — Admin only.
+// POST /api/v1/records/{entity}/{id}/archive|restore — archiving is open to
+// Admins and Managers (§4, subject to admin review) and requires a reason;
+// restore stays Admin-only. The actor's name/ID/timestamp are logged.
 if ($method === 'POST' && preg_match('#^/api/v1/records/([a-z]+)/(\d+)/(archive|restore)$#', $path, $m)) {
-    $u = auth(['Admin']);
+    $u = auth(['Admin', 'Manager']);
+    if ($m[3] === 'restore' && $u['role'] !== 'Admin') {
+        reply(['error' => 'Only a System Administrator may restore archived records.'], 403);
+    }
     $cfg = archiveEntities()[$m[1]] ?? null;
     if (!$cfg) reply(['error' => 'Unknown record type.'], 400);
     $d = db();
     if ($m[3] === 'archive') {
+        $reason = trim((string)(body()['reason'] ?? ''));
+        if ($reason === '') reply(['error' => 'An archiving reason is required.'], 400);
         $d->prepare("UPDATE {$cfg['table']} SET archived_at = NOW(), deleted_at = NULL WHERE id = ? AND deleted_at IS NULL")
           ->execute([(int)$m[2]]);
-        logActivity($d, $u, 'Archived record', $m[1], (string)$m[2]);
+        logActivity($d, $u, 'Archived record', $m[1], (string)$m[2], 'Reason: ' . $reason);
     } else {
         $d->prepare("UPDATE {$cfg['table']} SET archived_at = NULL, deleted_at = NULL WHERE id = ?")
           ->execute([(int)$m[2]]);
@@ -3395,6 +3548,49 @@ if ($method === 'GET' && $path === '/api/v1/activity-log') {
     $q = $d->prepare("SELECT * FROM activity_log WHERE $where ORDER BY created_at DESC LIMIT 500");
     $q->execute($params);
     reply(['items' => $q->fetchAll(PDO::FETCH_ASSOC), 'can_view_all' => $u['role'] === 'Admin']);
+}
+
+// ==========================================================================
+// INTERNAL LOGISTICS REQUESTS (§4) — inventory submits transport requests
+// to Fleet & Vehicle Management for moving items/assets to staff.
+// ==========================================================================
+if ($method === 'GET' && $path === '/api/v1/fleet-requests') {
+    auth();
+    reply(['items' => db()->query('SELECT fr.*, u.full_name AS requested_by_name FROM fleet_requests fr LEFT JOIN users u ON u.id=fr.requested_by ORDER BY fr.created_at DESC')->fetchAll(PDO::FETCH_ASSOC)]);
+}
+
+if ($method === 'POST' && $path === '/api/v1/fleet-requests') {
+    $u = auth(['Admin', 'Manager', 'WarehouseStaff']);
+    $x = body();
+    $item = trim((string)($x['item_name'] ?? ''));
+    $destination = trim((string)($x['destination'] ?? ''));
+    if ($item === '' || $destination === '') {
+        reply(['error' => 'Item/asset and destination are required.'], 400);
+    }
+    $d = db();
+    $n = (int)$d->query("SELECT COUNT(*)+1 FROM fleet_requests WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
+    $ref = 'FLT-' . date('Y') . '-' . str_pad((string)$n, 3, '0', STR_PAD_LEFT);
+    $d->prepare('INSERT INTO fleet_requests(req_number, item_name, quantity, origin, destination, notes, requested_by) VALUES(?,?,?,?,?,?,?)')
+      ->execute([$ref, $item, max(1, (int)($x['quantity'] ?? 1)), $x['origin'] ?? 'Warehouse', $destination, $x['notes'] ?? null, $u['id']]);
+    logActivity($d, $u, 'Requested fleet transport', 'fleet_request', $ref, "$item → $destination");
+    // Outbound hand-off marker for the Fleet & Vehicle Management system.
+    $d->prepare('INSERT INTO integration_audit_log(external_system, action, entity_type, entity_id, request_data, status) VALUES(?,?,?,?,?,?)')
+      ->execute(['Fleet & Vehicle Management', 'Transport Request Submitted', 'fleet_request', (int)$d->lastInsertId(),
+                 json_encode(['req_number' => $ref, 'item' => $item, 'destination' => $destination, 'requested_by' => $u['name']]), 'Success']);
+    reply(['id' => (int)$d->lastInsertId(), 'req_number' => $ref], 201);
+}
+
+if ($method === 'PUT' && preg_match('#^/api/v1/fleet-requests/(\d+)$#', $path, $m)) {
+    $u = auth(['Admin', 'Manager']);
+    $x = body();
+    $d = db();
+    $status = $x['status'] ?? '';
+    if (!in_array($status, ['Submitted', 'Scheduled', 'In Transit', 'Delivered', 'Cancelled'], true)) {
+        reply(['error' => 'Invalid transport status.'], 400);
+    }
+    $d->prepare('UPDATE fleet_requests SET status = ? WHERE id = ?')->execute([$status, $m[1]]);
+    logActivity($d, $u, 'Updated fleet request', 'fleet_request', (string)$m[1], "Status → $status");
+    reply(['ok' => true]);
 }
 
 // GET /api/v1/nav-badges — live sidebar counters for every module.

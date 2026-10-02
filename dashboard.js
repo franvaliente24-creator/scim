@@ -14,11 +14,16 @@ const $ = (selector) => {
 const api = (path) => fetch(`/api/v1/${path}`).then((res) => res.json());
 
 let lastDashboardData = null;
+let dashCharts = [];
 
 // Initialize permissions on page load
 document.addEventListener('DOMContentLoaded', async () => {
   await initializePermissions();
-  await requireSession().then((signedIn) => signedIn && load());
+  const signedIn = await requireSession();
+  if (!signedIn) return;
+  await load();
+  // Real-time sync: refresh every 60s so live KPIs stay current.
+  setInterval(load, 60000);
 });
 
 async function requireSession() {
@@ -123,33 +128,71 @@ async function load() {
       ].map(([l, v, h]) => kpiCell(l, v, h, false)).join('');
     }
 
+    // Rolling supplier scorecard (§2) — OTIF / Quality / SLA vs. targets
+    const sc = kpi.scorecard || {};
+    const scoreEl = $('#supplierScorecard');
+    if (scoreEl) {
+      const scoreCell = (label, val, target, warn) => `
+        <div class="p-4 rounded-xl border ${warn ? 'bg-red-50 border-red-200' : 'bg-emerald-50/60 border-emerald-200'}">
+          <p class="text-[11px] font-semibold uppercase tracking-wide ${warn ? 'text-red-600' : 'text-emerald-700'}">${label}</p>
+          <strong class="text-2xl font-headline font-bold ${warn ? 'text-red-700' : 'text-on-surface'}">${val}</strong>
+          <p class="text-[11px] ${warn ? 'text-red-500' : 'text-on-surface-variant'} mt-0.5">${target}</p>
+        </div>`;
+      scoreEl.innerHTML = [
+        scoreCell('OTIF Rate', sc.otif != null ? sc.otif + '%' : na, 'On-time in-full · target ≥95%', sc.otif != null && sc.otif < 95),
+        scoreCell('Quality Acceptance', sc.quality != null ? sc.quality + '%' : na, 'Defect-free inspections · target ≥99.5%', sc.quality != null && sc.quality < 99.5),
+        scoreCell('SLA Compliance', sc.sla != null ? sc.sla + '%' : na, 'Delivered inside 14-day window', sc.sla != null && sc.sla < 90),
+      ].join('');
+    }
+
+    // Low-stock strip at the top of the dashboard (relocated from Smart
+    // Warehousing, §2) — name-grouped deficits only; healthy stock is hidden.
+    const stripEl = $('#dashStockAlerts');
+    const stripItems = $('#dashStockAlertItems');
+    if (stripEl && stripItems) {
+      const deficitCats = (stockAlerts.items || []).filter((i) => i.deficit);
+      const deficitAssets = (stockAlerts.asset_items || []).filter((i) => i.deficit);
+      stripEl.classList.toggle('hidden', deficitCats.length + deficitAssets.length === 0);
+      stripItems.innerHTML =
+        deficitCats.map((i) => `<span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-700 text-xs font-bold"><span class="material-symbols-outlined text-sm">category</span>${i.category}: ${i.on_hand}/${i.min_quantity} min</span>`).join('') +
+        deficitAssets.map((i) => `<span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold"><span class="material-symbols-outlined text-sm">inventory_2</span>${i.name}: ${i.on_hand}/${i.min_quantity} min</span>`).join('');
+    }
+
     // ---- Charts (Chart.js) + calendar widget (TRD §1) ----
     const series = kpi.series || {};
     const CHART_COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#64748b'];
 
     if (window.Chart) {
       Chart.defaults.font.family = 'Inter, sans-serif';
-      const zonesData = zones.map(z => ({ label: `Zone ${z.zone}`, pct: z.pct || 0 }));
+      // Destroy prior chart instances before re-render (live polling).
+      dashCharts.forEach((c) => c.destroy());
+      dashCharts = [];
+
+      // Zone metrics as a line graph (§2): activity per zone, 14 days.
+      const zSeries = series.zone_activity || [];
+      const zDays = [...new Set(zSeries.map(r => r.d))].sort();
+      const zNames = [...new Set(zSeries.map(r => r.zone))].sort();
       const zc = $('#chartZones');
-      if (zc) new Chart(zc, {
-        type: 'bar',
-        data: { labels: zonesData.map(z => z.label), datasets: [{ label: 'Occupancy %', data: zonesData.map(z => z.pct),
-          backgroundColor: zonesData.map(z => z.pct > 85 ? '#ef4444' : z.pct >= 60 ? '#f59e0b' : '#10b981'), borderRadius: 8 }] },
-        options: { plugins: { legend: { display: false } }, scales: { y: { max: 100, ticks: { callback: v => v + '%' } } } },
-      });
+      if (zc) dashCharts.push(new Chart(zc, {
+        type: 'line',
+        data: { labels: zDays.map(d => new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })),
+          datasets: zNames.map((z, i) => ({ label: 'Zone ' + z, data: zDays.map(d => +(zSeries.find(r => r.d === d && r.zone === z)?.n || 0)),
+            borderColor: CHART_COLORS[i % CHART_COLORS.length], backgroundColor: CHART_COLORS[i % CHART_COLORS.length] + '22', fill: true, tension: .35 })) },
+        options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+      }));
 
       const dist = series.status_dist || [];
       const sc = $('#chartStatus');
-      if (sc && dist.length) new Chart(sc, {
+      if (sc && dist.length) dashCharts.push(new Chart(sc, {
         type: 'doughnut',
         data: { labels: dist.map(d => d.status), datasets: [{ data: dist.map(d => +d.n), backgroundColor: CHART_COLORS, borderWidth: 2, borderColor: '#fff' }] },
         options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }, cutout: '62%' },
-      });
+      }));
 
       const mv = series.movement_14d || [];
       const days = [...new Set(mv.map(r => r.d))].sort();
       const mc = $('#chartMovement');
-      if (mc) new Chart(mc, {
+      if (mc) dashCharts.push(new Chart(mc, {
         type: 'line',
         data: { labels: days.map(d => new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })),
           datasets: [
@@ -157,7 +200,7 @@ async function load() {
             { label: 'Outbound', data: days.map(d => +(mv.find(r => r.d === d)?.outbound || 0)), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,.10)', fill: true, tension: .35 },
           ] },
         options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
-      });
+      }));
     }
 
     // Calendar widget — marks expected PO delivery dates from live records.
@@ -186,8 +229,9 @@ async function load() {
       }
       grid.innerHTML = html + '</div>';
     };
-    $('#calPrev')?.addEventListener('click', () => { calCursor.setMonth(calCursor.getMonth() - 1); renderDashCalendar(); });
-    $('#calNext')?.addEventListener('click', () => { calCursor.setMonth(calCursor.getMonth() + 1); renderDashCalendar(); });
+    const calPrev = $('#calPrev'), calNext = $('#calNext');
+    if (calPrev) calPrev.onclick = () => { calCursor.setMonth(calCursor.getMonth() - 1); renderDashCalendar(); };
+    if (calNext) calNext.onclick = () => { calCursor.setMonth(calCursor.getMonth() + 1); renderDashCalendar(); };
     renderDashCalendar();
 
     // Render Zones - Show message if no data

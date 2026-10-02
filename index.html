@@ -61,6 +61,10 @@
                         <span class="material-symbols-outlined">description</span>
                         <span>Documents & Logistics</span>
                     </a>
+                    <a class="sidebar-subsystem-link" href="fleet.html">
+                        <span class="material-symbols-outlined">local_shipping</span>
+                        <span>Fleet Requests</span>
+                    </a>
                 </nav>
             </div>
         </nav>
@@ -171,8 +175,27 @@
 
                 <section class="hub-section active" data-tab="overview">
 
+                <!-- Low-Stock strip — relocated to the top of the dashboard for
+                     high visibility (TRD §2) -->
+                <div id="dashStockAlerts" class="dashboard-card bg-white shadow-sm border border-slate-200 overflow-hidden hidden">
+                    <div class="px-6 py-3 border-b border-red-200 bg-red-50/60 flex items-center justify-between">
+                        <h2 class="text-sm font-headline font-bold text-red-700 flex items-center gap-2"><span class="material-symbols-outlined text-base">priority_high</span>Low-Stock Notices</h2>
+                        <span class="text-[11px] font-semibold text-red-500">Auto-requisition fires on next check-out</span>
+                    </div>
+                    <div id="dashStockAlertItems" class="px-6 py-3 flex flex-wrap gap-2"></div>
+                </div>
+
                 <!-- Stats Grid -->
                 <div id="stats" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"></div>
+
+                <!-- Rolling Supplier Scorecard (TRD §2) -->
+                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
+                    <div class="px-6 py-4 border-b border-outline-variant/30 flex items-center justify-between">
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Supplier Scorecard</h2>
+                        <span class="text-[11px] font-semibold text-on-surface-variant">Rolling — targets: OTIF ≥95% · Quality ≥99.5% · SLA ≤14d</span>
+                    </div>
+                    <div id="supplierScorecard" class="p-6 grid grid-cols-1 sm:grid-cols-3 gap-4"></div>
+                </div>
 
                 <!-- Executive KPI Grid — inventory + fulfillment metrics -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -196,7 +219,8 @@
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                         <div class="px-6 py-4 border-b border-outline-variant/30">
-                            <h2 class="text-lg font-headline font-semibold text-on-surface">Warehouse Occupancy</h2>
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">Zone Activity — 14 Days</h2>
+                            <p class="text-xs text-on-surface-variant mt-0.5">Scan &amp; movement events per warehouse zone.</p>
                         </div>
                         <div class="p-6"><canvas id="chartZones" height="220"></canvas></div>
                     </div>
@@ -293,7 +317,7 @@
     <script src="token.js?v=1"></script>
     <script src="permissions.js?v=10"></script>
     <script src="layout.js?v=10"></script>
-    <script src="dashboard.js?v=11"></script>
-    <script src="inactivity.js?v=2"></script>
+    <script src="dashboard.js?v=12"></script>
+    <script src="inactivity.js?v=3"></script>
 </body>
 </html>
