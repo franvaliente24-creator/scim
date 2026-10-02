@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <!-- jsQR Library for QR Code Decoding -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -363,14 +364,29 @@
           </label>
           <div style="margin: 16px 0; padding: 12px; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
             <p style="margin: 0; color: #0369a1; font-size: 13px;">
-              <strong>QR Generation:</strong> After receiving, QR codes will be automatically generated for all items in this PO.
+              <strong>Receiving QR:</strong> After receiving, the PO's QR code is shown on-screen so warehouse staff can verify the shipment — no file download needed.
             </p>
           </div>
-          <button type="submit">Receive & Generate QR Codes</button>
+          <button type="submit">Receive &amp; Show QR Code</button>
         </form>
       </div>
     </dialog>
     
+    <!-- PO QR Code Modal — the receiving reference shown on-screen; no file
+         download needed. Warehouse scans this code (or types the PO number)
+         with the PO Receipt scan mode to verify the shipment. -->
+    <dialog id="poQrModal" class="rounded-2xl border-0 shadow-2xl p-0 w-[92%] max-w-xs backdrop:bg-slate-900/50">
+      <div class="p-6 text-center">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="font-headline font-bold text-on-surface">Receiving QR</h3>
+          <button id="closePoQr" type="button" class="text-slate-400 hover:text-slate-600"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <canvas id="poQrCanvas" width="200" height="200" class="mx-auto border border-slate-200 rounded-lg p-2"></canvas>
+        <p id="poQrNumber" class="mt-3 font-mono font-bold text-sm text-on-surface"></p>
+        <p class="mt-1 text-xs text-on-surface-variant">Warehouse staff scan this code in <b>PO Receipt</b> mode (or type the PO number) to verify and receive the shipment.</p>
+      </div>
+    </dialog>
+
     <!-- View PO Modal -->
     <dialog id="viewPOModal" class="rounded-2xl border-0 shadow-2xl p-0 w-[94%] max-w-lg backdrop:bg-slate-900/50">
       <div class="p-6">
@@ -401,9 +417,9 @@
 
 
         <script src="token.js?v=1"></script>
-        <script src="layout.js?v=11"></script>
+        <script src="layout.js?v=12"></script>
     <script src="permissions.js?v=11"></script>
-    <script src="procurement.js?v=13"></script>
+    <script src="procurement.js?v=14"></script>
     <script src="inactivity.js?v=3"></script>
 </body>
 </html>

@@ -207,7 +207,7 @@ function getPOActionButtons(po) {
       buttons.push(icon('action-btn-approve', 'inventory_2', 'Order received — record receipt', `receivePO('${po.id}', '${po.po_number}')`));
       break;
     case 'Received':
-      buttons.push(icon('action-btn-primary', 'picture_as_pdf', 'Generate QR PDF', `generateQRPDF('${po.id}')`));
+      buttons.push(icon('action-btn-primary', 'qr_code_2', 'Show receiving QR', `showPOQR('${po.id}', '${po.po_number}')`));
       break;
     default:
       buttons.push(icon('action-btn-edit', 'edit', 'Update status', `updatePOStatus('${po.id}', '${po.status}')`));
@@ -447,9 +447,9 @@ if (receiveForm) receiveForm.onsubmit = async (e) => {
     receiveModal?.close?.();
     e.target.reset();
     loadPOData();
-    
-    // Automatically generate QR codes
-    generateQRPDF(data.po_id);
+
+    // Show the receiving QR on-screen — no download step.
+    showPOQR(data.po_id, $('#receivePoNumber')?.value || '');
   } else {
     alert('Failed to receive PO');
   }
@@ -556,30 +556,21 @@ window.receivePO = (poId, poNumber) => {
   $('#receiveModal').showModal();
 };
 
-window.generateQRPDF = async (poId) => {
-  try {
-    const response = await fetch(`/api/v1/pos/${poId}/qr-pdf`, {
-      method: 'POST',
-    });
-
-    if (response.ok) {
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `QR-${poId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } else {
-      alert('Failed to generate QR PDF');
-    }
-  } catch (error) {
-    console.error('Error generating QR PDF:', error);
-    alert('Error generating QR PDF');
+// Receiving QR shown on-screen — no file download. The code encodes the PO
+// number so warehouse staff can scan it in PO Receipt mode to verify the
+// shipment (or type the number manually).
+window.showPOQR = (poId, poNumber) => {
+  const modal = $('#poQrModal');
+  const canvas = $('#poQrCanvas');
+  const label = $('#poQrNumber');
+  if (!modal || !canvas) return;
+  if (label) label.textContent = poNumber;
+  if (typeof QRious !== 'undefined') {
+    new QRious({ element: canvas, value: poNumber, size: 200 });
   }
+  modal.showModal();
 };
+$('#closePoQr')?.addEventListener('click', () => $('#poQrModal')?.close());
 
 
 // ==========================================

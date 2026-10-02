@@ -38,9 +38,19 @@ async function loadWarehouseData() {
     // Render warehouse grid
     renderWarehouseGrid(zones);
 
-    // Zone suggestions for "Move to Zone" scans — real zone codes only.
+    // Zone suggestions for "Move to Zone" scans — zone codes plus zone-row
+    // combos ("B-02") so scans can target a specific row.
     const dl = $('#zoneSuggestions');
-    if (dl) dl.innerHTML = zones.map((z) => `<option value="${z.zone}">${z.category || ''}</option>`).join('');
+    if (dl) {
+      const opts = [];
+      zones.forEach((z) => {
+        opts.push(`<option value="${z.zone}">${z.category || ''}</option>`);
+        (z.rows || []).forEach((r) => {
+          opts.push(`<option value="${z.zone}-${r.row}">Zone ${z.zone} · Row ${r.row} (${r.occupied}/${r.capacity})</option>`);
+        });
+      });
+      dl.innerHTML = opts.join('');
+    }
   } catch (error) {
     console.error('Error loading warehouse data:', error);
   }
@@ -83,6 +93,14 @@ function renderWarehouseGrid(zones) {
           <span class="text-xs font-bold ${rc.chip.split(' ')[1]}">${row.occupied}/${row.capacity}</span>
         </div>`;
     }).join('');
+    // Assets counted in the zone with no row assignment — surface them so the
+    // grid explains where the zone total came from.
+    const unassigned = zone.unassigned > 0
+      ? `<div class="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
+          <span class="text-xs font-semibold text-amber-700">Unassigned row</span>
+          <span class="text-xs font-bold text-amber-700">${zone.unassigned}</span>
+        </div>`
+      : '';
 
     return `
       <div class="rounded-2xl border ${c.ring} bg-white p-5 hover:shadow-lg transition-shadow" data-zone="${zone.zone}">
@@ -107,7 +125,7 @@ function renderWarehouseGrid(zones) {
           </div>
           <span class="text-sm font-extrabold text-on-surface w-10 text-right">${pct}%</span>
         </div>
-        <div class="space-y-1.5">${rows || '<p class="text-xs text-slate-400 text-center py-2">No row data</p>'}</div>
+        <div class="space-y-1.5">${rows || '<p class="text-xs text-slate-400 text-center py-2">No row data</p>'}${unassigned}</div>
       </div>`;
   }).join('');
 }
@@ -269,7 +287,7 @@ const updateScanExtraFields = () => {
   if (!wrap || !input) return;
   const labels = {
     'Assign to Staff': 'Employee name (validated against Employee Info)…',
-    'Move to Zone': 'Zone / aisle (e.g. A-02)…',
+    'Move to Zone': 'Zone or zone-row (e.g. B or B-02)…',
     'PO Receipt': 'PO number — required (e.g. PO-2026-001)…',
   };
   if (labels[currentAction]) {

@@ -49,7 +49,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (zl) {
       const zd = await api('warehouse/zones').catch(() => ({}));
       const zones = Array.isArray(zd.zones) ? zd.zones : [];
-      zl.innerHTML = zones.map((z) => `<option value="${z.zone}">${z.category || ''}</option>`).join('');
+      const opts = [];
+      zones.forEach((z) => {
+        opts.push(`<option value="${z.zone}">${z.category || ''}</option>`);
+        (z.rows || []).forEach((r) => {
+          opts.push(`<option value="${z.zone}-${r.row}">Zone ${z.zone} · Row ${r.row}</option>`);
+        });
+      });
+      zl.innerHTML = opts.join('');
     }
   } catch (error) {
     console.error('Error initializing page:', error);

@@ -18,7 +18,7 @@ register_shutdown_function(function () {
 // Bump whenever schema changes are added to migrate() — the gate uses it to
 // decide whether the (idempotent) migration set must re-run. Declared before
 // the CLI hook because `const` is a runtime statement, not hoisted.
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 // CLI deploy hook — `php api/index.php migrate [--force]` applies schema
 // migrations at deploy time so no HTTP request ever pays the cost.
@@ -1032,6 +1032,22 @@ function migrate(PDO $d, bool $force = false): void {
         }
     }
 
+    // v5: row-level tracking — assets store which row inside their zone they
+    // occupy so zone occupancy can break down per row.
+    try { $d->exec("ALTER TABLE assets ADD COLUMN bin_row VARCHAR(10) NULL"); } catch (Exception $e) {}
+    // Recover rows already embedded in pre-normalization location strings
+    // ("B-02" → zone B, row 02) — only when the row actually exists.
+    $locRows = $d->query("SELECT id, location FROM assets WHERE location IS NOT NULL AND location != ''")->fetchAll(PDO::FETCH_ASSOC);
+    $rowQ = $d->prepare('SELECT row_num FROM warehouse_rows WHERE zone = ? AND row_num = ? LIMIT 1');
+    $updRow = $d->prepare('UPDATE assets SET bin_row = ? WHERE id = ?');
+    foreach ($locRows as $r) {
+        if (preg_match('/([A-Za-z0-9]+)\s*[-–]\s*([A-Za-z0-9]+)$/', trim($r['location']), $rm)) {
+            $rowNum = ctype_digit($rm[2]) ? (string)(int)$rm[2] : $rm[2];
+            $rowQ->execute([$rm[1], $rowNum]);
+            if (($hit = $rowQ->fetchColumn()) !== false) $updRow->execute([$hit, $r['id']]);
+        }
+    }
+
     $d->prepare('INSERT INTO schema_migrations(version) VALUES(?)')->execute([SCHEMA_VERSION]);
 }
 
@@ -1107,6 +1123,25 @@ function normalizeZone(PDO $d, ?string $zone): ?string {
     $q->execute([$clean]);
     $hit = $q->fetchColumn();
     return $hit !== false ? $hit : $zone;
+}
+
+// Zone inputs may carry a row suffix ("B-02", "Zone B-3"). Returns
+// [zone, row] with the zone normalized and the row validated against
+// warehouse_rows so a typo can never fabricate a row that does not exist.
+function normalizeZoneRow(PDO $d, ?string $zone, ?string $row = null): array {
+    if ($row === null && $zone !== null && preg_match('/^ZONE\s+([A-Za-z0-9]+)\s*[-–]\s*([A-Za-z0-9]+)$/i', trim($zone), $m)
+        || $row === null && $zone !== null && preg_match('/^([A-Za-z0-9]+)\s*[-–]\s*([A-Za-z0-9]+)$/', trim($zone), $m)) {
+        $zone = $m[1];
+        $row  = $m[2];
+    }
+    $zone = normalizeZone($d, $zone);
+    $row  = trim((string)$row);
+    if (ctype_digit($row)) $row = (string)(int)$row; // "02" → "2"
+    if ($zone === null || $row === '') return [$zone, null];
+    $q = $d->prepare('SELECT row_num FROM warehouse_rows WHERE zone = ? AND row_num = ? LIMIT 1');
+    $q->execute([$zone, $row]);
+    $hit = $q->fetchColumn();
+    return [$zone, $hit !== false ? $hit : null];
 }
 
 // Fixed category → zone mapping (§3): assets route to their category's
@@ -1551,8 +1586,10 @@ if ($method === 'GET' && $path === '/api/v1/assets') {
 if ($method === 'POST' && $path === '/api/v1/assets') {
     auth(['Admin', 'WarehouseStaff']);
     $x = body();
-    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months, specs, manufacturer, model, serial_number, warranty_expiry) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', normalizeZone(db(), $x['location'] ?? null),
+    // Location may embed a row ("B-02"); a separate `row` field also works.
+    [$loc, $binRow] = normalizeZoneRow(db(), $x['location'] ?? null, $x['row'] ?? null);
+    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, bin_row, quantity, low_stock_threshold, date_purchased, lifespan_months, specs, manufacturer, model, serial_number, warranty_expiry) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $loc, $binRow,
         (int)($x['quantity'] ?? 1) ?: 1, ($x['low_stock_threshold'] ?? null) !== '' && ($x['low_stock_threshold'] ?? null) !== null ? (int)$x['low_stock_threshold'] : null,
         ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null,
         $x['specs'] ?? null, $x['manufacturer'] ?? null, $x['model'] ?? null, $x['serial_number'] ?? null, ($x['warranty_expiry'] ?? null) ?: null]);
@@ -1578,7 +1615,14 @@ if ($method === 'PUT' && preg_match('#^/api/v1/assets/([^/]+)$#', $path, $m)) {
     foreach (['name', 'category', 'status', 'location'] as $field) {
         if (array_key_exists($field, $x)) {
             $updateFields[] = $field . ' = ?';
-            $params[] = $field === 'location' ? normalizeZone($d, $x[$field]) : $x[$field];
+            if ($field === 'location') {
+                [$loc, $binRow] = normalizeZoneRow($d, $x[$field], $x['row'] ?? null);
+                $params[] = $loc;
+                $updateFields[] = 'bin_row = ?';
+                $params[] = $binRow;
+            } else {
+                $params[] = $x[$field];
+            }
         }
     }
 
@@ -1645,7 +1689,8 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
     $d = db();
     $qr = trim($x['qr_code'] ?? '');
     $action = $x['action'] ?? 'Inventory Intake';
-    $zone = normalizeZone($d, $x['zone'] ?? null);
+    // Zone input may embed a row ("B-02") or arrive as a separate field.
+    [$zone, $binRow] = normalizeZoneRow($d, $x['zone'] ?? null, $x['row'] ?? null);
     $autoCreated = false;
 
     // §3: a returned asset requires a reason — selected via checkbox plus an
@@ -1757,6 +1802,7 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
             // Placeholders staged by the delivery simulator mutate into stock.
             $updates = ['status = ?']; $params[] = 'In Warehouse';
             if ($zone) { $updates[] = 'location = ?'; $params[] = $zone; }
+            if ($binRow) { $updates[] = 'bin_row = ?'; $params[] = $binRow; }
             break;
         case 'Check-Out':
         case 'Contractor Check-Out':
@@ -1766,6 +1812,7 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
             $checkInAssignee = $a['external_employee_name'] ?? '';
             $updates = ['status = ?', 'external_employee_name = NULL']; $params[] = 'In Warehouse';
             if ($zone) { $updates[] = 'location = ?'; $params[] = $zone; }
+            if ($binRow) { $updates[] = 'bin_row = ?'; $params[] = $binRow; }
             $details .= ' — return reason: ' . trim($x['reason']);
             break;
         case 'Assign to Staff':
@@ -1776,7 +1823,12 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
             break;
         case 'Move to Zone':
         case 'Asset Transfer':
-            if ($zone) { $updates = ['location = ?']; $params[] = $zone; $details .= ' — ' . $zone; }
+            if ($zone) {
+                $updates = ['location = ?', 'bin_row = ?'];
+                $params[] = $zone;
+                $params[] = $binRow;
+                $details .= ' — ' . $zone . ($binRow ? ' row ' . $binRow : '');
+            }
             break;
         case 'PO Receipt':
             $updates = ['status = ?']; $params[] = 'In Warehouse';
@@ -2294,9 +2346,9 @@ function verifyTOTP($code, $secret) {
 if ($method === 'GET' && $path === '/api/v1/warehouse/zones') {
     auth();
     $d = db();
-    // Zone occupancy computed live from assets (the stored column was seeded
-    // with demo numbers and is never updated by scans). Rows have no real
-    // per-row location data, so their stored counts are informational only.
+    // Zone and row occupancy both computed live from assets — assets carry
+    // their zone (location) and row (bin_row). The stored counters were
+    // seeded demo numbers and are never updated by scans.
     $zones = $d->query("SELECT z.zone, z.capacity, z.category,
             (SELECT COUNT(*) FROM assets a WHERE a.location = z.zone AND a.status = 'In Warehouse'
               AND a.deleted_at IS NULL AND a.archived_at IS NULL) occupied,
@@ -2304,9 +2356,20 @@ if ($method === 'GET' && $path === '/api/v1/warehouse/zones') {
               AND a.deleted_at IS NULL AND a.archived_at IS NULL) / z.capacity * 100) pct
             FROM warehouse_zones z ORDER BY z.zone")->fetchAll(PDO::FETCH_ASSOC);
     foreach ($zones as &$zone) {
-        $stmt = $d->prepare('SELECT row_num AS row, capacity, occupied, ROUND(occupied/capacity*100) pct FROM warehouse_rows WHERE zone = ? ORDER BY row_num');
-        $stmt->execute([$zone['zone']]);
+        $stmt = $d->prepare("SELECT r.row_num AS row, r.capacity,
+                (SELECT COUNT(*) FROM assets a WHERE a.location = ? AND a.bin_row = r.row_num
+                  AND a.status = 'In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL) occupied,
+                ROUND((SELECT COUNT(*) FROM assets a WHERE a.location = ? AND a.bin_row = r.row_num
+                  AND a.status = 'In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL) / r.capacity * 100) pct
+                FROM warehouse_rows r WHERE r.zone = ? ORDER BY r.row_num");
+        $stmt->execute([$zone['zone'], $zone['zone'], $zone['zone']]);
         $zone['rows'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Zone-level assets with no row assignment still count at zone level —
+        // expose them so the grid can show "unassigned" rather than a gap.
+        $uq = $d->prepare("SELECT COUNT(*) FROM assets WHERE location = ? AND status = 'In Warehouse'
+            AND deleted_at IS NULL AND archived_at IS NULL AND (bin_row IS NULL OR bin_row = '')");
+        $uq->execute([$zone['zone']]);
+        $zone['unassigned'] = (int)$uq->fetchColumn();
     }
     unset($zone);
     reply(['zones' => $zones]);
@@ -2392,8 +2455,9 @@ if ($method === 'GET' && $path === '/api/v1/inventory/assets') {
 if ($method === 'POST' && $path === '/api/v1/inventory/assets') {
     auth(['Admin', 'WarehouseStaff']);
     $x = body();
-    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, quantity, low_stock_threshold, date_purchased, lifespan_months, specs, manufacturer, model, serial_number, warranty_expiry) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', normalizeZone(db(), $x['location'] ?? null),
+    [$loc, $binRow] = normalizeZoneRow(db(), $x['location'] ?? null, $x['row'] ?? null);
+    $q = db()->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, bin_row, quantity, low_stock_threshold, date_purchased, lifespan_months, specs, manufacturer, model, serial_number, warranty_expiry) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    $q->execute([$x['qr_code'], $x['name'], $x['category'], $x['value'], $x['status'] ?? 'In Warehouse', $loc, $binRow,
         (int)($x['quantity'] ?? 1) ?: 1, ($x['low_stock_threshold'] ?? null) !== '' && ($x['low_stock_threshold'] ?? null) !== null ? (int)$x['low_stock_threshold'] : null,
         ($x['date_purchased'] ?? null) ?: null, ($x['lifespan_months'] ?? null) !== '' && ($x['lifespan_months'] ?? null) !== null ? (int)$x['lifespan_months'] : null,
         $x['specs'] ?? null, $x['manufacturer'] ?? null, $x['model'] ?? null, $x['serial_number'] ?? null, ($x['warranty_expiry'] ?? null) ?: null]);
@@ -2451,8 +2515,11 @@ if ($method === 'PUT' && preg_match('#^/api/v1/inventory/assets/([^/]+)$#', $pat
         $params[] = $x['status'];
     }
     if (array_key_exists('location', $x)) {
+        [$loc, $binRow] = normalizeZoneRow($d, $x['location'], $x['row'] ?? null);
         $updateFields[] = 'location = ?';
-        $params[] = normalizeZone($d, $x['location']);
+        $params[] = $loc;
+        $updateFields[] = 'bin_row = ?';
+        $params[] = $binRow;
     }
     if (array_key_exists('quantity', $x)) {
         $updateFields[] = 'quantity = ?';
@@ -2863,11 +2930,6 @@ if ($method === 'GET' && preg_match('#^/api/v1/pos/(\d+)$#', $path, $m)) {
 }
 
 
-
-if ($method === 'POST' && preg_match('#^/api/v1/pos/(\d+)/qr-pdf$#', $path, $m)) {
-    auth(['Admin', 'Manager']);
-    reply(['ok' => true, 'message' => 'QR PDF generation endpoint - to be implemented with PDF library']);
-}
 
 if ($method === 'GET' && $path === '/api/v1/pos/activity') {
     auth();

@@ -463,21 +463,40 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ==========================================
-  // SIDEBAR ARCHIVES ENTRY (§8): the centralized archive lives in the
-  // sidebar for Admins — deep-links into the Inventory hub's Archive tab.
+  // SIDEBAR UTILITY ICONS (§8): Archives and Fleet Requests are support
+  // utilities, not core modules — they sit as small icons pinned to the
+  // bottom of the sidebar so they can't be mistaken for module navigation.
   // ==========================================
   (async () => {
     try {
-      const me = await fetch('/api/v1/auth/me').then((r) => r.json());
-      const role = me.user?.role || currentUserRole;
-      if (role !== 'Admin') return;
       const nav = document.querySelector('#sidebar-subsystem-modules-nav, .sidebar-subsystem-modules');
-      if (!nav || nav.querySelector('a[href="archives.html"]')) return;
-      nav.insertAdjacentHTML('beforeend', `
-        <a class="sidebar-subsystem-link" href="archives.html">
-          <span class="material-symbols-outlined">archive</span>
-          <span class="sidebar-link-label">Archives</span>
-        </a>`);
+      const sidebar = document.getElementById('app-sidebar');
+      if (!nav || !sidebar) return;
+
+      // Pull the fleet link out of the module nav (it may be marked active).
+      const fleetLink = nav.querySelector('a[href="fleet.html"]');
+      const fleetActive = fleetLink?.classList.contains('active');
+      fleetLink?.remove();
+
+      const me = await fetch('/api/v1/auth/me').then((r) => r.json()).catch(() => ({}));
+      const role = me.user?.role || currentUserRole;
+
+      let bar = sidebar.querySelector('.sidebar-utility-icons');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'sidebar-utility-icons border-t border-slate-200 px-5 py-3 flex items-center gap-2 shrink-0';
+        sidebar.appendChild(bar);
+      }
+
+      const iconLink = (href, icon, label, active) => `
+        <a href="${href}" title="${label}" aria-label="${label}"
+           class="sidebar-utility-link flex items-center justify-center w-10 h-10 rounded-xl transition-colors ${active ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-primary hover:bg-surface-container-low'}">
+          <span class="material-symbols-outlined text-[22px]">${icon}</span>
+        </a>`;
+
+      bar.innerHTML =
+        iconLink('fleet.html', 'local_shipping', 'Fleet Requests', fleetActive || location.pathname.endsWith('/fleet.html')) +
+        (role === 'Admin' ? iconLink('archives.html', 'archive', 'Archives', location.pathname.endsWith('/archives.html')) : '');
     } catch (e) { /* cosmetic — never break navigation */ }
   })();
 
