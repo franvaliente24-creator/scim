@@ -424,10 +424,13 @@ function migrate(PDO $d, bool $force = false): void {
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )");
         
-        // Migrate data from document_logs to documents
-        $d->exec("INSERT INTO documents (document_type, reference_no, owner, description, related_po, due_date, status, created_at)
-            SELECT document_type, reference_no, owner, description, related_po, due_date, status, created_at 
-            FROM document_logs");
+        // Migrate data from document_logs to documents (skip on fresh DBs
+        // where the legacy table never existed)
+        if ($d->query("SHOW TABLES LIKE 'document_logs'")->fetch()) {
+            $d->exec("INSERT INTO documents (document_type, reference_no, owner, description, related_po, due_date, status, created_at)
+                SELECT document_type, reference_no, owner, description, related_po, due_date, status, created_at
+                FROM document_logs");
+        }
     }
     
     $d->exec("CREATE TABLE IF NOT EXISTS document_signatures (
