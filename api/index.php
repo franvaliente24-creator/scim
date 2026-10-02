@@ -15,6 +15,24 @@ register_shutdown_function(function () {
     }
 });
 
+// Bump whenever schema changes are added to migrate() — the gate uses it to
+// decide whether the (idempotent) migration set must re-run. Declared before
+// the CLI hook because `const` is a runtime statement, not hoisted.
+const SCHEMA_VERSION = 1;
+
+// CLI deploy hook — `php api/index.php migrate [--force]` applies schema
+// migrations at deploy time so no HTTP request ever pays the cost.
+if (PHP_SAPI === 'cli') {
+    if (($_SERVER['argv'][1] ?? '') === 'migrate') {
+        migrate(db(), in_array('--force', $_SERVER['argv'], true));
+        $v = (int)db()->query('SELECT COALESCE(MAX(version),0) FROM schema_migrations')->fetchColumn();
+        echo "Schema migrations applied (v{$v}).\n";
+        exit(0);
+    }
+    fwrite(STDERR, "SCIM API runs over HTTP. Usage: php api/index.php migrate [--force]\n");
+    exit(1);
+}
+
 session_name('scim_session');
 session_set_cookie_params([
     'httponly' => true,
@@ -225,7 +243,21 @@ HTML;
 // ==========================================
 // 2. DATABASE MIGRATION & CONNECTION
 // ==========================================
-function migrate(PDO $d): void {
+
+function migrate(PDO $d, bool $force = false): void {
+    // Perf: version-gated migrations. Without this, ~109 DDL statements ran on
+    // every request (~700ms–1.5s measured). The sentinel keeps the check to two
+    // cheap statements; a crashed migration never writes its version, so an
+    // incomplete schema always retries rather than being skipped.
+    $d->exec("CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INT NOT NULL,
+        applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+    if (!$force) {
+        $applied = (int)$d->query("SELECT COALESCE(MAX(version),0) FROM schema_migrations")->fetchColumn();
+        if ($applied >= SCHEMA_VERSION) return;
+    }
+
     // Core tables
     $d->exec("CREATE TABLE IF NOT EXISTS roles (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -945,6 +977,8 @@ function migrate(PDO $d): void {
         expires_at INT NOT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )");
+
+    $d->prepare('INSERT INTO schema_migrations(version) VALUES(?)')->execute([SCHEMA_VERSION]);
 }
 
 // Look up an authenticated user from a per-tab bearer token
