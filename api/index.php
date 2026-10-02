@@ -18,7 +18,7 @@ register_shutdown_function(function () {
 // Bump whenever schema changes are added to migrate() — the gate uses it to
 // decide whether the (idempotent) migration set must re-run. Declared before
 // the CLI hook because `const` is a runtime statement, not hoisted.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 // CLI deploy hook — `php api/index.php migrate [--force]` applies schema
 // migrations at deploy time so no HTTP request ever pays the cost.
@@ -1007,6 +1007,15 @@ function migrate(PDO $d, bool $force = false): void {
         }
     }
 
+    // v3: stored occupancy counters were seeded with demo numbers and never
+    // updated by scans — displays now compute live from assets. Recompute the
+    // stored zone counts once for consistency; rows have no real per-row
+    // location data, so reset their seeded counts to zero.
+    $d->exec("UPDATE warehouse_zones z SET occupied =
+        (SELECT COUNT(*) FROM assets a WHERE a.location = z.zone AND a.status = 'In Warehouse'
+          AND a.deleted_at IS NULL AND a.archived_at IS NULL)");
+    $d->exec('UPDATE warehouse_rows SET occupied = 0');
+
     $d->prepare('INSERT INTO schema_migrations(version) VALUES(?)')->execute([SCHEMA_VERSION]);
 }
 
@@ -1328,7 +1337,14 @@ if ($method === 'GET' && $path === '/api/v1/dashboard') {
     auth();
     $d = db();
     $stats = $d->query("SELECT COALESCE(SUM(value), 0) value, SUM(status='Deployed') deployed, COUNT(*) total FROM assets")->fetch(PDO::FETCH_ASSOC);
-    $zones = $d->query('SELECT zone, capacity, occupied, ROUND(occupied/capacity*100) pct FROM warehouse_zones ORDER BY zone')->fetchAll(PDO::FETCH_ASSOC);
+    // Occupancy is computed live — the stored column was seeded with demo
+    // numbers and is never updated by scan operations.
+    $zones = $d->query("SELECT z.zone, z.capacity,
+            (SELECT COUNT(*) FROM assets a WHERE a.location = z.zone AND a.status = 'In Warehouse'
+              AND a.deleted_at IS NULL AND a.archived_at IS NULL) occupied,
+            ROUND((SELECT COUNT(*) FROM assets a WHERE a.location = z.zone AND a.status = 'In Warehouse'
+              AND a.deleted_at IS NULL AND a.archived_at IS NULL) / z.capacity * 100) pct
+            FROM warehouse_zones z ORDER BY z.zone")->fetchAll(PDO::FETCH_ASSOC);
     $scans = $d->query("SELECT t.action, t.created_at, a.name, a.qr_code FROM asset_transactions t JOIN assets a ON a.id=t.asset_id ORDER BY t.created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
     reply(compact('stats', 'zones', 'scans'));
 }
@@ -1433,7 +1449,12 @@ if ($method === 'GET' && $path === '/api/v1/dashboard/summary') {
     auth();
     $d = db();
     $stats = $d->query("SELECT COALESCE(SUM(value), 0) value, SUM(status='Deployed') deployed, COUNT(*) total FROM assets")->fetch(PDO::FETCH_ASSOC);
-    $zones = $d->query('SELECT zone, capacity, occupied, ROUND(occupied/capacity*100) pct FROM warehouse_zones ORDER BY zone')->fetchAll(PDO::FETCH_ASSOC);
+    $zones = $d->query("SELECT z.zone, z.capacity,
+            (SELECT COUNT(*) FROM assets a WHERE a.location = z.zone AND a.status = 'In Warehouse'
+              AND a.deleted_at IS NULL AND a.archived_at IS NULL) occupied,
+            ROUND((SELECT COUNT(*) FROM assets a WHERE a.location = z.zone AND a.status = 'In Warehouse'
+              AND a.deleted_at IS NULL AND a.archived_at IS NULL) / z.capacity * 100) pct
+            FROM warehouse_zones z ORDER BY z.zone")->fetchAll(PDO::FETCH_ASSOC);
     $scans = $d->query("SELECT t.action, t.created_at, a.name, a.qr_code FROM asset_transactions t JOIN assets a ON a.id=t.asset_id ORDER BY t.created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
     $pos = $d->query('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id=v.id WHERE po.deleted_at IS NULL AND po.archived_at IS NULL ORDER BY po.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
     $docAlerts = (int)$d->query("SELECT COUNT(*) FROM documents WHERE status <> 'Verified' AND deleted_at IS NULL AND archived_at IS NULL")->fetchColumn();
@@ -2239,12 +2260,21 @@ function verifyTOTP($code, $secret) {
 if ($method === 'GET' && $path === '/api/v1/warehouse/zones') {
     auth();
     $d = db();
-    $zones = $d->query('SELECT zone, capacity, occupied, category, ROUND(occupied/capacity*100) pct FROM warehouse_zones ORDER BY zone')->fetchAll(PDO::FETCH_ASSOC);
+    // Zone occupancy computed live from assets (the stored column was seeded
+    // with demo numbers and is never updated by scans). Rows have no real
+    // per-row location data, so their stored counts are informational only.
+    $zones = $d->query("SELECT z.zone, z.capacity, z.category,
+            (SELECT COUNT(*) FROM assets a WHERE a.location = z.zone AND a.status = 'In Warehouse'
+              AND a.deleted_at IS NULL AND a.archived_at IS NULL) occupied,
+            ROUND((SELECT COUNT(*) FROM assets a WHERE a.location = z.zone AND a.status = 'In Warehouse'
+              AND a.deleted_at IS NULL AND a.archived_at IS NULL) / z.capacity * 100) pct
+            FROM warehouse_zones z ORDER BY z.zone")->fetchAll(PDO::FETCH_ASSOC);
     foreach ($zones as &$zone) {
         $stmt = $d->prepare('SELECT row_num AS row, capacity, occupied, ROUND(occupied/capacity*100) pct FROM warehouse_rows WHERE zone = ? ORDER BY row_num');
         $stmt->execute([$zone['zone']]);
         $zone['rows'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
+    unset($zone);
     reply(['zones' => $zones]);
 }
 
@@ -3879,11 +3909,13 @@ if ($method === 'DELETE' && preg_match('#^/api/v1/warehouse/zones/([^/]+)$#', $p
         reply(['error' => 'The DISPOSAL zone is dedicated to write-offs and cannot be deleted.'], 400);
     }
     $d = db();
-    $q = $d->prepare('SELECT occupied FROM warehouse_zones WHERE zone = ?');
+    $q = $d->prepare('SELECT 1 FROM warehouse_zones WHERE zone = ?');
     $q->execute([$zone]);
-    $z = $q->fetch(PDO::FETCH_ASSOC);
-    if (!$z) reply(['error' => 'Zone not found.'], 404);
-    if ((int)$z['occupied'] > 0) {
+    if (!$q->fetch()) reply(['error' => 'Zone not found.'], 404);
+    // Count live assets — the stored occupied column is stale seed data.
+    $occ = $d->prepare("SELECT COUNT(*) FROM assets WHERE location = ? AND status = 'In Warehouse' AND deleted_at IS NULL AND archived_at IS NULL");
+    $occ->execute([$zone]);
+    if ((int)$occ->fetchColumn() > 0) {
         reply(['error' => 'Zone still holds stock — transfer or dispose of its contents first.'], 409);
     }
     $d->prepare('DELETE FROM warehouse_rows WHERE zone = ?')->execute([$zone]);
