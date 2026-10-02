@@ -49,25 +49,23 @@ const money = (amount) =>
 // ==========================================
 async function load() {
   try {
-    const [dash, pos, vendors, docs, sync, stockAlerts, kpi] = await Promise.all([
-      api('dashboard'),
-      api('pos'),
-      api('suppliers'),
-      api('documents'),
-      api('sync-status'),
-      api('stock-alerts'),
-      api('dashboard/metrics'),
-    ]);
+    // One consolidated request — the summary endpoint returns every section the
+    // dashboard renders (stats, zones, scans, POs, doc count, streams, stock
+    // alerts, KPI metrics/series). Supplier + document lists are fetched lazily
+    // by the CSV export instead of on every 60s poll.
+    const sum = await api('dashboard/summary');
 
-    const stats = dash.stats || {};
-    const purchaseOrders = Array.isArray(pos.pos) ? pos.pos : [];
-    const vendorList = Array.isArray(vendors.suppliers) ? vendors.suppliers : [];
-    const documentList = Array.isArray(docs.documents) ? docs.documents : [];
-    const zones = Array.isArray(dash.zones) ? dash.zones : [];
-    const scans = Array.isArray(dash.scans) ? dash.scans : [];
-    
-    // Store for export
-    lastDashboardData = { stats, purchaseOrders, vendorList, documentList, zones, scans };
+    const stats = sum.stats || {};
+    const purchaseOrders = Array.isArray(sum.pos) ? sum.pos : [];
+    const docAlerts = sum.doc_alerts || 0;
+    const zones = Array.isArray(sum.zones) ? sum.zones : [];
+    const scans = Array.isArray(sum.scans) ? sum.scans : [];
+    const sync = { streams: sum.streams || [] };
+    const stockAlerts = sum.stock || {};
+    const kpi = { metrics: sum.metrics, scorecard: sum.scorecard, series: sum.series };
+
+    // Store for export (vendor/document lists fetched on demand in exportCsv)
+    lastDashboardData = { stats, purchaseOrders, docAlerts, zones, scans };
 
     // Render Stats - Show 0 if no data
     const statsEl = $('#stats');
@@ -80,7 +78,7 @@ async function load() {
         ['Total inventory value', money(totalValue), `Across ${totalAssets} tracked assets`],
         ['Asset deployment mix', `${deployed} deployed`, totalAssets > 0 ? `${Math.round((deployed / totalAssets) * 100)}% of inventory` : 'No assets'],
         ['Active purchase orders', purchaseOrders.filter((x) => x.status !== 'Received').length, 'In the approval pipeline'],
-        ['Compliance alerts', documentList.filter((x) => x.status !== 'Verified').length, 'Items need attention'],
+        ['Compliance alerts', docAlerts, 'Items need attention'],
       ]
         .map(
           ([title, value, subtitle]) => `
@@ -425,13 +423,16 @@ if (newAssetBtn) {
 // Export Report Button — downloads dashboard data as CSV
 const exportBtn = $('#export-report');
 if (exportBtn) {
-  exportBtn.onclick = () => {
+  exportBtn.onclick = async () => {
     const d = lastDashboardData;
     if (!d) {
       alert('Data is still loading. Please try again in a moment.');
       return;
     }
-    
+    // The supplier list isn't loaded per-poll — fetch on demand.
+    const vendors = await api('suppliers');
+    const vendorList = Array.isArray(vendors.suppliers) ? vendors.suppliers : [];
+
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = [['SCIM Dashboard Report', new Date().toLocaleString()], []];
     
@@ -439,7 +440,7 @@ if (exportBtn) {
       ['Deployed Assets', d.stats.deployed || 0],
       ['Total Inventory Value', d.stats.value || 0],
       ['Active Purchase Orders', d.purchaseOrders.filter((x) => x.status !== 'Received').length],
-      ['Compliance Alerts', d.documentList.filter((x) => x.status !== 'Verified').length], []);
+      ['Compliance Alerts', d.docAlerts], []);
     
     rows.push(['== Warehouse Zones =='], ['Zone', 'Occupied', 'Capacity', 'Percent']);
     d.zones.forEach((z) => rows.push([z.zone, z.occupied, z.capacity, `${z.pct}%`]));
@@ -450,7 +451,7 @@ if (exportBtn) {
     rows.push([]);
     
     rows.push(['== Suppliers =='], ['Name', 'Email', 'Status']);
-    d.vendorList.forEach((s) => rows.push([s.name, s.email || '', s.status || '']));
+    vendorList.forEach((s) => rows.push([s.name, s.email || '', s.status || '']));
     rows.push([]);
     
     rows.push(['== Recent Activity =='], ['Action', 'Asset', 'QR Code', 'Time']);

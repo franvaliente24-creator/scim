@@ -15,6 +15,24 @@ register_shutdown_function(function () {
     }
 });
 
+// Bump whenever schema changes are added to migrate() — the gate uses it to
+// decide whether the (idempotent) migration set must re-run. Declared before
+// the CLI hook because `const` is a runtime statement, not hoisted.
+const SCHEMA_VERSION = 2;
+
+// CLI deploy hook — `php api/index.php migrate [--force]` applies schema
+// migrations at deploy time so no HTTP request ever pays the cost.
+if (PHP_SAPI === 'cli') {
+    if (($_SERVER['argv'][1] ?? '') === 'migrate') {
+        migrate(db(), in_array('--force', $_SERVER['argv'], true));
+        $v = (int)db()->query('SELECT COALESCE(MAX(version),0) FROM schema_migrations')->fetchColumn();
+        echo "Schema migrations applied (v{$v}).\n";
+        exit(0);
+    }
+    fwrite(STDERR, "SCIM API runs over HTTP. Usage: php api/index.php migrate [--force]\n");
+    exit(1);
+}
+
 session_name('scim_session');
 session_set_cookie_params([
     'httponly' => true,
@@ -225,7 +243,21 @@ HTML;
 // ==========================================
 // 2. DATABASE MIGRATION & CONNECTION
 // ==========================================
-function migrate(PDO $d): void {
+
+function migrate(PDO $d, bool $force = false): void {
+    // Perf: version-gated migrations. Without this, ~109 DDL statements ran on
+    // every request (~700ms–1.5s measured). The sentinel keeps the check to two
+    // cheap statements; a crashed migration never writes its version, so an
+    // incomplete schema always retries rather than being skipped.
+    $d->exec("CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INT NOT NULL,
+        applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+    if (!$force) {
+        $applied = (int)$d->query("SELECT COALESCE(MAX(version),0) FROM schema_migrations")->fetchColumn();
+        if ($applied >= SCHEMA_VERSION) return;
+    }
+
     // Core tables
     $d->exec("CREATE TABLE IF NOT EXISTS roles (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -392,10 +424,13 @@ function migrate(PDO $d): void {
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )");
         
-        // Migrate data from document_logs to documents
-        $d->exec("INSERT INTO documents (document_type, reference_no, owner, description, related_po, due_date, status, created_at)
-            SELECT document_type, reference_no, owner, description, related_po, due_date, status, created_at 
-            FROM document_logs");
+        // Migrate data from document_logs to documents (skip on fresh DBs
+        // where the legacy table never existed)
+        if ($d->query("SHOW TABLES LIKE 'document_logs'")->fetch()) {
+            $d->exec("INSERT INTO documents (document_type, reference_no, owner, description, related_po, due_date, status, created_at)
+                SELECT document_type, reference_no, owner, description, related_po, due_date, status, created_at
+                FROM document_logs");
+        }
     }
     
     $d->exec("CREATE TABLE IF NOT EXISTS document_signatures (
@@ -945,6 +980,34 @@ function migrate(PDO $d): void {
         expires_at INT NOT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )");
+
+    // Perf indexes (v2): cover the columns used in the hot WHERE/ORDER BY
+    // clauses — soft-delete/archive filters, status filters, and the date
+    // ranges the dashboard queries scan. CREATE INDEX throws if it exists;
+    // try/catch keeps this idempotent.
+    foreach ([
+        'assets'             => ['idx_assets_status' => 'status', 'idx_assets_deleted' => 'deleted_at',
+                                 'idx_assets_archived' => 'archived_at', 'idx_assets_category' => 'category',
+                                 'idx_assets_created' => 'created_at'],
+        'purchase_orders'    => ['idx_pos_status' => 'status', 'idx_pos_deleted' => 'deleted_at',
+                                 'idx_pos_expected' => 'expected_delivery'],
+        'asset_transactions' => ['idx_txn_created' => 'created_at', 'idx_txn_action' => 'action',
+                                 'idx_txn_zone' => 'zone'],
+        'scan_logs'          => ['idx_scan_asset' => 'asset_id', 'idx_scan_created' => 'created_at'],
+        'documents'          => ['idx_docs_status' => 'status', 'idx_docs_deleted' => 'deleted_at'],
+        'requisitions'       => ['idx_reqs_status' => 'status', 'idx_reqs_deleted' => 'deleted_at'],
+        'session_tokens'     => ['idx_tokens_expires' => 'expires_at'],
+        'admin_notifications'=> ['idx_notif_status' => 'status'],
+        'vendors'            => ['idx_vendors_deleted' => 'deleted_at', 'idx_vendors_archived' => 'archived_at'],
+        'fleet_requests'     => ['idx_fleet_status' => 'status', 'idx_fleet_created' => 'created_at'],
+        'po_activity'        => ['idx_poact_created' => 'created_at'],
+    ] as $table => $idx) {
+        foreach ($idx as $name => $col) {
+            try { $d->exec("CREATE INDEX $name ON $table($col)"); } catch (Exception $e) {}
+        }
+    }
+
+    $d->prepare('INSERT INTO schema_migrations(version) VALUES(?)')->execute([SCHEMA_VERSION]);
 }
 
 // Look up an authenticated user from a per-tab bearer token
@@ -1270,11 +1333,9 @@ if ($method === 'GET' && $path === '/api/v1/dashboard') {
     reply(compact('stats', 'zones', 'scans'));
 }
 
-// TRD §2 — executive KPI metrics (inventory + supply chain / fulfillment)
-if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
-    auth();
-    $d = db();
-
+// TRD §2 — executive KPI metrics (inventory + supply chain / fulfillment).
+// Shared between /dashboard/metrics and the consolidated /dashboard/summary.
+function dashboardMetrics(PDO $d): array {
     // Inventory side
     $inv = $d->query("SELECT COALESCE(SUM(value*quantity),0) carrying_value, COALESCE(SUM(quantity),0) units_on_hand
                       FROM assets WHERE status='In Warehouse' AND deleted_at IS NULL AND archived_at IS NULL")->fetch(PDO::FETCH_ASSOC);
@@ -1334,7 +1395,7 @@ if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
     $poByStatus = $d->query("SELECT status, COUNT(*) n FROM purchase_orders WHERE deleted_at IS NULL GROUP BY status")->fetchAll(PDO::FETCH_ASSOC);
     $upcoming = $d->query("SELECT po_number, vendor, expected_delivery FROM purchase_orders WHERE deleted_at IS NULL AND expected_delivery IS NOT NULL AND expected_delivery >= DATE_SUB(CURDATE(), INTERVAL 60 DAY) AND expected_delivery <= DATE_ADD(CURDATE(), INTERVAL 60 DAY)")->fetchAll(PDO::FETCH_ASSOC);
 
-    reply(['metrics' => [
+    return ['metrics' => [
         'carrying_value'   => (float)$inv['carrying_value'],
         'units_on_hand'    => (int)$inv['units_on_hand'],
         'turnover_90d'     => $turnover,
@@ -1356,7 +1417,74 @@ if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
         'po_status'    => $poByStatus,
         'calendar'     => $upcoming,
         'zone_activity'=> $zoneSeries,
-    ]]);
+    ]];
+}
+
+if ($method === 'GET' && $path === '/api/v1/dashboard/metrics') {
+    auth();
+    reply(dashboardMetrics(db()));
+}
+
+// Consolidated dashboard payload (Perf): one request returns everything the
+// dashboard renders — stats, zones, recent scans, PO/doc counts + recent POs,
+// sync streams, stock alerts, and the KPI block. The CSV export fetches full
+// lists lazily instead of loading them on every poll.
+if ($method === 'GET' && $path === '/api/v1/dashboard/summary') {
+    auth();
+    $d = db();
+    $stats = $d->query("SELECT COALESCE(SUM(value), 0) value, SUM(status='Deployed') deployed, COUNT(*) total FROM assets")->fetch(PDO::FETCH_ASSOC);
+    $zones = $d->query('SELECT zone, capacity, occupied, ROUND(occupied/capacity*100) pct FROM warehouse_zones ORDER BY zone')->fetchAll(PDO::FETCH_ASSOC);
+    $scans = $d->query("SELECT t.action, t.created_at, a.name, a.qr_code FROM asset_transactions t JOIN assets a ON a.id=t.asset_id ORDER BY t.created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+    $pos = $d->query('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id=v.id WHERE po.deleted_at IS NULL AND po.archived_at IS NULL ORDER BY po.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
+    $docAlerts = (int)$d->query("SELECT COUNT(*) FROM documents WHERE status <> 'Verified' AND deleted_at IS NULL AND archived_at IS NULL")->fetchColumn();
+
+    // Sync streams (same read model as /sync-status)
+    $row = fn($sql) => $d->query($sql)->fetch(PDO::FETCH_ASSOC);
+    $c2 = $row("SELECT COUNT(*) total, SUM(status='Pending') pending, MAX(created_at) last FROM equipment_requests");
+    $c3 = $row('SELECT COUNT(*) total, MAX(issued_at) last FROM clearance_tokens');
+    $fin = $row('SELECT COUNT(*) total, MAX(created_at) last FROM finance_settlements');
+    $audit = $row('SELECT COUNT(*) total, MAX(created_at) last FROM integration_audit_log');
+    $scanCt = $row('SELECT COUNT(*) total, MAX(created_at) last FROM scan_logs');
+    $streams = [
+        ['system' => 'Core 2 — Employee Info (HRIS)', 'direction' => 'Inbound', 'total' => (int)$c2['total'], 'pending' => (int)$c2['pending'], 'last_activity' => $c2['last']],
+        ['system' => 'Core 3 — Exit Clearance', 'direction' => 'Outbound', 'total' => (int)$c3['total'], 'pending' => 0, 'last_activity' => $c3['last']],
+        ['system' => 'Financial Mgmt — Accounts Payable', 'direction' => 'Outbound', 'total' => (int)$fin['total'], 'pending' => 0, 'last_activity' => $fin['last']],
+        ['system' => 'BI / Data Aggregation', 'direction' => 'Outbound', 'total' => (int)$audit['total'], 'pending' => 0, 'last_activity' => $audit['last']],
+        ['system' => 'QR Scan Engine', 'direction' => 'Internal', 'total' => (int)$scanCt['total'], 'pending' => 0, 'last_activity' => $scanCt['last']],
+    ];
+
+    // Stock alerts — same queries as /stock-alerts
+    $alerts = $d->query("SELECT t.category, t.min_quantity,
+            (SELECT COUNT(*) FROM assets a WHERE a.category = t.category AND a.status = 'In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL) AS on_hand
+            FROM stock_thresholds t ORDER BY on_hand / t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($alerts as &$al) {
+        $al['on_hand'] = (int)$al['on_hand'];
+        $al['min_quantity'] = (int)$al['min_quantity'];
+        $al['deficit'] = $al['on_hand'] < $al['min_quantity'];
+    }
+    unset($al);
+    $assetAlerts = $d->query("SELECT name, category,
+            SUM(quantity) AS on_hand, MAX(low_stock_threshold) AS min_quantity,
+            COUNT(*) AS serials
+            FROM assets
+            WHERE deleted_at IS NULL AND archived_at IS NULL AND status = 'In Warehouse'
+              AND low_stock_threshold IS NOT NULL
+            GROUP BY name, category
+            HAVING SUM(quantity) < MAX(low_stock_threshold)
+            ORDER BY SUM(quantity) / MAX(low_stock_threshold)")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($assetAlerts as &$aa) {
+        $aa['on_hand'] = (int)$aa['on_hand'];
+        $aa['min_quantity'] = (int)$aa['min_quantity'];
+        $aa['serials'] = (int)$aa['serials'];
+        $aa['deficit'] = true;
+    }
+    unset($aa);
+
+    $kpi = dashboardMetrics($d);
+    reply(['stats' => $stats, 'zones' => $zones, 'scans' => $scans, 'pos' => $pos,
+           'doc_alerts' => $docAlerts, 'streams' => $streams,
+           'stock' => ['items' => $alerts, 'asset_items' => $assetAlerts],
+           'metrics' => $kpi['metrics'], 'scorecard' => $kpi['scorecard'], 'series' => $kpi['series']]);
 }
 
 // --- Assets Endpoints ---
