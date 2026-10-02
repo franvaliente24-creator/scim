@@ -347,9 +347,9 @@ async function load() {
         badge.textContent = `${deficits.length} deficit${deficits.length === 1 ? '' : 's'}`;
         badge.classList.toggle('hidden', deficits.length === 0);
       }
-      alertsEl.innerHTML = items.length === 0
-        ? '<p class="text-slate-500 text-center py-8">No threshold categories configured</p>'
-        : items.map((i) => {
+      alertsEl.innerHTML = deficits.length === 0
+        ? '<p class="text-slate-500 text-center py-8">No low-stock alerts right now</p>'
+        : deficits.map((i) => {
             const pct = i.min_quantity > 0 ? Math.min(100, Math.round((i.on_hand / i.min_quantity) * 100)) : 100;
             return `
               <div class="p-3.5 rounded-xl border ${i.deficit ? 'border-red-200 bg-red-50/60' : 'border-slate-200 bg-slate-50/50'}">

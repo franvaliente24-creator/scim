@@ -643,81 +643,9 @@ async function loadInvHistory() {
     <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${invHistPage >= pages ? 'disabled' : ''} onclick="invHistPage++; loadInvHistory()">Next</button></div>` : '';
 }
 
-// Centralized Archive — GET /api/v1/archives lists every entity; filtered client-side.
-// Restore via POST /api/v1/records/{entity}/{id}/restore (Admin-only).
-async function loadArchiveTable() {
-  const entity = $('#archiveResource')?.value || 'asset';
-  const q = ($('#archiveSearch')?.value || '').toLowerCase();
-  const data = await api('archives').catch(() => ({}));
-  const rows = (data.items || []).filter((r) => r.entity === entity && (!q || `${r.label} ${r.ref} ${r.archived_by || ''}`.toLowerCase().includes(q)));
-  const el = $('#archiveTable');
-  if (!el) return;
-  el.innerHTML = rows.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Ref</th><th class="text-left p-4">Record</th><th class="text-left p-4">Archived By</th><th class="text-left p-4">Archived At</th><th class="text-left p-4">Reason</th><th class="text-left p-4">Action</th></tr></thead>
-    <tbody>${rows.map((r) => `<tr class="border-b border-slate-50">
-      <td class="p-4 font-mono text-xs">${escapeHTML(r.ref || r.id)}</td>
-      <td class="p-4 font-medium">${escapeHTML(r.label)}</td>
-      <td class="p-4 text-on-surface-variant text-xs">${escapeHTML(r.archived_by || '—')}</td>
-      <td class="p-4 text-on-surface-variant text-xs">${r.archived_at ? new Date(r.archived_at).toLocaleString() : '—'}</td>
-      <td class="p-4 text-on-surface-variant text-xs">${escapeHTML(r.archive_reason || '—')}</td>
-      <td class="p-4"><button type="button" title="Restore" aria-label="Restore record" class="action-btn action-btn-view !px-2" data-restore-res="${r.entity}" data-restore-id="${r.id}"><span class="material-symbols-outlined text-base">unarchive</span></button></td></tr>`).join('')}</tbody></table>`
-    : '<div class="p-10 text-center text-on-surface-variant text-sm">Archive is empty.</div>';
-}
-
-// Trash Bin — GET /api/v1/trash returns each row's remaining retention days;
-// rows past the window are auto-purged server-side on read.
-async function loadTrashTable() {
-  const entity = $('#trashResource')?.value || 'asset';
-  const data = await api('trash').catch(() => ({}));
-  const rows = (data.items || []).filter((r) => r.entity === entity);
-  const el = $('#trashTable');
-  if (!el) return;
-  el.innerHTML = rows.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Ref</th><th class="text-left p-4">Record</th><th class="text-left p-4">Deleted</th><th class="text-left p-4">Retention</th><th class="text-left p-4">Action</th></tr></thead>
-    <tbody>${rows.map((r) => {
-      const left = Number(r.days_left);
-      const canPurge = left === 0;
-      return `<tr class="border-b border-slate-50">
-      <td class="p-4 font-mono text-xs">${escapeHTML(r.ref || r.id)}</td>
-      <td class="p-4 font-medium">${escapeHTML(r.label)}</td>
-      <td class="p-4 text-on-surface-variant text-xs">${r.deleted_at ? new Date(r.deleted_at).toLocaleString() : '—'}</td>
-      <td class="p-4 text-xs">${left > 0 ? `${left} day${left === 1 ? '' : 's'} left` : '<span class="text-red-600 font-semibold">Retention expired</span>'}</td>
-      <td class="p-4 whitespace-nowrap">
-        <button type="button" title="Restore" aria-label="Restore record" class="action-btn action-btn-view !px-2" data-restore-res="${r.entity}" data-restore-id="${r.id}"><span class="material-symbols-outlined text-base">restore_from_trash</span></button>
-        <button type="button" title="${canPurge ? 'Delete permanently' : 'Locked while retention runs'}" aria-label="Delete permanently" class="action-btn action-btn-danger !px-2 ${canPurge ? '' : 'opacity-40 cursor-not-allowed'}" data-purge-res="${r.entity}" data-purge-id="${r.id}" ${canPurge ? '' : 'disabled'}><span class="material-symbols-outlined text-base">delete_forever</span></button>
-      </td></tr>`;
-    }).join('')}</tbody></table>`
-    : '<div class="p-10 text-center text-on-surface-variant text-sm">Trash bin is empty.</div>';
-}
-
-document.addEventListener('click', async (event) => {
-  const rBtn = event.target.closest('[data-restore-res]');
-  if (rBtn) {
-    const res = await fetch(`/api/v1/records/${rBtn.dataset.restoreRes}/${rBtn.dataset.restoreId}/restore`, { method: 'POST' });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Restore failed.'); }
-    invLoaded.archive = invLoaded.trash = false;
-    loadArchiveTable(); loadTrashTable(); loadInventoryData();
-    return;
-  }
-  const pBtn = event.target.closest('[data-purge-res]');
-  if (pBtn && !pBtn.disabled) {
-    const ok = await (window.scimConfirm ? scimConfirm({
-      title: 'Permanently delete?',
-      message: 'This record is erased forever — no restore possible. The audit trail entry is preserved.',
-      confirmLabel: 'Purge', icon: 'delete_forever',
-    }) : Promise.resolve(confirm('Permanently delete this record? This cannot be undone.')));
-    if (!ok) return;
-    const res = await fetch(`/api/v1/records/${pBtn.dataset.purgeRes}/${pBtn.dataset.purgeId}?permanent=1`, { method: 'DELETE' });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || 'Purge refused — retention window may still be active.'); }
-    loadTrashTable();
-  }
-});
-
-['archiveResource', 'archiveSearch'].forEach((id) => {
-  const el = $('#' + id);
-  if (el) { el.dataset.bound || (el.dataset.bound = '1', el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', loadArchiveTable)); }
-});
-$('#trashResource')?.addEventListener('change', loadTrashTable);
+// Archives moved to the standalone archives.html page (sidebar link, Admin).
+// The Trash Bin tab was removed — soft-deleted rows still obey the server-side
+// retention window and can be restored via the Archives page.
 
 const invTabLoaders = {
   ledger: loadInventoryData,
@@ -726,8 +654,6 @@ const invTabLoaders = {
   approvals: loadInvApprovals,
   valuation: loadValuation,
   history: loadInvHistory,
-  archive: loadArchiveTable,
-  trash: loadTrashTable,
   reqlog: loadReqLog,
 };
 

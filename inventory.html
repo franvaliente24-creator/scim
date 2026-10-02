@@ -160,8 +160,6 @@
                     <button class="hub-tab-btn" data-tab-target="approvals"><span class="material-symbols-outlined">fact_check</span>Approvals</button>
                     <button class="hub-tab-btn" data-tab-target="valuation"><span class="material-symbols-outlined">request_quote</span>Valuation</button>
                     <button class="hub-tab-btn" data-tab-target="history"><span class="material-symbols-outlined">history</span>Activity Log</button>
-                    <button class="hub-tab-btn" data-tab-target="archive" data-requires-role="Admin"><span class="material-symbols-outlined">inventory</span>Archive</button>
-                    <button class="hub-tab-btn" data-tab-target="trash" data-requires-role="Admin"><span class="material-symbols-outlined">delete</span>Trash Bin</button>
                     <button class="hub-tab-btn" data-tab-target="reqlog"><span class="material-symbols-outlined">receipt_long</span>Requisition Log</button>
                 </nav>
 
@@ -286,47 +284,6 @@
                     </div>
                     <div id="invHistoryList" class="p-6 overflow-x-auto"></div>
                     <div id="invHistPager" class="px-6 py-3 border-t border-slate-100 flex items-center justify-between"></div>
-                </div>
-                </section>
-
-                <!-- Archive (Admin) -->
-                <section class="hub-section" data-tab="archive" data-requires-role="Admin">
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Archived Records</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Records removed from active views but retained for audit. Restorable.</p>
-                    </div>
-                    <div class="px-6 pt-4 flex gap-2">
-                        <select id="archiveResource" class="px-3 py-2 border border-outline-variant rounded-lg text-sm">
-                            <option value="asset">Assets</option>
-                            <option value="requisition">Requisitions</option>
-                            <option value="po">Purchase Orders</option>
-                            <option value="supplier">Suppliers</option>
-                            <option value="document">Documents</option>
-                        </select>
-                        <input type="text" id="archiveSearch" placeholder="Search archive…" class="flex-1 px-4 py-2 border border-outline-variant rounded-lg text-sm">
-                    </div>
-                    <div id="archiveTable" class="data-table-container"></div>
-                </div>
-                </section>
-
-                <!-- Trash Bin (Admin) -->
-                <section class="hub-section" data-tab="trash" data-requires-role="Admin">
-                <div class="dashboard-card bg-white shadow-sm border border-slate-200">
-                    <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Trash Bin</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Deleted records are retained for the configured window before permanent deletion is allowed.</p>
-                    </div>
-                    <div class="px-6 pt-4 flex gap-2">
-                        <select id="trashResource" class="px-3 py-2 border border-outline-variant rounded-lg text-sm">
-                            <option value="asset">Assets</option>
-                            <option value="requisition">Requisitions</option>
-                            <option value="po">Purchase Orders</option>
-                            <option value="supplier">Suppliers</option>
-                            <option value="document">Documents</option>
-                        </select>
-                    </div>
-                    <div id="trashTable" class="data-table-container"></div>
                 </div>
                 </section>
 
@@ -464,9 +421,9 @@
     
     <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
     <script src="token.js?v=1"></script>
-    <script src="permissions.js?v=10"></script>
-    <script src="layout.js?v=10"></script>
-    <script src="inventory.js?v=13"></script>
+    <script src="permissions.js?v=11"></script>
+    <script src="layout.js?v=11"></script>
+    <script src="inventory.js?v=14"></script>
     <script src="inactivity.js?v=3"></script>
 </body>
 </html>

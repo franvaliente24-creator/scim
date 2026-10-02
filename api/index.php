@@ -1362,9 +1362,11 @@ function dashboardMetrics(PDO $d): array {
     $dsi = $outbound90 > 0 ? round($unitsOnHand / ($outbound90 / 90)) : null;
     $dead = (int)$d->query("SELECT COUNT(*) FROM assets a WHERE a.status='In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL AND a.created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)
                             AND NOT EXISTS (SELECT 1 FROM asset_transactions t WHERE t.asset_id=a.id AND t.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY))")->fetchColumn();
-    // Category-level deficits vs thresholds
+    // Category-level deficits vs thresholds — only categories that actually
+    // hold tracked assets can be "low"; an empty category is not a deficit.
     $stockouts = $d->query("SELECT t.category, t.min_quantity, COALESCE(SUM(a.quantity),0) on_hand
                             FROM stock_thresholds t LEFT JOIN assets a ON a.category=t.category AND a.status='In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL
+                            WHERE EXISTS (SELECT 1 FROM assets x WHERE x.category = t.category AND x.deleted_at IS NULL AND x.archived_at IS NULL)
                             GROUP BY t.category, t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
     $belowThresh = 0;
     foreach ($stockouts as $s) { if ((int)$s['on_hand'] < (int)$s['min_quantity']) $belowThresh++; }
@@ -1477,7 +1479,9 @@ if ($method === 'GET' && $path === '/api/v1/dashboard/summary') {
     // Stock alerts — same queries as /stock-alerts
     $alerts = $d->query("SELECT t.category, t.min_quantity,
             (SELECT COUNT(*) FROM assets a WHERE a.category = t.category AND a.status = 'In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL) AS on_hand
-            FROM stock_thresholds t ORDER BY on_hand / t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
+            FROM stock_thresholds t
+            WHERE EXISTS (SELECT 1 FROM assets x WHERE x.category = t.category AND x.deleted_at IS NULL AND x.archived_at IS NULL)
+            ORDER BY on_hand / t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
     foreach ($alerts as &$al) {
         $al['on_hand'] = (int)$al['on_hand'];
         $al['min_quantity'] = (int)$al['min_quantity'];
@@ -2981,10 +2985,13 @@ if ($method === 'GET' && $path === '/api/v1/stock-alerts') {
     auth();
     $d = db();
     // Only active committed stock counts — pending, archived, and binned
-    // rows can never trigger a low-stock alert (TRD §2/§3).
+    // rows can never trigger a low-stock alert (TRD §2/§3). A category with
+    // no tracked assets at all is not a deficit either.
     $alerts = $d->query("SELECT t.category, t.min_quantity,
             (SELECT COUNT(*) FROM assets a WHERE a.category = t.category AND a.status = 'In Warehouse' AND a.deleted_at IS NULL AND a.archived_at IS NULL) AS on_hand
-            FROM stock_thresholds t ORDER BY on_hand / t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
+            FROM stock_thresholds t
+            WHERE EXISTS (SELECT 1 FROM assets x WHERE x.category = t.category AND x.deleted_at IS NULL AND x.archived_at IS NULL)
+            ORDER BY on_hand / t.min_quantity")->fetchAll(PDO::FETCH_ASSOC);
     foreach ($alerts as &$al) {
         $al['on_hand'] = (int)$al['on_hand'];
         $al['min_quantity'] = (int)$al['min_quantity'];

@@ -70,6 +70,9 @@ const PERMISSIONS = {
   EQUIPMENT_VIEW: ['Admin', 'Manager'],
   EQUIPMENT_MANAGE: ['Admin', 'Manager'],
   
+  // Archives — Admin-only read/restore of removed records
+  ARCHIVE_VIEW: ['Admin'],
+
   // User Management Permissions
   USER_VIEW: ['Admin'],
   USER_ADD: ['Admin'],
@@ -196,8 +199,9 @@ function applyRBAC() {
     'inventory.html': 'INVENTORY_VIEW',
     'equipment-requests.html': 'EQUIPMENT_VIEW',
     'mfa-setup.html': 'SECURITY_VIEW',
+    'archives.html': 'ARCHIVE_VIEW',
   };
-  
+
   Object.entries(modulePermissions).forEach(([href, permission]) => {
     if (!hasPermission(permission)) {
       document.querySelectorAll(`a[href="${href}"]`).forEach(link => {
@@ -229,8 +233,9 @@ function applyRBAC() {
     'users.html': 'USER_VIEW',
     'equipment-requests.html': 'EQUIPMENT_VIEW',
     'mfa-setup.html': 'SECURITY_VIEW',
+    'archives.html': 'ARCHIVE_VIEW',
   };
-  
+
   if (pageGuards[pageFile] && !hasPermission(pageGuards[pageFile])) {
     document.body.innerHTML = `
       <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8fafc;font-family:Inter,sans-serif;">

@@ -472,9 +472,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const role = me.user?.role || currentUserRole;
       if (role !== 'Admin') return;
       const nav = document.querySelector('#sidebar-subsystem-modules-nav, .sidebar-subsystem-modules');
-      if (!nav || nav.querySelector('a[href*="inventory.html#archive"]')) return;
+      if (!nav || nav.querySelector('a[href="archives.html"]')) return;
       nav.insertAdjacentHTML('beforeend', `
-        <a class="sidebar-subsystem-link" href="inventory.html#archive">
+        <a class="sidebar-subsystem-link" href="archives.html">
           <span class="material-symbols-outlined">archive</span>
           <span class="sidebar-link-label">Archives</span>
         </a>`);
