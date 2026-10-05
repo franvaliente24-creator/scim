@@ -2086,10 +2086,11 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
     }
 
     // Transaction + immutable compliance log + authoritative stock movement
+    $txQty = in_array($action, ['Check-Out', 'Contractor Check-Out', 'Assign to Staff', 'Report Damage'], true)
+        ? -max(1, (int)($a['quantity'] ?? 1))
+        : (in_array($action, ['Move to Zone', 'Asset Transfer'], true) ? 0 : max(1, (int)($a['quantity'] ?? 1)));
     $d->prepare('INSERT INTO asset_transactions(asset_id, action, zone, qty_delta, actor_name, ref_label, created_at) VALUES(?, ?, ?, ?, ?, ?, NOW())')
-      ->execute([$a['id'], $action, $zone,
-                 in_array($action, ['Check-Out', 'Contractor Check-Out', 'Assign to Staff'], true) ? -max(1, (int)($a['quantity'] ?? 1)) : max(1, (int)($a['quantity'] ?? 1)),
-                 $u['name'], $poVerified['po_number'] ?? null]);
+      ->execute([$a['id'], $action, $zone, $txQty, $u['name'], $poVerified['po_number'] ?? null]);
     $d->prepare('INSERT INTO scan_logs(asset_id, qr_code, action, details, scanned_by, user_id, ip_address) VALUES(?,?,?,?,?,?,?)')
       ->execute([$a['id'], $qr, $action, $details, $u['name'], $u['id'], $_SERVER['REMOTE_ADDR'] ?? null]);
     logActivity($d, $u, 'Scanned asset', 'asset', $qr, $action);
@@ -2123,8 +2124,9 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
             break;
         case 'Move to Zone':
         case 'Asset Transfer':
+            // Transfers relocate stock, not change it — zero quantity delta.
             logMovement($d, 'TRANSFER', ['asset_id' => $a['id'], 'qr_code' => $qr, 'item_name' => $a['name'] ?? null,
-                'qty_delta' => $mvQty, 'from_location' => $a['location'] ?? null, 'from_row' => $a['bin_row'] ?? null,
+                'qty_delta' => 0, 'from_location' => $a['location'] ?? null, 'from_row' => $a['bin_row'] ?? null,
                 'to_location' => $zone, 'to_row' => $binRow,
                 'actor_id' => $u['id'], 'actor_name' => $u['name'], 'reason' => $action]);
             break;
@@ -3118,7 +3120,9 @@ if ($method === 'GET' && preg_match('#^/api/v1/supply-requests/(\d+)/stock-check
     $lines = [];
     $allOk = true;
     foreach ($iq->fetchAll(PDO::FETCH_ASSOC) as $it) {
-        $avail = $d->prepare("SELECT COUNT(*) FROM assets WHERE status = 'In Warehouse' AND deleted_at IS NULL AND archived_at IS NULL AND (name LIKE ? OR category LIKE ?)");
+        // SUM(quantity) covers both: serialized rows (qty 1 each) and bulk
+        // stock rows (qty > 1) — the ledger semantics are unit-level.
+        $avail = $d->prepare("SELECT COALESCE(SUM(quantity),0) FROM assets WHERE status = 'In Warehouse' AND deleted_at IS NULL AND archived_at IS NULL AND (name LIKE ? OR category LIKE ?)");
         $avail->execute(['%' . $it['item_name'] . '%', '%' . $it['item_name'] . '%']);
         $stock = (int)$avail->fetchColumn();
         $need = (int)$it['quantity'] - (int)$it['quantity_issued'];
@@ -3165,9 +3169,42 @@ if ($method === 'POST' && preg_match('#^/api/v1/supply-requests/(\d+)/issue$#', 
             if (!$ri) { $errors[] = "Request item #{$riId} not found on this request."; continue; }
             $serials = $it['serials'] ?? [];
             if (!is_array($serials)) $serials = array_filter(array_map('trim', preg_split('/[\s,]+/', (string)$serials)));
-            if (!$serials) { $errors[] = "'{$ri['item_name']}': no serials given — issuance assigns real stock by QR serial."; continue; }
+            $bulkQty = (int)($it['quantity'] ?? 0);
+            if (!$serials && $bulkQty <= 0) { $errors[] = "'{$ri['item_name']}': give serials (serialized stock) or a quantity (bulk stock)."; continue; }
 
             $need = (int)$ri['quantity'] - (int)$ri['quantity_issued'];
+
+            // ---- Bulk path: quantity-based stock (no QR serial per unit) ----
+            if (!$serials && $bulkQty > 0) {
+                if ($bulkQty > $need) { $errors[] = "'{$ri['item_name']}': issuing {$bulkQty} but only {$need} remain requested."; continue; }
+                // Draw from matching in-stock rows, largest quantity first —
+                // bulk stock rows carry quantity>1; serialized rows qty=1.
+                $bq = $d->prepare("SELECT * FROM assets WHERE status = 'In Warehouse' AND deleted_at IS NULL AND archived_at IS NULL AND quantity > 0 AND name LIKE ? ORDER BY quantity DESC");
+                $bq->execute(['%' . $ri['item_name'] . '%']);
+                $rows = $bq->fetchAll(PDO::FETCH_ASSOC);
+                $avail = array_sum(array_map(fn($x) => (int)$x['quantity'], $rows));
+                if ($avail < $bulkQty) { $errors[] = "'{$ri['item_name']}': only {$avail} unit(s) in stock, need {$bulkQty}."; continue; }
+                $remainingQty = $bulkQty;
+                $srcLoc = null; $srcRow = null; $firstAsset = null;
+                foreach ($rows as $row) {
+                    if ($remainingQty <= 0) break;
+                    $take = min((int)$row['quantity'], $remainingQty);
+                    $d->prepare('UPDATE assets SET quantity = quantity - ? WHERE id = ?')->execute([$take, $row['id']]);
+                    $remainingQty -= $take;
+                    if ($firstAsset === null) { $firstAsset = $row['id']; $srcLoc = $row['location']; $srcRow = $row['bin_row']; }
+                }
+                $insII->execute([$issId, $ri['id'], $firstAsset, $ri['item_name'], $bulkQty, $srcLoc, $srcRow]);
+                logMovement($d, 'ISSUE', ['ref_type' => 'issuance', 'ref_id' => $issId, 'ref_label' => $issNo,
+                    'asset_id' => $firstAsset, 'item_name' => $ri['item_name'], 'qty_delta' => -$bulkQty,
+                    'from_location' => $srcLoc, 'from_row' => $srcRow,
+                    'actor_id' => $u['id'], 'actor_name' => $u['name'],
+                    'reason' => 'Bulk issue ' . $bulkQty . '× ' . $ri['item_name'] . ' against ' . $r['request_number'] . ' to ' . $r['requesting_employee']]);
+                $updItem->execute([$bulkQty, $ri['id']]);
+                $issued[] = $ri['item_name'] . ' ×' . $bulkQty;
+                continue;
+            }
+
+            // ---- Serialized path: one QR serial per unit ----
             if (count($serials) > $need) { $errors[] = "'{$ri['item_name']}': issuing " . count($serials) . " but only {$need} remain requested."; continue; }
 
             foreach ($serials as $serial) {
@@ -3547,7 +3584,7 @@ if ($method === 'POST' && preg_match('#^/api/v1/pos/(\d+)/receive$#', $path, $m)
         $receivedLines = [];
 
         foreach ($items as $it) {
-            $qty = (int)($it['quantity'] ?? $it['qty'] ?? 0);
+            $qty = (int)($it['quantity'] ?? $it['qty'] ?? $it['quantity_received'] ?? 0);
             $name = trim($it['item_name'] ?? $it['name'] ?? '');
             $line = null;
             if (!empty($it['po_item_id']) && isset($lineById[(int)$it['po_item_id']])) $line = $lineById[(int)$it['po_item_id']];
@@ -3585,7 +3622,9 @@ if ($method === 'POST' && preg_match('#^/api/v1/pos/(\d+)/receive$#', $path, $m)
                 $a = $aq->fetch(PDO::FETCH_ASSOC);
                 $loc = $zn ?: ($a['location'] ?? 'Receiving Dock');
                 if ($a) {
-                    $d->prepare('UPDATE assets SET status = ?, location = ?, bin_row = ?, po_id = ?, receipt_id = ? WHERE id = ?')
+                    // Re-receiving a serial revives it fully — clear any
+                    // soft-delete/archive tombstone or it stays invisible.
+                    $d->prepare('UPDATE assets SET status = ?, location = ?, bin_row = ?, po_id = ?, receipt_id = ?, deleted_at = NULL, archived_at = NULL WHERE id = ?')
                       ->execute(['In Warehouse', $loc, $rw ?: ($a['bin_row'] ?? null), $po['id'], $receiptId, $a['id']]);
                     $linked++;
                     logMovement($d, 'RECEIPT', ['ref_type' => 'goods_receipt', 'ref_id' => $receiptId, 'ref_label' => $grNumber,
@@ -3604,11 +3643,32 @@ if ($method === 'POST' && preg_match('#^/api/v1/pos/(\d+)/receive$#', $path, $m)
                         'reason' => 'PO receipt ' . $po['po_number'] . ' (' . $cond . ')']);
                 }
             }
-            // Bulk remainder: non-serialized quantity still writes a movement.
+            // Bulk remainder: non-serialized quantity lands on a bulk stock
+            // row (assets.quantity is the on-hand count for consumables) and
+            // writes a RECEIPT movement.
             $bulk = $qty - $linked;
             if ($bulk > 0) {
+                $bulkAssetId = null;
+                $bq = $d->prepare("SELECT id, location, bin_row FROM assets WHERE status = 'In Warehouse' AND name = ? AND (quantity > 1 OR qr_code LIKE 'BULK-%') AND deleted_at IS NULL ORDER BY quantity DESC LIMIT 1");
+                $bq->execute([$name]);
+                $existing = $bq->fetch(PDO::FETCH_ASSOC);
+                if ($existing) {
+                    $d->prepare('UPDATE assets SET quantity = quantity + ? WHERE id = ?')->execute([$bulk, $existing['id']]);
+                    $bulkAssetId = (int)$existing['id'];
+                    $zn = $zn ?: $existing['location'];
+                    $rw = $rw ?: $existing['bin_row'];
+                } else {
+                    // Create the bulk stock row with a generated bulk code so
+                    // it can still be scanned as a box/bin label if needed.
+                    $bulkQr = 'BULK-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 12)) . '-' . strtoupper(substr(uniqid(), -5));
+                    $cat = trim($it['category'] ?? '') ?: 'Office Supplies';
+                    $loc = $zn ?: (zoneForCategory($d, $cat) ?: 'Receiving Dock');
+                    $d->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, bin_row, quantity, po_id, receipt_id) VALUES(?,?,?,?,?,?,?,?,?,?)')
+                      ->execute([$bulkQr, $name, $cat, (float)($it['unit_price'] ?? 0), 'In Warehouse', $loc, $rw, $bulk, $po['id'], $receiptId]);
+                    $bulkAssetId = (int)$d->lastInsertId();
+                }
                 logMovement($d, 'RECEIPT', ['ref_type' => 'goods_receipt', 'ref_id' => $receiptId, 'ref_label' => $grNumber,
-                    'item_name' => $name, 'qty_delta' => $bulk,
+                    'asset_id' => $bulkAssetId, 'item_name' => $name, 'qty_delta' => $bulk,
                     'to_location' => $zn, 'to_row' => $rw, 'actor_id' => $u['id'], 'actor_name' => $u['name'],
                     'reason' => 'PO receipt ' . $po['po_number'] . ' (' . $cond . ')']);
             }

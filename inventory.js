@@ -642,7 +642,8 @@ async function openIssueModal(requestId) {
   $('#issueItemsBody').innerHTML = lines.map((i) => `
     <div class="border border-outline-variant/60 rounded-xl p-3" data-req-item="${i.id}" data-item-name="${escapeHTML(i.item_name)}">
       <div class="text-sm font-semibold">${escapeHTML(i.item_name)} <span class="text-xs text-on-surface-variant font-normal">— ${i.quantity - i.quantity_issued} still needed</span></div>
-      <input class="issue-serials w-full mt-2 px-3.5 py-2 border border-outline-variant rounded-lg text-sm" placeholder="QR serials, comma-separated (e.g. CHAIR-001, CHAIR-002)">
+      <input class="issue-serials w-full mt-2 px-3.5 py-2 border border-outline-variant rounded-lg text-sm" placeholder="QR serials, comma-separated (serialized stock)">
+      <input type="number" min="1" max="${i.quantity - i.quantity_issued}" class="issue-qty w-full mt-2 px-3.5 py-2 border border-outline-variant rounded-lg text-sm" placeholder="or quantity (bulk/consumable stock)">
     </div>`).join('');
   showDialog($('#issueModal'));
 }
@@ -650,11 +651,14 @@ async function openIssueModal(requestId) {
 $('#issueForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const reqId = $('#issueRequestId').value;
-  const items = [...document.querySelectorAll('#issueItemsBody [data-req-item]')].map((row) => ({
-    request_item_id: parseInt(row.dataset.reqItem, 10),
-    serials: (row.querySelector('.issue-serials').value || '').split(',').map((s) => s.trim()).filter(Boolean),
-  })).filter((i) => i.serials.length);
-  if (!items.length) { alert('Enter at least one serial to issue.'); return; }
+  const items = [...document.querySelectorAll('#issueItemsBody [data-req-item]')].map((row) => {
+    const serials = (row.querySelector('.issue-serials').value || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const qty = parseInt(row.querySelector('.issue-qty').value, 10) || 0;
+    return serials.length
+      ? { request_item_id: parseInt(row.dataset.reqItem, 10), serials }
+      : { request_item_id: parseInt(row.dataset.reqItem, 10), quantity: qty };
+  }).filter((i) => (i.serials && i.serials.length) || (i.quantity && i.quantity > 0));
+  if (!items.length) { alert('Enter serials or a quantity to issue.'); return; }
   const res = await fetch(`/api/v1/supply-requests/${reqId}/issue`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ items, notes: $('#issueNotes')?.value || '' }),

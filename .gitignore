@@ -4,3 +4,12 @@ config.php
 *.dump
 *.bak
 scim_db-*.sql
+
+# local test/helper scripts
+_test_*.php
+_dbg_*.php
+_bench.php
+_lint_js.php
+_patch_nav.php
+_*.tmp.js
+_tok.txt
