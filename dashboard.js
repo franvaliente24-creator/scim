@@ -77,7 +77,7 @@ async function load() {
       statsEl.innerHTML = [
         ['Total inventory value', money(totalValue), `Across ${totalAssets} tracked assets`],
         ['Asset deployment mix', `${deployed} deployed`, totalAssets > 0 ? `${Math.round((deployed / totalAssets) * 100)}% of inventory` : 'No assets'],
-        ['Active purchase orders', purchaseOrders.filter((x) => x.status !== 'Received').length, 'In the approval pipeline'],
+        ['Active purchase orders', purchaseOrders.filter((x) => !['Received','Fully Received','Completed','Cancelled','Rejected'].includes(x.status)).length, 'In the approval pipeline'],
         ['Compliance alerts', docAlerts, 'Items need attention'],
       ]
         .map(
@@ -298,7 +298,7 @@ async function load() {
         recentPOsEl.innerHTML = '<p class="text-slate-500 text-center py-8">No purchase orders</p>';
       } else {
         recentPOsEl.innerHTML = purchaseOrders.slice(0, 5).map((po) => {
-          const statusClass = po.status === 'Received' ? 'bg-green-100 text-green-800' : 
+          const statusClass = ['Received','Fully Received','Completed'].includes(po.status) ? 'bg-green-100 text-green-800' : 
                              po.status === 'Sent to Vendor' ? 'bg-blue-100 text-blue-800' :
                              po.status === 'Pending Approval' ? 'bg-yellow-100 text-yellow-800' :
                              'bg-gray-100 text-gray-800';
@@ -439,7 +439,7 @@ if (exportBtn) {
     rows.push(['== Summary =='], ['Total Assets', d.stats.total || 0],
       ['Deployed Assets', d.stats.deployed || 0],
       ['Total Inventory Value', d.stats.value || 0],
-      ['Active Purchase Orders', d.purchaseOrders.filter((x) => x.status !== 'Received').length],
+      ['Active Purchase Orders', d.purchaseOrders.filter((x) => !['Received','Fully Received','Completed','Cancelled','Rejected'].includes(x.status)).length],
       ['Compliance Alerts', d.docAlerts], []);
     
     rows.push(['== Warehouse Zones =='], ['Zone', 'Occupied', 'Capacity', 'Percent']);

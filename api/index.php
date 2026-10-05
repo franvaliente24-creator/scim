@@ -18,7 +18,7 @@ register_shutdown_function(function () {
 // Bump whenever schema changes are added to migrate() — the gate uses it to
 // decide whether the (idempotent) migration set must re-run. Declared before
 // the CLI hook because `const` is a runtime statement, not hoisted.
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 // CLI deploy hook — `php api/index.php migrate [--force]` applies schema
 // migrations at deploy time so no HTTP request ever pays the cost.
@@ -1048,6 +1048,177 @@ function migrate(PDO $d, bool $force = false): void {
         }
     }
 
+    // ==================== v6: transaction spine (additive) ====================
+    // All v6 tables/columns are additive — nothing existing is dropped or
+    // rewritten. Legacy requisitions/equipment_requests stay live alongside
+    // the new supply_requests model until convergence is tested.
+
+    // Authoritative stock ledger: every quantity/status-affecting event writes
+    // a movement record so inventory math is reconstructible.
+    $d->exec("CREATE TABLE IF NOT EXISTS stock_movements (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        movement_type VARCHAR(30) NOT NULL,
+        ref_type VARCHAR(30) NULL,
+        ref_id INT NULL,
+        ref_label VARCHAR(60) NULL,
+        asset_id INT NULL,
+        qr_code VARCHAR(50) NULL,
+        item_name VARCHAR(200) NULL,
+        qty_delta INT NOT NULL DEFAULT 0,
+        from_location VARCHAR(80) NULL,
+        to_location VARCHAR(80) NULL,
+        from_row VARCHAR(10) NULL,
+        to_row VARCHAR(10) NULL,
+        actor_id INT NULL,
+        actor_name VARCHAR(120) NULL,
+        reason VARCHAR(255) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+    try { $d->exec("CREATE INDEX idx_sm_created ON stock_movements(created_at)"); } catch (Exception $e) {}
+    try { $d->exec("CREATE INDEX idx_sm_ref ON stock_movements(ref_type, ref_id)"); } catch (Exception $e) {}
+    try { $d->exec("CREATE INDEX idx_sm_asset ON stock_movements(asset_id)"); } catch (Exception $e) {}
+
+    // Goods receipt: one header per delivery event against a PO.
+    $d->exec("CREATE TABLE IF NOT EXISTS goods_receipts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        gr_number VARCHAR(30) UNIQUE NOT NULL,
+        po_id INT NOT NULL,
+        received_by INT NULL,
+        received_by_name VARCHAR(120) NULL,
+        notes TEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (po_id) REFERENCES purchase_orders(id)
+    )");
+
+    // Item-level quantities received per receipt — references the PO line.
+    $d->exec("CREATE TABLE IF NOT EXISTS goods_receipt_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        receipt_id INT NOT NULL,
+        po_item_id INT NULL,
+        item_name VARCHAR(200) NOT NULL,
+        quantity INT NOT NULL,
+        item_condition VARCHAR(40) NOT NULL DEFAULT 'Good',
+        zone VARCHAR(20) NULL,
+        bin_row VARCHAR(10) NULL,
+        serials TEXT NULL,
+        FOREIGN KEY (receipt_id) REFERENCES goods_receipts(id),
+        FOREIGN KEY (po_item_id) REFERENCES purchase_order_items(id)
+    )");
+    try { $d->exec("CREATE INDEX idx_gri_receipt ON goods_receipt_items(receipt_id)"); } catch (Exception $e) {}
+
+    // Item-level receiving progress on the PO contract lines.
+    try { $d->exec("ALTER TABLE purchase_order_items ADD COLUMN quantity_received INT NOT NULL DEFAULT 0"); } catch (Exception $e) {}
+    // Provenance: which PO/receipt created this asset.
+    try { $d->exec("ALTER TABLE assets ADD COLUMN po_id INT NULL"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE assets ADD COLUMN receipt_id INT NULL"); } catch (Exception $e) {}
+    // Allow movement rows to carry actor + document reference.
+    try { $d->exec("ALTER TABLE asset_transactions ADD COLUMN qty_delta INT NULL"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE asset_transactions ADD COLUMN actor_name VARCHAR(120) NULL"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE asset_transactions ADD COLUMN ref_label VARCHAR(60) NULL"); } catch (Exception $e) {}
+    // PO ↔ originating supply request link (requests that went to procurement).
+    try { $d->exec("ALTER TABLE purchase_orders ADD COLUMN supply_request_id INT NULL"); } catch (Exception $e) {}
+    // Approval metadata on the legacy requisition header (kept in sync while
+    // requisitions remain in use).
+    try { $d->exec("ALTER TABLE requisitions ADD COLUMN approved_by VARCHAR(120) NULL"); } catch (Exception $e) {}
+    try { $d->exec("ALTER TABLE requisitions ADD COLUMN approved_at DATETIME NULL"); } catch (Exception $e) {}
+    // Enforce PO number uniqueness on databases created before the UNIQUE
+    // clause existed (dedupe-safe: only runs when no duplicates are present).
+    try {
+        $dup = (int)$d->query("SELECT COUNT(*) FROM (SELECT po_number FROM purchase_orders GROUP BY po_number HAVING COUNT(*)>1) t")->fetchColumn();
+        if ($dup === 0) $d->exec("ALTER TABLE purchase_orders ADD UNIQUE KEY uq_po_number (po_number)");
+    } catch (Exception $e) {}
+
+    // Internal supply requests: header + item rows. `source` marks INTERNAL
+    // vs EXTERNAL:<system> so equipment_requests can converge later.
+    $d->exec("CREATE TABLE IF NOT EXISTS supply_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        request_number VARCHAR(30) UNIQUE NOT NULL,
+        source VARCHAR(40) NOT NULL DEFAULT 'INTERNAL',
+        title VARCHAR(200) NOT NULL,
+        requesting_employee VARCHAR(120) NULL,
+        employee_id VARCHAR(60) NULL,
+        department VARCHAR(80) NULL,
+        purpose VARCHAR(200) NULL,
+        priority VARCHAR(20) NOT NULL DEFAULT 'Normal',
+        needed_by DATE NULL,
+        status VARCHAR(40) NOT NULL DEFAULT 'Submitted',
+        stock_status VARCHAR(40) NULL,
+        approved_by VARCHAR(120) NULL,
+        approved_at DATETIME NULL,
+        created_by INT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )");
+    try { $d->exec("CREATE INDEX idx_sr_status ON supply_requests(status)"); } catch (Exception $e) {}
+
+    $d->exec("CREATE TABLE IF NOT EXISTS supply_request_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        request_id INT NOT NULL,
+        item_name VARCHAR(200) NOT NULL,
+        category VARCHAR(60) NULL,
+        quantity INT NOT NULL DEFAULT 1,
+        quantity_issued INT NOT NULL DEFAULT 0,
+        item_status VARCHAR(40) NOT NULL DEFAULT 'Pending',
+        po_id INT NULL,
+        FOREIGN KEY (request_id) REFERENCES supply_requests(id)
+    )");
+    try { $d->exec("CREATE INDEX idx_sri_request ON supply_request_items(request_id)"); } catch (Exception $e) {}
+
+    // Issuance: one header per warehouse-issue event against a request.
+    $d->exec("CREATE TABLE IF NOT EXISTS issuances (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        issuance_number VARCHAR(30) UNIQUE NOT NULL,
+        request_id INT NULL,
+        issued_to VARCHAR(120) NULL,
+        department VARCHAR(80) NULL,
+        issued_by INT NULL,
+        issued_by_name VARCHAR(120) NULL,
+        notes TEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (request_id) REFERENCES supply_requests(id)
+    )");
+
+    $d->exec("CREATE TABLE IF NOT EXISTS issuance_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        issuance_id INT NOT NULL,
+        request_item_id INT NULL,
+        asset_id INT NULL,
+        item_name VARCHAR(200) NOT NULL,
+        quantity INT NOT NULL DEFAULT 1,
+        from_zone VARCHAR(20) NULL,
+        from_row VARCHAR(10) NULL,
+        FOREIGN KEY (issuance_id) REFERENCES issuances(id),
+        FOREIGN KEY (request_item_id) REFERENCES supply_request_items(id)
+    )");
+    try { $d->exec("CREATE INDEX idx_ii_issuance ON issuance_items(issuance_id)"); } catch (Exception $e) {}
+
+    // Backfill: synthesize stock_movements history from existing
+    // asset_transactions so the ledger covers past events (additive, run-once
+    // — guarded by checking whether any movement already references them).
+    $migCnt = (int)$d->query("SELECT COUNT(*) FROM stock_movements WHERE ref_type='asset_txn'")->fetchColumn();
+    if ($migCnt === 0) {
+        $d->exec("INSERT INTO stock_movements
+            (movement_type, ref_type, ref_id, ref_label, asset_id, qr_code, item_name,
+             qty_delta, to_location, to_row, created_at)
+            SELECT
+                CASE at.action
+                    WHEN 'Inventory Intake' THEN 'RECEIPT'
+                    WHEN 'PO Receipt' THEN 'RECEIPT'
+                    WHEN 'Check-Out' THEN 'ISSUE'
+                    WHEN 'Assign to Staff' THEN 'ISSUE'
+                    WHEN 'Check-In' THEN 'RETURN'
+                    WHEN 'Move to Zone' THEN 'TRANSFER'
+                    WHEN 'Asset Transfer' THEN 'TRANSFER'
+                    ELSE 'ADJUST' END,
+                'asset_txn', at.id, CONCAT('txn-', at.id), at.asset_id,
+                a.qr_code, a.name,
+                CASE WHEN at.action IN ('Check-Out','Assign to Staff')
+                     THEN -COALESCE(a.quantity,1) ELSE COALESCE(a.quantity,1) END,
+                at.zone, a.bin_row, at.created_at
+            FROM asset_transactions at
+            LEFT JOIN assets a ON a.id = at.asset_id");
+    }
+
     $d->prepare('INSERT INTO schema_migrations(version) VALUES(?)')->execute([SCHEMA_VERSION]);
 }
 
@@ -1216,6 +1387,42 @@ function issueClearanceIfComplete(PDO $d, string $employeeName, int $returnedAss
     $d->prepare('INSERT INTO integration_audit_log(external_system, action, entity_type, entity_id, request_data, status) VALUES(?,?,?,?,?,?)')
       ->execute(['Core 3 - Exit Clearance', 'Clearance Token Issued', 'employee', $returnedAssetId,
                  json_encode(['employee' => $employeeName, 'clearance_token' => $token]), 'Success']);
+}
+
+// Authoritative stock ledger (v6): every quantity/status-affecting event
+// writes a movement row so inventory math is reconstructible end-to-end.
+function logMovement(PDO $d, string $type, array $p): void {
+    $d->prepare('INSERT INTO stock_movements(movement_type, ref_type, ref_id, ref_label, asset_id, qr_code, item_name, qty_delta, from_location, to_location, from_row, to_row, actor_id, actor_name, reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      ->execute([$type, $p['ref_type'] ?? null, $p['ref_id'] ?? null, $p['ref_label'] ?? null,
+                 $p['asset_id'] ?? null, $p['qr_code'] ?? null, $p['item_name'] ?? null,
+                 (int)($p['qty_delta'] ?? 0), $p['from_location'] ?? null, $p['to_location'] ?? null,
+                 $p['from_row'] ?? null, $p['to_row'] ?? null,
+                 $p['actor_id'] ?? null, $p['actor_name'] ?? null, $p['reason'] ?? null]);
+}
+
+// Enforced PO lifecycle state machine (v6). Receiving states
+// (Partially/Fully Received) are set ONLY by the structured receive endpoint.
+const PO_TRANSITIONS = [
+    'Draft'              => ['Pending Approval', 'Cancelled'],
+    'Pending Approval'   => ['Approved', 'Rejected', 'Draft'],
+    'Approved'           => ['Sent to Vendor', 'Cancelled'],
+    'Sent to Vendor'     => ['Shipped', 'Cancelled'],
+    'Shipped'            => ['Arrived', 'Cancelled'],
+    'Arrived'            => ['Cancelled'],
+    'Partially Received' => ['Completed', 'Cancelled'],
+    'Fully Received'     => ['Completed'],
+    'Completed'          => [],
+    'Rejected'           => [],
+    'Cancelled'          => [],
+    // Legacy statuses kept reachable for pre-v6 rows:
+    'Ordered'            => ['Shipped', 'Cancelled'],
+    'Received'           => ['Completed'],
+    'Order Received'     => ['Completed'],
+    'Fulfilled'          => ['Completed'],
+];
+
+function poAllowedTransitions(string $status): array {
+    return PO_TRANSITIONS[$status] ?? [];
 }
 
 
@@ -1443,19 +1650,19 @@ function dashboardMetrics(PDO $d): array {
     $ful = $d->query("SELECT COUNT(*) total_received,
                       SUM(pa.created_at <= po.expected_delivery) on_time,
                       AVG(DATEDIFF(pa.created_at, po.created_at)) cycle_days
-                      FROM purchase_orders po JOIN po_activity pa ON pa.po_id=po.id AND pa.action='Received'")->fetch(PDO::FETCH_ASSOC);
+                      FROM purchase_orders po JOIN po_activity pa ON pa.po_id=po.id AND pa.action IN ('Received','Fully Received')")->fetch(PDO::FETCH_ASSOC);
     $otd = ((int)$ful['total_received']) ? round($ful['on_time'] / $ful['total_received'] * 100) : null;
     $cycle = $ful['cycle_days'] !== null ? round($ful['cycle_days'], 1) : null;
     $returnRate = $outbound90 > 0 ? round($inbound90 / $outbound90 * 100) : 0;
     $sup = $d->query("SELECT ROUND(AVG(rating),1) avg_rating, ROUND(AVG(on_time_rate)) avg_otd, ROUND(AVG(defect_rate),1) avg_defect FROM vendors")->fetch(PDO::FETCH_ASSOC);
-    $logistics = (float)$d->query("SELECT COALESCE(SUM(total),0) FROM purchase_orders WHERE status IN ('Shipped','Arrived','Received','Order Received') AND deleted_at IS NULL")->fetchColumn();
+    $logistics = (float)$d->query("SELECT COALESCE(SUM(total),0) FROM purchase_orders WHERE status IN ('Shipped','Arrived','Partially Received','Fully Received','Received','Order Received') AND deleted_at IS NULL")->fetchColumn();
 
     // Rolling supplier scorecard (§2): OTIF = on-time-in-full deliveries
     // (received on/before the promised date), Quality = defect-free
     // acceptance (100 - avg defect rate), SLA = share of received orders
     // completed inside the 14-day service window.
     $slaRows = $d->query("SELECT COUNT(*) total, SUM(DATEDIFF(pa.created_at, po.created_at) <= 14) within_sla
-                          FROM purchase_orders po JOIN po_activity pa ON pa.po_id=po.id AND pa.action='Received'")->fetch(PDO::FETCH_ASSOC);
+                          FROM purchase_orders po JOIN po_activity pa ON pa.po_id=po.id AND pa.action IN ('Received','Fully Received')")->fetch(PDO::FETCH_ASSOC);
     $scorecard = [
         'otif'    => $otd,
         'quality' => $sup['avg_defect'] !== null ? round(100 - (float)$sup['avg_defect'], 1) : null,
@@ -1714,7 +1921,7 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
         if (!$poVerified) {
             reply(['error' => "Purchase order {$poNo} not found in PO Management."], 404);
         }
-        if (!in_array($poVerified['status'], ['Sent to Vendor', 'Shipped', 'Received'], true)) {
+        if (!in_array($poVerified['status'], ['Sent to Vendor', 'Shipped', 'Arrived', 'Partially Received', 'Received'], true)) {
             reply(['error' => "PO {$poNo} is '{$poVerified['status']}' — only orders sent to vendor or in transit can be received."], 409);
         }
     }
@@ -1747,8 +1954,8 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
             $name = trim($x['name'] ?? '') ?: ($poVerified ? ('PO ' . $poVerified['po_number'] . ' — ' . $poVerified['vendor_name'] ?: 'Vendor') : 'New Asset ' . $qr);
             $category = trim($x['category'] ?? '') ?: 'IT Equipment';
             $loc = $zone ?: 'Receiving Dock';
-            $d->prepare('INSERT INTO assets(qr_code, name, category, value, status, location) VALUES(?,?,?,?,?,?)')
-              ->execute([$qr, $name, $category, (float)($poVerified['total'] ?? $x['value'] ?? 0), 'In Warehouse', $loc]);
+            $d->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, bin_row, po_id) VALUES(?,?,?,?,?,?,?,?)')
+              ->execute([$qr, $name, $category, (float)($poVerified['total'] ?? $x['value'] ?? 0), 'In Warehouse', $loc, $binRow, $poVerified['id'] ?? null]);
             $a = ['id' => (int)$d->lastInsertId(), 'name' => $name, 'qr_code' => $qr, 'status' => 'In Warehouse', 'category' => $category];
             $autoCreated = true;
         } else {
@@ -1830,16 +2037,36 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
                 $details .= ' — ' . $zone . ($binRow ? ' row ' . $binRow : '');
             }
             break;
+        case 'Report Damage':
+            $updates = ['status = ?'];
+            $params[] = 'Damaged';
+            // Damaged units route to DISPOSAL holding unless a zone was given.
+            $dmgZone = $zone ?: 'DISPOSAL';
+            $updates[] = 'location = ?'; $params[] = $dmgZone; $zone = $dmgZone;
+            $updates[] = 'bin_row = NULL';
+            $details .= ' — ' . trim($x['reason'] ?? 'damaged stock routed to DISPOSAL');
+            break;
         case 'PO Receipt':
-            $updates = ['status = ?']; $params[] = 'In Warehouse';
+            $updates = ['status = ?', 'po_id = ?'];
+            $params[] = 'In Warehouse';
+            $params[] = $poVerified['id'];
             $details .= ' — verified against ' . $poVerified['po_number'];
-            // Mark the contract received once its first item scans in
-            if ($poVerified['status'] !== 'Received') {
-                $d->prepare("UPDATE purchase_orders SET status = 'Received', updated_at = NOW() WHERE id = ?")->execute([$poVerified['id']]);
+            // Reflect scan-level receipts on the contract. POs with line
+            // items move to Partially/Fully based on received serial counts;
+            // legacy free-text POs complete on first scan.
+            if (!in_array($poVerified['status'], ['Fully Received', 'Received'], true)) {
+                $lineQ = $d->prepare('SELECT COALESCE(SUM(quantity),0), COALESCE(SUM(quantity_received),0) FROM purchase_order_items WHERE po_id = ?');
+                $lineQ->execute([$poVerified['id']]);
+                [$lnOrd, $lnRec] = array_map('intval', $lineQ->fetch(PDO::FETCH_NUM));
+                $sc = $d->prepare("SELECT COUNT(*) FROM assets WHERE po_id = ? AND status = 'In Warehouse'");
+                $sc->execute([$poVerified['id']]);
+                $scanCount = (int)$sc->fetchColumn() + 1; // +1 for this scan
+                $newPoStatus = 'Fully Received';
+                if ($lnOrd > 0) $newPoStatus = ($scanCount >= $lnOrd) ? 'Fully Received' : 'Partially Received';
+                $d->prepare("UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?")->execute([$newPoStatus, $poVerified['id']]);
                 $d->prepare("INSERT INTO po_activity(po_id, action, details) VALUES(?, ?, ?)")
-                  ->execute([$poVerified['id'], 'Received', 'Shipment verified via QR scan ' . $qr . ' by ' . $u['name']]);
-                // Outbound stream → Financial Management / Accounts Payable
-                forwardToFinance($d, $poVerified);
+                  ->execute([$poVerified['id'], $newPoStatus, 'Serial ' . $qr . ' verified via QR scan by ' . $u['name']]);
+                if ($newPoStatus === 'Fully Received') forwardToFinance($d, $poVerified);
             }
             break;
     }
@@ -1858,12 +2085,56 @@ if ($method === 'POST' && $path === '/api/v1/assets/scan') {
         $clearance = $cq->fetchColumn() ?: null;
     }
 
-    // Transaction + immutable compliance log
-    $d->prepare('INSERT INTO asset_transactions(asset_id, action, zone, created_at) VALUES(?, ?, ?, NOW())')
-      ->execute([$a['id'], $action, $zone]);
+    // Transaction + immutable compliance log + authoritative stock movement
+    $d->prepare('INSERT INTO asset_transactions(asset_id, action, zone, qty_delta, actor_name, ref_label, created_at) VALUES(?, ?, ?, ?, ?, ?, NOW())')
+      ->execute([$a['id'], $action, $zone,
+                 in_array($action, ['Check-Out', 'Contractor Check-Out', 'Assign to Staff'], true) ? -max(1, (int)($a['quantity'] ?? 1)) : max(1, (int)($a['quantity'] ?? 1)),
+                 $u['name'], $poVerified['po_number'] ?? null]);
     $d->prepare('INSERT INTO scan_logs(asset_id, qr_code, action, details, scanned_by, user_id, ip_address) VALUES(?,?,?,?,?,?,?)')
       ->execute([$a['id'], $qr, $action, $details, $u['name'], $u['id'], $_SERVER['REMOTE_ADDR'] ?? null]);
     logActivity($d, $u, 'Scanned asset', 'asset', $qr, $action);
+
+    // Map each scan action to its stock-movement semantics.
+    $mvQty = max(1, (int)($a['quantity'] ?? 1));
+    switch ($action) {
+        case 'Inventory Intake':
+            logMovement($d, 'RECEIPT', ['asset_id' => $a['id'], 'qr_code' => $qr, 'item_name' => $a['name'] ?? null,
+                'qty_delta' => $mvQty, 'to_location' => $zone, 'to_row' => $binRow,
+                'actor_id' => $u['id'], 'actor_name' => $u['name'], 'reason' => 'Inventory intake scan']);
+            break;
+        case 'PO Receipt':
+            logMovement($d, 'RECEIPT', ['ref_type' => 'purchase_order', 'ref_id' => $poVerified['id'], 'ref_label' => $poVerified['po_number'],
+                'asset_id' => $a['id'], 'qr_code' => $qr, 'item_name' => $a['name'] ?? null,
+                'qty_delta' => $mvQty, 'to_location' => $zone ?: ($a['location'] ?? null), 'to_row' => $binRow,
+                'actor_id' => $u['id'], 'actor_name' => $u['name'], 'reason' => 'QR scan receipt against ' . $poVerified['po_number']]);
+            break;
+        case 'Check-Out':
+        case 'Contractor Check-Out':
+        case 'Assign to Staff':
+            logMovement($d, 'ISSUE', ['asset_id' => $a['id'], 'qr_code' => $qr, 'item_name' => $a['name'] ?? null,
+                'qty_delta' => -$mvQty, 'from_location' => $a['location'] ?? null, 'from_row' => $a['bin_row'] ?? null,
+                'actor_id' => $u['id'], 'actor_name' => $u['name'],
+                'reason' => trim($x['assignee'] ?? '') !== '' ? 'Issued to ' . trim($x['assignee']) : $action]);
+            break;
+        case 'Check-In':
+            logMovement($d, 'RETURN', ['asset_id' => $a['id'], 'qr_code' => $qr, 'item_name' => $a['name'] ?? null,
+                'qty_delta' => $mvQty, 'to_location' => $zone ?: ($a['location'] ?? null), 'to_row' => $binRow,
+                'actor_id' => $u['id'], 'actor_name' => $u['name'], 'reason' => trim($x['reason'] ?? 'Return')]);
+            break;
+        case 'Move to Zone':
+        case 'Asset Transfer':
+            logMovement($d, 'TRANSFER', ['asset_id' => $a['id'], 'qr_code' => $qr, 'item_name' => $a['name'] ?? null,
+                'qty_delta' => $mvQty, 'from_location' => $a['location'] ?? null, 'from_row' => $a['bin_row'] ?? null,
+                'to_location' => $zone, 'to_row' => $binRow,
+                'actor_id' => $u['id'], 'actor_name' => $u['name'], 'reason' => $action]);
+            break;
+        case 'Report Damage':
+            logMovement($d, 'DAMAGE', ['asset_id' => $a['id'], 'qr_code' => $qr, 'item_name' => $a['name'] ?? null,
+                'qty_delta' => -$mvQty, 'from_location' => $a['location'] ?? null, 'from_row' => $a['bin_row'] ?? null,
+                'to_location' => $zone, 'actor_id' => $u['id'], 'actor_name' => $u['name'],
+                'reason' => trim($x['reason'] ?? 'Damaged in warehouse handling')]);
+            break;
+    }
 
     // Automated procurement loop: check-out drains stock -> auto requisition
     $requisitionFired = null;
@@ -1913,12 +2184,32 @@ if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) 
     $x = body();
     $d = db();
     $newStatus = $x['status'] ?? 'Draft';
+
+    // Enforced state machine (v6): status changes must follow the transition
+    // graph — no arbitrary strings, no skipping approval, no manual receiving.
+    $cq = $d->prepare('SELECT status FROM purchase_orders WHERE id = ? AND deleted_at IS NULL');
+    $cq->execute([$m[1]]);
+    $cur = $cq->fetchColumn();
+    if ($cur === false) reply(['error' => 'Purchase order not found.'], 404);
+
+    $allKnown = array_keys(PO_TRANSITIONS);
+    if (!in_array($newStatus, $allKnown, true)) {
+        reply(['error' => "Unknown status '{$newStatus}'. Valid statuses: " . implode(', ', $allKnown)], 400);
+    }
+    if (in_array($newStatus, ['Partially Received', 'Fully Received', 'Received'], true)) {
+        reply(['error' => 'Receiving states are set by the goods-receipt endpoint (POST /pos/{id}/receive) — receiving is a structured transaction, not a status flip.'], 422);
+    }
+    $allowed = poAllowedTransitions($cur);
+    if (!in_array($newStatus, $allowed, true)) {
+        reply(['error' => "Cannot move PO from '{$cur}' to '{$newStatus}'. Allowed: " . ($allowed ? implode(', ', $allowed) : 'none — terminal state')], 409);
+    }
+
     // TRD §1: approve/reject authority over sourcing workflows is Admin-exclusive.
     if (in_array($newStatus, ['Approved', 'Rejected'], true) && $u['role'] !== 'Admin') {
         reply(['error' => 'Only a System Administrator may approve or reject purchase orders.'], 403);
     }
     // Warehouse Staff may only advance inbound logistics states.
-    if ($u['role'] === 'WarehouseStaff' && !in_array($newStatus, ['Shipped', 'Arrived', 'Received'], true)) {
+    if ($u['role'] === 'WarehouseStaff' && !in_array($newStatus, ['Shipped', 'Arrived'], true)) {
         reply(['error' => 'Warehouse Staff may only update inbound delivery statuses.'], 403);
     }
     $d->prepare('UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?')
@@ -1934,14 +2225,15 @@ if ($method === 'PUT' && preg_match('#^/api/v1/pos/(\d+)/status$#', $path, $m)) 
       ->execute([$m[1], 'Status Updated', $actionDetails]);
 
     // Outbound stream: a verified-and-arrived order settles a receipt to
-    // Accounts Payable (Financial Management).
-    if (in_array($newStatus, ['Received', 'Fulfilled', 'Arrived'], true)) {
+    // Accounts Payable (Financial Management). Full receipt forwarding now
+    // happens in the receive endpoint; arrival still pre-stages the record.
+    if (in_array($newStatus, ['Arrived'], true)) {
         $pq = $d->prepare('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id = v.id WHERE po.id = ?');
         $pq->execute([$m[1]]);
         if ($po = $pq->fetch(PDO::FETCH_ASSOC)) forwardToFinance($d, $po);
     }
 
-    reply(['ok' => true]);
+    reply(['ok' => true, 'status' => $newStatus]);
 }
 
 // --- Vendors Endpoints ---
@@ -2706,6 +2998,233 @@ if ($method === 'PUT' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$
     reply(['ok' => true]);
 }
 
+// ==========================================================================
+// SUPPLY REQUESTS (v6) — the primary internal workflow spine:
+// Staff → Request → Approval → Inventory Review → Issue (stock available)
+//                                          or → Procurement → PO → Receipt
+//                                          → back to issuance → Closed
+// ==========================================================================
+$SR_TRANSITIONS = [
+    'Submitted'         => ['Approved', 'Rejected', 'Cancelled'],
+    'Approved'          => ['Inventory Review', 'In Procurement', 'Cancelled'],
+    'Inventory Review'  => ['Approved', 'In Procurement', 'Cancelled'],
+    'In Procurement'    => ['Approved', 'Cancelled'],
+    'Partially Issued'  => ['Closed', 'Cancelled'],
+    'Issued'            => ['Closed'],
+    'Closed'            => [], 'Rejected' => [], 'Cancelled' => [],
+];
+
+if ($method === 'GET' && $path === '/api/v1/supply-requests') {
+    auth();
+    $d = db();
+    $reqs = $d->query("SELECT sr.*, u.full_name AS created_by_name,
+        (SELECT COUNT(*) FROM supply_request_items i WHERE i.request_id = sr.id) AS item_count
+        FROM supply_requests sr LEFT JOIN users u ON u.id = sr.created_by ORDER BY sr.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+    $iq = $d->prepare('SELECT * FROM supply_request_items WHERE request_id = ? ORDER BY id');
+    foreach ($reqs as &$r) { $iq->execute([$r['id']]); $r['items'] = $iq->fetchAll(PDO::FETCH_ASSOC); }
+    reply(['requests' => $reqs]);
+}
+
+if ($method === 'GET' && preg_match('#^/api/v1/supply-requests/(\d+)$#', $path, $m)) {
+    auth();
+    $d = db();
+    $q = $d->prepare('SELECT sr.*, u.full_name AS created_by_name FROM supply_requests sr LEFT JOIN users u ON u.id = sr.created_by WHERE sr.id = ?');
+    $q->execute([$m[1]]);
+    $r = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$r) reply(['error' => 'Supply request not found'], 404);
+    $iq = $d->prepare('SELECT * FROM supply_request_items WHERE request_id = ? ORDER BY id');
+    $iq->execute([$r['id']]);
+    $r['items'] = $iq->fetchAll(PDO::FETCH_ASSOC);
+    $iq2 = $d->prepare('SELECT i.*, ii.item_name, ii.quantity, ii.from_zone FROM issuances i JOIN issuance_items ii ON ii.issuance_id = i.id WHERE i.request_id = ?');
+    $iq2->execute([$r['id']]);
+    $r['issuances'] = $iq2->fetchAll(PDO::FETCH_ASSOC);
+    reply($r);
+}
+
+if ($method === 'POST' && $path === '/api/v1/supply-requests') {
+    $u = auth();
+    $x = body();
+    $d = db();
+    $items = $x['items'] ?? [];
+    if (!is_array($items) || !$items) reply(['error' => 'At least one item is required (items[]: item_name, quantity).'], 400);
+    if (trim($x['title'] ?? '') === '') reply(['error' => 'A request title is required.'], 400);
+
+    $d->beginTransaction();
+    try {
+        $cnt = (int)$d->query("SELECT COUNT(*)+1 FROM supply_requests WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
+        $reqNo = 'SR-' . date('Y') . '-' . str_pad((string)$cnt, 3, '0', STR_PAD_LEFT);
+        $d->prepare('INSERT INTO supply_requests(request_number, source, title, requesting_employee, employee_id, department, purpose, priority, needed_by, status, created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+          ->execute([$reqNo, 'INTERNAL', trim($x['title']),
+                     trim($x['requesting_employee'] ?? '') ?: $u['name'],
+                     trim($x['employee_id'] ?? '') ?: null,
+                     trim($x['department'] ?? '') ?: null,
+                     trim($x['purpose'] ?? '') ?: null,
+                     in_array($x['priority'] ?? '', ['Low','Normal','High','Urgent'], true) ? $x['priority'] : 'Normal',
+                     $x['needed_by'] ?: null, 'Submitted', $u['id']]);
+        $reqId = (int)$d->lastInsertId();
+        $ii = $d->prepare('INSERT INTO supply_request_items(request_id, item_name, category, quantity) VALUES(?,?,?,?)');
+        $n = 0;
+        foreach ($items as $it) {
+            $nm = trim($it['item_name'] ?? $it['name'] ?? '');
+            $qty = max(1, (int)($it['quantity'] ?? $it['qty'] ?? 1));
+            if ($nm === '') continue;
+            $ii->execute([$reqId, $nm, trim($it['category'] ?? '') ?: null, $qty]);
+            $n++;
+        }
+        if ($n === 0) { $d->rollBack(); reply(['error' => 'At least one valid item row is required.'], 400); }
+        logActivity($d, $u, 'Submitted supply request', 'supply_request', $reqNo, $n . ' item(s)');
+        $d->commit();
+        reply(['id' => $reqId, 'request_number' => $reqNo], 201);
+    } catch (Exception $e) {
+        if ($d->inTransaction()) $d->rollBack();
+        reply(['error' => 'Request failed: ' . $e->getMessage()], 500);
+    }
+}
+
+// Status transitions — enforced by the SR state machine.
+if ($method === 'PUT' && preg_match('#^/api/v1/supply-requests/(\d+)/status$#', $path, $m)) {
+    $u = auth(['Admin', 'Manager']);
+    $x = body();
+    $d = db();
+    $q = $d->prepare('SELECT * FROM supply_requests WHERE id = ?');
+    $q->execute([$m[1]]);
+    $r = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$r) reply(['error' => 'Supply request not found'], 404);
+    $new = $x['status'] ?? '';
+    if (!in_array($new, array_keys($SR_TRANSITIONS), true)) reply(['error' => 'Invalid status.'], 400);
+    if (!in_array($new, $SR_TRANSITIONS[$r['status']] ?? [], true)) {
+        reply(['error' => "Cannot move request from '{$r['status']}' to '{$new}'. Allowed: " . ($SR_TRANSITIONS[$r['status']] ? implode(', ', $SR_TRANSITIONS[$r['status']]) : 'none — terminal state')], 409);
+    }
+    if (in_array($new, ['Approved', 'Rejected'], true) && $u['role'] !== 'Admin') {
+        reply(['error' => 'Only a System Administrator may approve or reject supply requests.'], 403);
+    }
+    $appr = in_array($new, ['Approved', 'Rejected'], true) ? ', approved_by = ?, approved_at = NOW()' : '';
+    $params = in_array($new, ['Approved', 'Rejected'], true) ? [$new, $u['name'], $r['id']] : [$new, $r['id']];
+    $d->prepare('UPDATE supply_requests SET status = ?' . $appr . ', updated_at = NOW() WHERE id = ?')->execute($params);
+    logActivity($d, $u, 'Supply request ' . $new, 'supply_request', $r['request_number']);
+    reply(['ok' => true, 'status' => $new]);
+}
+
+// Inventory review: check each request line against warehouse stock.
+if ($method === 'GET' && preg_match('#^/api/v1/supply-requests/(\d+)/stock-check$#', $path, $m)) {
+    auth();
+    $d = db();
+    $q = $d->prepare('SELECT * FROM supply_requests WHERE id = ?');
+    $q->execute([$m[1]]);
+    $r = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$r) reply(['error' => 'Supply request not found'], 404);
+    $iq = $d->prepare('SELECT * FROM supply_request_items WHERE request_id = ?');
+    $iq->execute([$r['id']]);
+    $lines = [];
+    $allOk = true;
+    foreach ($iq->fetchAll(PDO::FETCH_ASSOC) as $it) {
+        $avail = $d->prepare("SELECT COUNT(*) FROM assets WHERE status = 'In Warehouse' AND deleted_at IS NULL AND archived_at IS NULL AND (name LIKE ? OR category LIKE ?)");
+        $avail->execute(['%' . $it['item_name'] . '%', '%' . $it['item_name'] . '%']);
+        $stock = (int)$avail->fetchColumn();
+        $need = (int)$it['quantity'] - (int)$it['quantity_issued'];
+        $ok = $stock >= $need;
+        if (!$ok) $allOk = false;
+        $lines[] = ['item_id' => (int)$it['id'], 'item_name' => $it['item_name'], 'requested' => (int)$it['quantity'],
+                    'issued' => (int)$it['quantity_issued'], 'needed' => $need, 'in_stock' => $stock, 'sufficient' => $ok];
+    }
+    reply(['request' => $r['request_number'], 'sufficient' => $allOk, 'lines' => $lines]);
+}
+
+// Warehouse issuance against a request — assigns real stock to the requester.
+if ($method === 'POST' && preg_match('#^/api/v1/supply-requests/(\d+)/issue$#', $path, $m)) {
+    $u = auth(['Admin', 'Manager', 'WarehouseStaff']);
+    $x = body();
+    $d = db();
+    $q = $d->prepare('SELECT * FROM supply_requests WHERE id = ?');
+    $q->execute([$m[1]]);
+    $r = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$r) reply(['error' => 'Supply request not found'], 404);
+    if (!in_array($r['status'], ['Approved', 'Inventory Review', 'Partially Issued'], true)) {
+        reply(['error' => "Request '{$r['request_number']}' is '{$r['status']}' — only approved/reviewed requests can be issued."], 409);
+    }
+    $items = $x['items'] ?? [];
+    if (!is_array($items) || !$items) reply(['error' => 'items[] required: {request_item_id, serials[]}'], 400);
+
+    $d->beginTransaction();
+    try {
+        $cnt = (int)$d->query("SELECT COUNT(*)+1 FROM issuances WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
+        $issNo = 'ISS-' . date('Y') . '-' . str_pad((string)$cnt, 3, '0', STR_PAD_LEFT);
+        $d->prepare('INSERT INTO issuances(issuance_number, request_id, issued_to, department, issued_by, issued_by_name, notes) VALUES(?,?,?,?,?,?,?)')
+          ->execute([$issNo, $r['id'], $r['requesting_employee'], $r['department'], $u['id'], $u['name'], trim($x['notes'] ?? '')]);
+        $issId = (int)$d->lastInsertId();
+
+        $insII = $d->prepare('INSERT INTO issuance_items(issuance_id, request_item_id, asset_id, item_name, quantity, from_zone, from_row) VALUES(?,?,?,?,?,?,?)');
+        $updItem = $d->prepare('UPDATE supply_request_items SET quantity_issued = quantity_issued + ? WHERE id = ?');
+        $issued = []; $errors = [];
+
+        foreach ($items as $it) {
+            $riId = (int)($it['request_item_id'] ?? 0);
+            $iq = $d->prepare('SELECT * FROM supply_request_items WHERE id = ? AND request_id = ?');
+            $iq->execute([$riId, $r['id']]);
+            $ri = $iq->fetch(PDO::FETCH_ASSOC);
+            if (!$ri) { $errors[] = "Request item #{$riId} not found on this request."; continue; }
+            $serials = $it['serials'] ?? [];
+            if (!is_array($serials)) $serials = array_filter(array_map('trim', preg_split('/[\s,]+/', (string)$serials)));
+            if (!$serials) { $errors[] = "'{$ri['item_name']}': no serials given — issuance assigns real stock by QR serial."; continue; }
+
+            $need = (int)$ri['quantity'] - (int)$ri['quantity_issued'];
+            if (count($serials) > $need) { $errors[] = "'{$ri['item_name']}': issuing " . count($serials) . " but only {$need} remain requested."; continue; }
+
+            foreach ($serials as $serial) {
+                $aq = $d->prepare("SELECT * FROM assets WHERE qr_code = ? AND status = 'In Warehouse' AND deleted_at IS NULL AND archived_at IS NULL");
+                $aq->execute([trim($serial)]);
+                $a = $aq->fetch(PDO::FETCH_ASSOC);
+                if (!$a) { $errors[] = "Serial {$serial} is not available in warehouse stock."; continue; }
+                $d->prepare("UPDATE assets SET status = 'Deployed', external_employee_name = ?, assignment_date = CURDATE() WHERE id = ?")
+                  ->execute([$r['requesting_employee'], $a['id']]);
+                $insII->execute([$issId, $ri['id'], $a['id'], $a['name'], 1, $a['location'], $a['bin_row']]);
+                logMovement($d, 'ISSUE', ['ref_type' => 'issuance', 'ref_id' => $issId, 'ref_label' => $issNo,
+                    'asset_id' => $a['id'], 'qr_code' => $a['qr_code'], 'item_name' => $a['name'], 'qty_delta' => -1,
+                    'from_location' => $a['location'], 'from_row' => $a['bin_row'],
+                    'actor_id' => $u['id'], 'actor_name' => $u['name'],
+                    'reason' => 'Issued against ' . $r['request_number'] . ' to ' . $r['requesting_employee']]);
+                $issued[] = $serial;
+            }
+            if (count(array_filter($serials, fn($s) => in_array($s, $issued, true))) > 0) {
+                $updItem->execute([count(array_filter($serials, fn($s) => in_array($s, $issued, true))), $ri['id']]);
+            }
+        }
+
+        if (!$issued) { $d->rollBack(); reply(['error' => 'Nothing was issued.', 'line_errors' => $errors], 422); }
+
+        // Recompute request fulfillment.
+        $fq = $d->prepare('SELECT COALESCE(SUM(quantity),0) - COALESCE(SUM(quantity_issued),0) FROM supply_request_items WHERE request_id = ?');
+        $fq->execute([$r['id']]);
+        $remaining = (int)$fq->fetchColumn();
+        $newStatus = $remaining <= 0 ? 'Issued' : 'Partially Issued';
+        $d->prepare('UPDATE supply_requests SET status = ?, updated_at = NOW() WHERE id = ?')->execute([$newStatus, $r['id']]);
+        $d->prepare("UPDATE supply_request_items i SET item_status = CASE WHEN i.quantity_issued >= i.quantity THEN 'Issued' ELSE 'Partial' END WHERE i.request_id = ?")
+          ->execute([$r['id']]);
+
+        logActivity($d, $u, 'Issued stock', 'supply_request', $r['request_number'], $issNo . ' — ' . count($issued) . ' unit(s)');
+        $d->commit();
+        reply(['ok' => true, 'issuance_number' => $issNo, 'issued' => $issued, 'remaining' => $remaining,
+               'request_status' => $newStatus, 'line_errors' => $errors]);
+    } catch (Exception $e) {
+        if ($d->inTransaction()) $d->rollBack();
+        reply(['error' => 'Issuance failed: ' . $e->getMessage()], 500);
+    }
+}
+
+// Stock ledger read view (audit trail of every quantity-affecting event).
+if ($method === 'GET' && $path === '/api/v1/stock-movements') {
+    auth();
+    $d = db();
+    $type = trim($_GET['type'] ?? '');
+    $sql = 'SELECT * FROM stock_movements';
+    $params = [];
+    if ($type !== '') { $sql .= ' WHERE movement_type = ?'; $params[] = $type; }
+    $sql .= ' ORDER BY created_at DESC LIMIT 200';
+    $q = $d->prepare($sql);
+    $q->execute($params);
+    reply(['movements' => $q->fetchAll(PDO::FETCH_ASSOC)]);
+}
+
 if ($method === 'GET' && $path === '/api/v1/procurement/quotes') {
     auth();
     $d = db();
@@ -2899,9 +3418,44 @@ if ($method === 'POST' && $path === '/api/v1/pos') {
     }
 
     $initialStatus = $autoApprove ? 'Sent to Vendor' : 'Draft';
-    $q = $d->prepare('INSERT INTO purchase_orders(po_number, vendor_id, vendor, items, total, status, expected_delivery, notes) VALUES(?,?,?,?,?,?,?,?)');
-    $q->execute([$po_number, $vendor_id, $vendor_name, $x['items'], $x['total'], $initialStatus, $x['expected_delivery'], $x['notes']]);
+    // v6: normalize items into real PO line rows. Accepts a structured array
+    // [{item_name, quantity, unit_price}] or legacy free text — free text is
+    // split per line so the item table is always populated.
+    $itemsArr = [];
+    if (is_array($x['items'] ?? null)) {
+        foreach ($x['items'] as $it) {
+            $nm = trim($it['item_name'] ?? $it['name'] ?? '');
+            if ($nm === '') continue;
+            $itemsArr[] = ['item_name' => $nm,
+                           'quantity'   => max(1, (int)($it['quantity'] ?? $it['qty'] ?? 1)),
+                           'unit_price' => (float)($it['unit_price'] ?? $it['price'] ?? 0)];
+        }
+    } else {
+        foreach (preg_split('/[\r\n]+/', (string)($x['items'] ?? '')) as $line) {
+            $line = trim($line, " \t-,•");
+            if ($line === '') continue;
+            $qty = 1;
+            if (preg_match('/^(.*?)\s*[x×]\s*(\d+)\s*$/i', $line, $mm)) { $line = trim($mm[1]); $qty = (int)$mm[2]; }
+            $itemsArr[] = ['item_name' => $line, 'quantity' => max(1, $qty), 'unit_price' => 0.0];
+        }
+    }
+    $itemsText = implode("\n", array_map(fn($i) => $i['item_name'] . ' x' . $i['quantity'], $itemsArr));
+
+    $q = $d->prepare('INSERT INTO purchase_orders(po_number, vendor_id, vendor, items, total, status, expected_delivery, notes, supply_request_id) VALUES(?,?,?,?,?,?,?,?,?)');
+    $q->execute([$po_number, $vendor_id, $vendor_name, $itemsText, $x['total'], $initialStatus, $x['expected_delivery'], $x['notes'], $x['supply_request_id'] ?? null]);
     $po_id = $d->lastInsertId();
+
+    $qi = $d->prepare('INSERT INTO purchase_order_items(po_id, item_name, quantity, unit_price) VALUES(?,?,?,?)');
+    foreach ($itemsArr as $it) $qi->execute([$po_id, $it['item_name'], $it['quantity'], $it['unit_price']]);
+
+    // If this PO was raised from a supply request, mark the request lines as
+    // being procured so the request trace stays intact.
+    if (!empty($x['supply_request_id'])) {
+        $d->prepare("UPDATE supply_requests SET status = 'In Procurement', updated_at = NOW() WHERE id = ? AND status IN ('Approved','Inventory Review')")
+          ->execute([(int)$x['supply_request_id']]);
+        $d->prepare("UPDATE supply_request_items SET po_id = ? WHERE request_id = ?")
+          ->execute([$po_id, (int)$x['supply_request_id']]);
+    }
 
     // TRD §4: a settlement receipt is generated at order creation and
     // routes to Settlements; physical verification upgrades it to AP.
@@ -2923,10 +3477,177 @@ if ($method === 'POST' && $path === '/api/v1/pos') {
 
 if ($method === 'GET' && preg_match('#^/api/v1/pos/(\d+)$#', $path, $m)) {
     auth();
-    $q = db()->prepare('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id=v.id WHERE po.id = ?');
+    $d = db();
+    $q = $d->prepare('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id=v.id WHERE po.id = ?');
     $q->execute([$m[1]]);
     $po = $q->fetch(PDO::FETCH_ASSOC);
-    reply($po ?: ['error' => 'PO not found'], $po ? 200 : 404);
+    if (!$po) reply(['error' => 'PO not found'], 404);
+    $iq = $d->prepare('SELECT * FROM purchase_order_items WHERE po_id = ? ORDER BY id');
+    $iq->execute([$m[1]]);
+    $po['line_items'] = $iq->fetchAll(PDO::FETCH_ASSOC);
+    $rq = $d->prepare('SELECT * FROM goods_receipts WHERE po_id = ? ORDER BY created_at DESC');
+    $rq->execute([$m[1]]);
+    $po['receipts'] = $rq->fetchAll(PDO::FETCH_ASSOC);
+    $po['allowed_transitions'] = poAllowedTransitions($po['status']);
+    reply($po);
+}
+
+// Item-level receiving history for a PO.
+if ($method === 'GET' && preg_match('#^/api/v1/pos/(\d+)/receipts$#', $path, $m)) {
+    auth();
+    $d = db();
+    $rq = $d->prepare('SELECT * FROM goods_receipts WHERE po_id = ? ORDER BY created_at DESC');
+    $rq->execute([$m[1]]);
+    $receipts = $rq->fetchAll(PDO::FETCH_ASSOC);
+    $iq = $d->prepare('SELECT * FROM goods_receipt_items WHERE receipt_id = ? ORDER BY id');
+    foreach ($receipts as &$r) { $iq->execute([$r['id']]); $r['items'] = $iq->fetchAll(PDO::FETCH_ASSOC); }
+    reply(['receipts' => $receipts]);
+}
+
+// ==========================================================================
+// STRUCTURED GOODS RECEIPT (v6): PO → Goods Receipt → Items → Stock Movement
+// Receiving is a real transaction — item-level quantities, condition,
+// receiver identity, PO line references, serials, and audit. Over-receiving
+// against a PO line is rejected. Partial deliveries leave the PO in
+// 'Partially Received' until the ordered quantities are fulfilled.
+// ==========================================================================
+if ($method === 'POST' && preg_match('#^/api/v1/pos/(\d+)/receive$#', $path, $m)) {
+    $u = auth(['Admin', 'Manager', 'WarehouseStaff']);
+    $x = body();
+    $d = db();
+    $pq = $d->prepare('SELECT po.*, v.name AS vendor_name FROM purchase_orders po LEFT JOIN vendors v ON po.vendor_id = v.id WHERE po.id = ? AND po.deleted_at IS NULL');
+    $pq->execute([$m[1]]);
+    $po = $pq->fetch(PDO::FETCH_ASSOC);
+    if (!$po) reply(['error' => 'Purchase order not found.'], 404);
+    if (!in_array($po['status'], ['Sent to Vendor', 'Shipped', 'Arrived', 'Ordered', 'Partially Received'], true)) {
+        reply(['error' => "PO {$po['po_number']} is '{$po['status']}' — it is not in a receivable state."], 409);
+    }
+
+    $items = $x['items'] ?? [];
+    if (!is_array($items) || !$items) reply(['error' => 'items[] is required — receiving is item-level.'], 400);
+
+    // Load the contract lines for validation (id → row, name → row).
+    $lq = $d->prepare('SELECT * FROM purchase_order_items WHERE po_id = ?');
+    $lq->execute([$po['id']]);
+    $lines = $lq->fetchAll(PDO::FETCH_ASSOC);
+    $lineById = []; $lineByName = [];
+    foreach ($lines as $l) { $lineById[$l['id']] = $l; $lineByName[strtolower(trim($l['item_name']))] = $l; }
+
+    $d->beginTransaction();
+    try {
+        $grCount = (int)$d->query("SELECT COUNT(*)+1 FROM goods_receipts WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
+        $grNumber = 'GR-' . date('Y') . '-' . str_pad((string)$grCount, 3, '0', STR_PAD_LEFT);
+        $d->prepare('INSERT INTO goods_receipts(gr_number, po_id, received_by, received_by_name, notes) VALUES(?,?,?,?,?)')
+          ->execute([$grNumber, $po['id'], $u['id'], $u['name'], trim($x['notes'] ?? '')]);
+        $receiptId = (int)$d->lastInsertId();
+
+        $insItem = $d->prepare('INSERT INTO goods_receipt_items(receipt_id, po_item_id, item_name, quantity, item_condition, zone, bin_row, serials) VALUES(?,?,?,?,?,?,?,?)');
+        $updLine = $d->prepare('UPDATE purchase_order_items SET quantity_received = quantity_received + ? WHERE id = ?');
+        $errors = [];
+        $receivedLines = [];
+
+        foreach ($items as $it) {
+            $qty = (int)($it['quantity'] ?? $it['qty'] ?? 0);
+            $name = trim($it['item_name'] ?? $it['name'] ?? '');
+            $line = null;
+            if (!empty($it['po_item_id']) && isset($lineById[(int)$it['po_item_id']])) $line = $lineById[(int)$it['po_item_id']];
+            elseif ($name !== '' && isset($lineByName[strtolower($name)])) $line = $lineByName[strtolower($name)];
+            if ($line && $name === '') $name = $line['item_name'];
+            if ($name === '' || $qty <= 0) { $errors[] = 'Each receipt line needs an item name and a positive quantity.'; continue; }
+
+            // Over-receiving guard: cumulative receipts may not exceed the
+            // contracted line quantity.
+            if ($line) {
+                $remaining = (int)$line['quantity'] - (int)$line['quantity_received'];
+                if ($qty > $remaining) {
+                    $errors[] = "Over-receipt blocked for '{$name}': ordered {$line['quantity']}, already received {$line['quantity_received']}, attempted {$qty}.";
+                    continue;
+                }
+            }
+
+            $cond = trim($it['condition'] ?? 'Good') ?: 'Good';
+            [$zn, $rw] = [null, null];
+            if (!empty($it['zone'])) { [$zn, $rw] = normalizeZoneRow($d, $it['zone'], $it['bin_row'] ?? null); }
+            $serials = $it['serials'] ?? [];
+            if (!is_array($serials)) $serials = array_filter(array_map('trim', preg_split('/[\s,]+/', (string)$serials)));
+
+            $insItem->execute([$receiptId, $line ? $line['id'] : null, $name, $qty, $cond, $zn, $rw, $serials ? json_encode(array_values($serials)) : null]);
+            $receiptItemId = (int)$d->lastInsertId();
+            if ($line) { $updLine->execute([$qty, $line['id']]); $line['quantity_received'] += $qty; }
+
+            // Serialized goods: each scanned serial commits to stock.
+            $linked = 0;
+            foreach ($serials as $serial) {
+                $serial = trim((string)$serial);
+                if ($serial === '') continue;
+                $aq = $d->prepare('SELECT * FROM assets WHERE qr_code = ?');
+                $aq->execute([$serial]);
+                $a = $aq->fetch(PDO::FETCH_ASSOC);
+                $loc = $zn ?: ($a['location'] ?? 'Receiving Dock');
+                if ($a) {
+                    $d->prepare('UPDATE assets SET status = ?, location = ?, bin_row = ?, po_id = ?, receipt_id = ? WHERE id = ?')
+                      ->execute(['In Warehouse', $loc, $rw ?: ($a['bin_row'] ?? null), $po['id'], $receiptId, $a['id']]);
+                    $linked++;
+                    logMovement($d, 'RECEIPT', ['ref_type' => 'goods_receipt', 'ref_id' => $receiptId, 'ref_label' => $grNumber,
+                        'asset_id' => $a['id'], 'qr_code' => $serial, 'item_name' => $name, 'qty_delta' => 1,
+                        'to_location' => $loc, 'to_row' => $rw, 'actor_id' => $u['id'], 'actor_name' => $u['name'],
+                        'reason' => 'PO receipt ' . $po['po_number'] . ' (' . $cond . ')']);
+                } else {
+                    // Unknown serial — register it with PO provenance.
+                    $d->prepare('INSERT INTO assets(qr_code, name, category, value, status, location, bin_row, po_id, receipt_id) VALUES(?,?,?,?,?,?,?,?,?)')
+                      ->execute([$serial, $name, $it['category'] ?? 'IT Equipment', (float)($it['unit_price'] ?? 0), 'In Warehouse', $loc, $rw, $po['id'], $receiptId]);
+                    $newId = (int)$d->lastInsertId();
+                    $linked++;
+                    logMovement($d, 'RECEIPT', ['ref_type' => 'goods_receipt', 'ref_id' => $receiptId, 'ref_label' => $grNumber,
+                        'asset_id' => $newId, 'qr_code' => $serial, 'item_name' => $name, 'qty_delta' => 1,
+                        'to_location' => $loc, 'to_row' => $rw, 'actor_id' => $u['id'], 'actor_name' => $u['name'],
+                        'reason' => 'PO receipt ' . $po['po_number'] . ' (' . $cond . ')']);
+                }
+            }
+            // Bulk remainder: non-serialized quantity still writes a movement.
+            $bulk = $qty - $linked;
+            if ($bulk > 0) {
+                logMovement($d, 'RECEIPT', ['ref_type' => 'goods_receipt', 'ref_id' => $receiptId, 'ref_label' => $grNumber,
+                    'item_name' => $name, 'qty_delta' => $bulk,
+                    'to_location' => $zn, 'to_row' => $rw, 'actor_id' => $u['id'], 'actor_name' => $u['name'],
+                    'reason' => 'PO receipt ' . $po['po_number'] . ' (' . $cond . ')']);
+            }
+            $receivedLines[] = ['item' => $name, 'qty' => $qty, 'condition' => $cond];
+        }
+
+        if (!$receivedLines) { $d->rollBack(); reply(['error' => 'Nothing was received.', 'line_errors' => $errors], 422); }
+
+        // Recompute PO receipt state from the contract lines.
+        $tot = $d->prepare('SELECT COALESCE(SUM(quantity),0), COALESCE(SUM(quantity_received),0) FROM purchase_order_items WHERE po_id = ?');
+        $tot->execute([$po['id']]);
+        [$ordered, $received] = array_map('intval', $tot->fetch(PDO::FETCH_NUM));
+        $newStatus = ($ordered > 0 && $received >= $ordered) ? 'Fully Received' : 'Partially Received';
+        $d->prepare('UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?')->execute([$newStatus, $po['id']]);
+
+        $detail = 'Goods receipt ' . $grNumber . ': ' . implode('; ', array_map(fn($l) => "{$l['item']} ×{$l['qty']} ({$l['condition']})", $receivedLines)) . ' — received by ' . $u['name'];
+        if ($errors) $detail .= '. Skipped lines: ' . implode(' | ', $errors);
+        $d->prepare('INSERT INTO po_activity(po_id, action, details) VALUES(?, ?, ?)')->execute([$po['id'], $newStatus, $detail]);
+        logActivity($d, $u, 'Goods receipt posted', 'purchase_order', $po['po_number'], $grNumber . ' — ' . $newStatus);
+
+        // Fully received → forward settlement to AP and re-open any linked
+        // supply request for issuance.
+        if ($newStatus === 'Fully Received') {
+            $po['status'] = $newStatus;
+            forwardToFinance($d, $po);
+            if (!empty($po['supply_request_id'])) {
+                $d->prepare("UPDATE supply_requests SET status = 'Approved', stock_status = 'Received via PO {$po['po_number']}', updated_at = NOW() WHERE id = ? AND status = 'In Procurement'")
+                  ->execute([$po['supply_request_id']]);
+            }
+        }
+
+        $d->commit();
+        reply(['ok' => true, 'gr_number' => $grNumber, 'receipt_id' => $receiptId, 'po_status' => $newStatus,
+               'ordered' => $ordered, 'received' => $received, 'line_errors' => $errors,
+               'po_number' => $po['po_number'], 'qr_payload' => $po['po_number']]);
+    } catch (Exception $e) {
+        if ($d->inTransaction()) $d->rollBack();
+        reply(['error' => 'Receipt failed: ' . $e->getMessage()], 500);
+    }
 }
 
 

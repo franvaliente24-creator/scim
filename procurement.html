@@ -266,8 +266,13 @@
               <option value="">Select a vendor…</option>
             </select>
           </label>
-          <label>Items
-            <textarea name="items" rows="3" required placeholder="Describe purchase items"></textarea>
+          <label>Linked Supply Request <span class="text-xs text-slate-400">(optional — for internal requests awaiting procurement)</span>
+            <select name="supply_request_id" id="poSupplyRequestSelect">
+              <option value="">— none —</option>
+            </select>
+          </label>
+          <label>Items — one per line, “Item name x quantity”
+            <textarea name="items" rows="3" required placeholder="Office Chair x3&#10;Desk Lamp x2"></textarea>
           </label>
           <label>Total Amount
             <input type="number" name="total" min="0" step="0.01" required placeholder="50000">
@@ -298,9 +303,12 @@
             <select name="status" required>
               <option value="Draft">Draft</option>
               <option value="Pending Approval">Pending Approval</option>
+              <option value="Approved">Approved</option>
               <option value="Sent to Vendor">Sent to Vendor</option>
               <option value="Shipped">Shipped</option>
-              <option value="Received">Received</option>
+              <option value="Arrived">Arrived</option>
+              <option value="Completed">Completed</option>
+              <option value="Rejected">Rejected</option>
               <option value="Cancelled">Cancelled</option>
             </select>
           </label>
@@ -349,18 +357,18 @@
           <label>PO Number
             <input type="text" id="receivePoNumber" disabled>
           </label>
-          <label>Items Received
-            <textarea name="items_received" rows="3" placeholder="List items received and their quantities..."></textarea>
-          </label>
-          <label>Condition
-            <select name="condition">
-              <option value="Good">Good Condition</option>
-              <option value="Some Damage">Some Damage</option>
-              <option value="Damaged">Damaged</option>
-            </select>
-          </label>
+          <p class="text-xs text-slate-500" style="margin:8px 0 4px;">Enter the quantity received for each line. Partial deliveries are supported — the order stays open until all items arrive.</p>
+          <table class="w-full text-sm" style="margin-bottom:8px;">
+            <thead><tr class="border-b border-slate-200 text-left">
+              <th class="py-2 pr-3 font-medium text-slate-600">Item</th>
+              <th class="py-2 pr-3 font-medium text-slate-600">Received / Ordered</th>
+              <th class="py-2 pr-3 font-medium text-slate-600">Qty Now</th>
+              <th class="py-2 font-medium text-slate-600">Condition</th>
+            </tr></thead>
+            <tbody id="receiveItemsBody"></tbody>
+          </table>
           <label>Notes
-            <textarea name="notes" rows="2"></textarea>
+            <textarea name="notes" id="receiveNotes" rows="2"></textarea>
           </label>
           <div style="margin: 16px 0; padding: 12px; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
             <p style="margin: 0; color: #0369a1; font-size: 13px;">
@@ -419,7 +427,7 @@
         <script src="token.js?v=1"></script>
         <script src="layout.js?v=12"></script>
     <script src="permissions.js?v=11"></script>
-    <script src="procurement.js?v=14"></script>
+    <script src="procurement.js?v=15"></script>
     <script src="inactivity.js?v=3"></script>
 </body>
 </html>

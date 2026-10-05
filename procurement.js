@@ -199,14 +199,19 @@ function getPOActionButtons(po) {
         buttons.push(icon('action-btn-danger', 'cancel', 'Reject order', `rejectPO('${po.id}', '${po.po_number}')`));
       }
       break;
+    case 'Approved':
+      buttons.push(icon('action-btn-primary', 'local_shipping', 'Send to vendor', `sendToVendorPO('${po.id}')`));
+      break;
     case 'Sent to Vendor':
     case 'Shipped':
     case 'Arrived':
-      // "Order Received" — the shipped-step was removed per spec; goods move
-      // straight to the receipt workflow which logs items + generates QR serials.
-      buttons.push(icon('action-btn-approve', 'inventory_2', 'Order received — record receipt', `receivePO('${po.id}', '${po.po_number}')`));
+    case 'Partially Received':
+      // Goods receipt is item-level — opens the structured receiving form.
+      buttons.push(icon('action-btn-approve', 'inventory_2', po.status === 'Partially Received' ? 'Record another delivery' : 'Record goods receipt', `receivePO('${po.id}', '${po.po_number}')`));
       break;
+    case 'Fully Received':
     case 'Received':
+    case 'Completed':
       buttons.push(icon('action-btn-primary', 'qr_code_2', 'Show receiving QR', `showPOQR('${po.id}', '${po.po_number}')`));
       break;
     default:
@@ -221,26 +226,31 @@ function getPOStatusClass(status) {
       return 'status-draft';
     case 'Pending Approval':
       return 'status-pending';
+    case 'Approved':
     case 'Sent to Vendor':
       return 'status-sent';
     case 'Shipped':
     case 'Arrived':
       return 'status-shipped';
+    case 'Partially Received':
+      return 'status-pending';
+    case 'Fully Received':
     case 'Received':
+    case 'Completed':
       return 'status-received';
     case 'Cancelled':
+    case 'Rejected':
       return 'status-cancelled';
     default:
       return 'status-default';
   }
 }
 
-// Inline order-tracking timeline (expandable row under each PO) — the
-// standalone tracking card was removed; tracking lives in the action column.
-const PO_STAGES = ['Draft', 'Pending Approval', 'Sent to Vendor', 'Received'];
+// Inline order-tracking timeline (expandable row under each PO).
+const PO_STAGES = ['Draft', 'Pending Approval', 'Approved', 'Sent to Vendor', 'Shipped', 'Arrived', 'Fully Received', 'Completed'];
 function poStageIndex(status) {
-  if (status === 'Approved') return 2;
-  if (status === 'Arrived') return 3; // arrived counts as in-receipt
+  if (status === 'Partially Received') return 6; // mid-receipt
+  if (status === 'Received') return 6;
   const i = PO_STAGES.indexOf(status);
   return i === -1 ? 0 : i;
 }
@@ -316,16 +326,36 @@ async function populatePOVendors() {
   sel.innerHTML = '<option value="">Select a vendor…</option>' +
     opts.map((v) => `<option value="${esc(v.id)}">${esc(v.name || v.vendor_name || 'Vendor #' + v.id)}${v.status === 'Inactive' ? ' (inactive)' : ''}</option>`).join('');
 }
+let supplyReqCache = null;
+async function populatePOSupplyRequests() {
+  const sel = document.getElementById('poSupplyRequestSelect');
+  if (!sel) return;
+  try {
+    const res = await api('supply-requests');
+    supplyReqCache = (res.requests || []).filter((r) => r.status === 'In Procurement' || r.status === 'Approved');
+  } catch { supplyReqCache = []; }
+  sel.innerHTML = '<option value="">— none —</option>' +
+    supplyReqCache.map((r) => `<option value="${esc(r.id)}">${esc(r.request_number)} — ${esc(r.title)}</option>`).join('');
+}
 if (createPOBtn) {
   createPOBtn.onclick = () => {
     const modal = $('#createPOModal');
     populatePOVendors();
+    populatePOSupplyRequests();
     if (modal) {
       if (typeof modal.showModal === 'function') modal.showModal();
       else modal.setAttribute('open', 'open');
     }
   };
 }
+// Selecting a linked request prefills the item lines from the request rows.
+document.getElementById('poSupplyRequestSelect')?.addEventListener('change', (e) => {
+  const r = (supplyReqCache || []).find((x) => String(x.id) === e.target.value);
+  const ta = document.querySelector('#createPOForm textarea[name="items"]');
+  if (r && ta && (r.items || []).length) {
+    ta.value = r.items.map((i) => `${i.item_name} x${i.quantity}`).join('\n');
+  }
+});
 
 const closeCreatePO = $('#closeCreatePO');
 if (closeCreatePO) {
@@ -432,26 +462,36 @@ if (closeReceiveBtn) closeReceiveBtn.onclick = () => receiveModal?.close?.();
 const receiveForm = $('#receiveForm');
 if (receiveForm) receiveForm.onsubmit = async (e) => {
   e.preventDefault();
-  const formData = new FormData(e.target);
-  const data = Object.fromEntries(formData);
-
-  const notes = `Items received: ${data.items_received}. Condition: ${data.condition}. ${data.notes || ''}`;
-
-  const response = await fetch(`/api/v1/pos/${data.po_id}/status`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'Received', notes: notes }),
+  const poId = $('#receivePoIdInput').value;
+  const items = [];
+  document.querySelectorAll('#receiveItemsBody tr[data-po-item]').forEach((tr) => {
+    const qty = parseInt(tr.querySelector('.recv-qty')?.value || '0', 10);
+    if (qty <= 0) return;
+    items.push({
+      po_item_id: parseInt(tr.dataset.poItem, 10) || null,
+      item_name: tr.dataset.itemName || '',
+      quantity: qty,
+      condition: tr.querySelector('.recv-cond')?.value || 'Good',
+    });
   });
+  if (!items.length) { alert('Enter a quantity for at least one line item.'); return; }
 
+  const response = await fetch(`/api/v1/pos/${poId}/receive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, notes: $('#receiveNotes')?.value || '' }),
+  });
+  const data = await response.json().catch(() => ({}));
   if (response.ok) {
     receiveModal?.close?.();
     e.target.reset();
     loadPOData();
-
-    // Show the receiving QR on-screen — no download step.
-    showPOQR(data.po_id, $('#receivePoNumber')?.value || '');
+    showPOQR(poId, data.po_number || $('#receivePoNumber')?.value || '');
+    if (data.line_errors && data.line_errors.length) {
+      alert('Received ' + data.gr_number + ' (' + data.po_status + ').\nSkipped lines:\n' + data.line_errors.join('\n'));
+    }
   } else {
-    alert('Failed to receive PO');
+    alert(data.error || 'Failed to record receipt.');
   }
 };
 
@@ -475,15 +515,23 @@ if (poStatusFilter) poStatusFilter.onchange = applyPOFilters;
 // PO action functions
 window.viewPO = async (poId) => {
   try {
-    const response = await api(`pos/${poId}`);
-    const po = response.po;
+    const po = await api(`pos/${poId}`);
+    if (!po || po.error) return;
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     set('viewPONumber', po.po_number || '');
     set('viewPOVendor', po.vendor_name || po.vendor || '—');
     set('viewPOTotal', money(po.total));
     set('viewPOCreated', po.created_at ? new Date(po.created_at).toLocaleDateString() : '—');
     set('viewPODelivery', po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString() : '—');
-    set('viewPOItems', po.items || 'No line items recorded.');
+    const itemsEl = document.getElementById('viewPOItems');
+    if (itemsEl) {
+      if ((po.line_items || []).length) {
+        itemsEl.innerHTML = `<table class="w-full text-xs mt-1"><thead><tr class="text-left text-slate-400"><th class="pr-3 py-1">Item</th><th class="pr-3 py-1">Qty</th><th class="py-1">Received</th></tr></thead><tbody>` +
+          po.line_items.map((l) => `<tr class="border-t border-slate-100"><td class="pr-3 py-1.5">${esc(l.item_name)}</td><td class="pr-3 py-1.5">${l.quantity}</td><td class="py-1.5 ${Number(l.quantity_received) >= Number(l.quantity) ? 'text-emerald-600 font-semibold' : ''}">${l.quantity_received || 0}</td></tr>`).join('') + '</tbody></table>';
+      } else {
+        itemsEl.textContent = po.items || 'No line items recorded.';
+      }
+    }
     const st = document.getElementById('viewPOStatus');
     if (st) st.innerHTML = `<span class="tag ${getPOStatusClass(po.status)}">${po.status || ''}</span>`;
     document.getElementById('viewPOModal')?.showModal();
@@ -527,21 +575,38 @@ window.submitForApproval = async (poId) => {
 window.approvePO = async (poId) => {
   const ok = await confirmStep({
     title: 'Approve Purchase Order?',
-    message: 'Approving sends this PO to the vendor and commits the spend. Continue?',
+    message: 'Approving commits the spend. You can then dispatch the order to the vendor. Continue?',
     confirmLabel: 'Approve', icon: 'check_circle', danger: false,
   });
   if (!ok) return;
   const response = await fetch(`/api/v1/pos/${poId}/status`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'Sent to Vendor', notes: 'Approved and sent to vendor' }),
+    body: JSON.stringify({ status: 'Approved', notes: 'Approved by procurement' }),
   });
 
   if (response.ok) {
     loadPOData();
   } else {
-    alert('Failed to approve PO');
+    const data = await response.json().catch(() => ({}));
+    alert(data.error || 'Failed to approve PO');
   }
+};
+
+window.sendToVendorPO = async (poId) => {
+  const ok = await confirmStep({
+    title: 'Send to Vendor?',
+    message: 'This marks the order as dispatched to the supplier.',
+    confirmLabel: 'Send', icon: 'local_shipping', danger: false,
+  });
+  if (!ok) return;
+  const response = await fetch(`/api/v1/pos/${poId}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'Sent to Vendor', notes: 'Dispatched to vendor' }),
+  });
+  if (response.ok) loadPOData();
+  else { const data = await response.json().catch(() => ({})); alert(data.error || 'Failed to update PO'); }
 };
 
 window.rejectPO = (poId, poNumber) => {
@@ -550,10 +615,34 @@ window.rejectPO = (poId, poNumber) => {
   $('#rejectPOModal').showModal();
 };
 
-window.receivePO = (poId, poNumber) => {
+// Structured receiving: load the PO's line items and render a per-line
+// quantity/condition entry. The endpoint enforces over-receipt prevention.
+window.receivePO = async (poId, poNumber) => {
   $('#receivePoIdInput').value = poId;
   $('#receivePoNumber').value = poNumber;
+  const body = $('#receiveItemsBody');
+  body.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-sm text-slate-400">Loading order lines…</td></tr>';
   $('#receiveModal').showModal();
+  try {
+    const po = await api(`pos/${poId}`);
+    const lines = po.line_items || [];
+    if (!lines.length) {
+      body.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-sm text-slate-400">This PO has no item lines — it predates itemized ordering.</td></tr>';
+      return;
+    }
+    body.innerHTML = lines.map((l) => {
+      const remaining = Math.max(0, (l.quantity || 0) - (l.quantity_received || 0));
+      return `<tr data-po-item="${l.id}" data-item-name="${esc(l.item_name)}" class="border-b border-slate-100">
+        <td class="py-2 pr-3 text-sm font-medium">${esc(l.item_name)}</td>
+        <td class="py-2 pr-3 text-sm text-slate-500 whitespace-nowrap">${l.quantity_received || 0} / ${l.quantity}</td>
+        <td class="py-2 pr-3"><input type="number" class="recv-qty w-20 px-2 py-1.5 border border-outline-variant rounded-lg text-sm" min="0" max="${remaining}" value="${remaining}" ${remaining === 0 ? 'disabled' : ''}></td>
+        <td class="py-2"><select class="recv-cond px-2 py-1.5 border border-outline-variant rounded-lg text-sm">
+          <option>Good</option><option>Some Damage</option><option>Damaged</option><option>Rejected</option>
+        </select></td></tr>`;
+    }).join('');
+  } catch {
+    body.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-sm text-red-500">Could not load order lines.</td></tr>';
+  }
 };
 
 // Receiving QR shown on-screen — no file download. The code encodes the PO

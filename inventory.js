@@ -438,53 +438,72 @@ async function loadAdjustments() {
 }
 
 function reqStatusBadge(s) {
-  const cls = ['Approved', 'Completed', 'Inventory Approved'].includes(s) ? 'bg-emerald-100 text-emerald-700'
+  const cls = ['Approved', 'Completed', 'Inventory Approved', 'Issued'].includes(s) ? 'bg-emerald-100 text-emerald-700'
     : s === 'Rejected' || s === 'Cancelled' ? 'bg-red-100 text-red-700'
-    : s === 'Ordered' || s === 'Closed' ? 'bg-blue-100 text-blue-700'
+    : s === 'Ordered' || s === 'Closed' || s === 'In Procurement' ? 'bg-blue-100 text-blue-700'
     : s === 'Inventory Review' ? 'bg-indigo-100 text-indigo-700'
+    : s === 'Partially Issued' ? 'bg-purple-100 text-purple-700'
     : 'bg-amber-100 text-amber-700';
   return `<span class="px-2 py-1 rounded text-xs font-semibold ${cls}">${escapeHTML(s || 'Submitted')}</span>`;
 }
 
-// §5: requisition submission lives here (relocated from Procurement Sourcing).
-// Open/active requisitions list; decided ones flow to the Requisition Log tab.
+// §5: internal supply requests — departments request items already held in
+// company inventory. The request is itemized; approval routes to inventory
+// review, then issuance (stock available) or procurement (stock short).
+// Decided/fulfilled requests flow to the Requisition Log tab.
 let invReqPage = 1;
 const INV_REQ_PAGE = 10;
+const SR_OPEN = ['Submitted', 'Approved', 'Inventory Review', 'In Procurement', 'Partially Issued'];
+const SR_DONE = ['Issued', 'Closed', 'Rejected', 'Cancelled'];
 async function loadInvRequisitions() {
-  const res = await api('procurement/requisitions');
-  const reqs = (res.requisitions || []).filter(r => !['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered', 'Completed'].includes(r.status));
+  const res = await api('supply-requests').catch(() => ({}));
+  const reqs = (res.requests || []).filter(r => SR_OPEN.includes(r.status));
   const search = $('#invReqSearch');
   const rangeSel = $('#invReqRange');
   const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
-  const canDecide = isAdmin || (typeof currentUserRole !== 'undefined' && currentUserRole === 'Manager');
+  const canReview = isAdmin || currentUserRole === 'Manager';
+  const canIssue = canReview || currentUserRole === 'WarehouseStaff';
+  const icon = (cls, glyph, title, action, id) =>
+    `<button type="button" title="${title}" aria-label="${title}" class="action-btn ${cls} !px-2" data-sr-action="${action}" data-sr-id="${id}"><span class="material-symbols-outlined text-base">${glyph}</span></button>`;
+  const actions = (r) => {
+    const b = [];
+    if (r.status === 'Submitted' && canReview) {
+      if (isAdmin) b.push(icon('text-emerald-600', 'check_circle', 'Approve request', 'approve', r.id));
+      if (isAdmin) b.push(icon('text-red-600', 'cancel', 'Reject request', 'reject', r.id));
+    }
+    if (r.status === 'Approved' && canReview) b.push(icon('text-indigo-600', 'inventory', 'Review stock levels', 'review', r.id));
+    if (r.status === 'Inventory Review' && canReview) {
+      b.push(icon('text-emerald-600', 'output', 'Stock sufficient — issue items', 'issue', r.id));
+      b.push(icon('text-amber-600', 'shopping_cart', 'Stock insufficient — send to procurement', 'procure', r.id));
+    }
+    if ((r.status === 'Approved' || r.status === 'Partially Issued') && canIssue && r.status !== 'Inventory Review') b.push(icon('text-emerald-600', 'output', 'Issue stock', 'issue', r.id));
+    if (r.status === 'In Procurement') b.push('<span class="text-xs text-amber-600 font-semibold">Awaiting delivery</span>');
+    return b.join(' ') || '<span class="text-xs text-on-surface-variant">—</span>';
+  };
   const render = () => {
     const q = (search?.value || '').toLowerCase().trim();
     const days = parseInt(rangeSel?.value || '0', 10);
     const cutoff = days ? Date.now() - days * 86400000 : 0;
     const filtered = reqs.filter(r =>
-      (!q || [r.req_number, r.title, r.status, r.department, r.purpose].some(v => (v || '').toLowerCase().includes(q)))
+      (!q || [r.request_number, r.title, r.status, r.department, r.requesting_employee].some(v => (v || '').toLowerCase().includes(q)))
       && (!cutoff || (r.created_at && new Date(r.created_at).getTime() >= cutoff)));
     const pages = Math.max(1, Math.ceil(filtered.length / INV_REQ_PAGE));
     if (invReqPage > pages) invReqPage = pages;
     const slice = filtered.slice((invReqPage - 1) * INV_REQ_PAGE, invReqPage * INV_REQ_PAGE);
     const tbl = $('#invRequisitionsTable');
     if (!tbl) return;
-    // Spec §Requisitions: Purpose is the primary column (not Title); actions
-    // stay inline — Approve (Admin/Manager), Reject (Admin-only, API-enforced).
     tbl.innerHTML = slice.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-      <th class="text-left p-4">Req ID</th><th class="text-left p-4">Purpose</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Needed By</th><th class="text-left p-4">Actions</th></tr></thead>
-      <tbody>${slice.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td>
-      <td class="p-4 font-medium">${escapeHTML(r.purpose || r.title || '—')}</td>
-      <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
+      <th class="text-left p-4">Request #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Items</th><th class="text-left p-4">Department</th><th class="text-left p-4">Requester</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Actions</th></tr></thead>
+      <tbody>${slice.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.request_number)}</td>
+      <td class="p-4 font-medium">${escapeHTML(r.title)}<div class="text-xs text-on-surface-variant">${escapeHTML(r.purpose || '')}</div></td>
+      <td class="p-4 text-xs text-on-surface-variant">${(r.items || []).map(i => `${escapeHTML(i.item_name)} ×${i.quantity}`).join(', ') || '—'}</td>
+      <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td>
+      <td class="p-4 text-on-surface-variant">${escapeHTML(r.requesting_employee || r.created_by_name || '—')}</td>
       <td class="p-4">${escapeHTML(r.priority || 'Normal')}</td><td class="p-4">${reqStatusBadge(r.status)}</td>
-      <td class="p-4 text-on-surface-variant">${r.needed_by ? new Date(r.needed_by).toLocaleDateString() : '—'}</td>
-      <td class="p-4 whitespace-nowrap">${canDecide
-        ? `<button type="button" title="Approve" aria-label="Approve requisition" class="action-btn !px-2 text-emerald-600" data-req-action="approve" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">check_circle</span></button>` +
-          (isAdmin ? ` <button type="button" title="Reject" aria-label="Reject requisition" class="action-btn !px-2 text-red-600" data-req-action="reject" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">cancel</span></button>` : '')
-        : '<span class="text-xs text-on-surface-variant">—</span>'}</td></tr>`).join('')}</tbody></table>`
-      : '<div class="p-10 text-center text-on-surface-variant text-sm">No open requisitions — submit one with "New Requisition".</div>';
+      <td class="p-4 whitespace-nowrap">${actions(r)}</td></tr>`).join('')}</tbody></table>`
+      : '<div class="p-10 text-center text-on-surface-variant text-sm">No open supply requests — submit one with "New Requisition".</div>';
     const pager = $('#invReqPager');
-    if (pager) pager.innerHTML = filtered.length ? `<span class="text-xs text-slate-500">${filtered.length} requisitions · page ${invReqPage} of ${pages}</span>
+    if (pager) pager.innerHTML = filtered.length ? `<span class="text-xs text-slate-500">${filtered.length} requests · page ${invReqPage} of ${pages}</span>
       <div class="flex gap-2"><button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${invReqPage <= 1 ? 'disabled' : ''} onclick="invReqPage--; document.dispatchEvent(new CustomEvent('inv:req-render'))">Prev</button>
       <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${invReqPage >= pages ? 'disabled' : ''} onclick="invReqPage++; document.dispatchEvent(new CustomEvent('inv:req-render'))">Next</button></div>` : '';
   };
@@ -494,47 +513,72 @@ async function loadInvRequisitions() {
   render();
 }
 
-// Requisition Log (last tab): the full decided history — approved, rejected,
-// completed, and ordered requests with their lifecycle timestamps.
+// Requisition Log: fulfilled/decided supply requests merged with legacy
+// requisition records so no history is lost during the convergence period.
 let reqLogPage = 1;
 const REQ_LOG_PAGE = 15;
 async function loadReqLog() {
-  const res = await api('procurement/requisitions');
-  const reqs = (res.requisitions || []).filter(r => ['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered', 'Completed'].includes(r.status));
+  const [srRes, legRes] = await Promise.all([api('supply-requests').catch(() => ({})), api('procurement/requisitions').catch(() => ({}))]);
+  const rows = [
+    ...(srRes.requests || []).filter(r => SR_DONE.includes(r.status)).map(r => ({
+      num: r.request_number, label: r.title, who: r.requesting_employee || r.created_by_name,
+      items: (r.items || []).map(i => `${i.item_name} ×${i.quantity}`).join(', '),
+      status: r.status, at: r.updated_at || r.created_at })),
+    ...(legRes.requisitions || []).filter(r => ['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered', 'Completed'].includes(r.status)).map(r => ({
+      num: r.req_number, label: r.purpose || r.title, who: r.created_by_name,
+      items: 'legacy record', status: r.status, at: r.created_at })),
+  ].sort((a, b) => new Date(b.at) - new Date(a.at));
   const rangeSel = $('#reqLogRange');
   const days = parseInt(rangeSel?.value || '0', 10);
   const cutoff = days ? Date.now() - days * 86400000 : 0;
-  const filtered = reqs.filter(r => !cutoff || (r.created_at && new Date(r.created_at).getTime() >= cutoff));
+  const filtered = rows.filter(r => !cutoff || (r.at && new Date(r.at).getTime() >= cutoff));
   const pages = Math.max(1, Math.ceil(filtered.length / REQ_LOG_PAGE));
   if (reqLogPage > pages) reqLogPage = pages;
   const slice = filtered.slice((reqLogPage - 1) * REQ_LOG_PAGE, reqLogPage * REQ_LOG_PAGE);
   const el = $('#reqLogTable');
   if (!el) return;
   el.innerHTML = slice.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Req ID</th><th class="text-left p-4">Purpose</th><th class="text-left p-4">Requested By</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Status</th><th class="text-left p-4">Decided</th></tr></thead>
-    <tbody>${slice.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td>
-    <td class="p-4 font-medium">${escapeHTML(r.purpose || r.title || '—')}</td>
-    <td class="p-4 text-on-surface-variant">${escapeHTML(r.created_by_name || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
+    <th class="text-left p-4">Request #</th><th class="text-left p-4">Request</th><th class="text-left p-4">Items</th><th class="text-left p-4">Requested By</th><th class="text-left p-4">Status</th><th class="text-left p-4">Decided</th></tr></thead>
+    <tbody>${slice.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.num)}</td>
+    <td class="p-4 font-medium">${escapeHTML(r.label || '—')}</td>
+    <td class="p-4 text-xs text-on-surface-variant">${escapeHTML(r.items || '—')}</td>
+    <td class="p-4 text-on-surface-variant">${escapeHTML(r.who || '—')}</td>
     <td class="p-4">${reqStatusBadge(r.status)}</td>
-    <td class="p-4 text-on-surface-variant text-xs">${r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</td></tr>`).join('')}</tbody></table>`
-    : '<div class="p-10 text-center text-on-surface-variant text-sm">No decided requisitions yet — approved and rejected requests land here.</div>';
+    <td class="p-4 text-on-surface-variant text-xs">${r.at ? new Date(r.at).toLocaleString() : '—'}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="p-10 text-center text-on-surface-variant text-sm">No decided requests yet — issued and rejected requests land here.</div>';
   const pager = $('#reqLogPager');
   if (pager) pager.innerHTML = filtered.length ? `<span class="text-xs text-slate-500">${filtered.length} records · page ${reqLogPage} of ${pages}</span>
     <div class="flex gap-2"><button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${reqLogPage <= 1 ? 'disabled' : ''} onclick="reqLogPage--; loadReqLog()">Prev</button>
     <button class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold disabled:opacity-40" ${reqLogPage >= pages ? 'disabled' : ''} onclick="reqLogPage++; loadReqLog()">Next</button></div>` : '';
 }
 
-// New Requisition modal — purpose checkboxes plus a custom text box (§5).
+// New supply-request modal — itemized rows + purpose checkboxes.
 const reqModal = $('#reqModal');
 $('#newRequisition')?.addEventListener('click', () => {
   $('#reqForm')?.reset();
   $('#reqPurposeCustom')?.classList.add('hidden');
+  const itemsBody = $('#reqItemsBody');
+  if (itemsBody) itemsBody.querySelectorAll('.req-item-row:not(:first-child)').forEach(r => r.remove());
   showDialog(reqModal);
 });
 document.addEventListener('change', (e) => {
   if (e.target.name === 'reqPurpose' && e.target.value === 'Other') {
     $('#reqPurposeCustom')?.classList.remove('hidden');
   }
+});
+$('#reqAddItem')?.addEventListener('click', () => {
+  const body = $('#reqItemsBody');
+  if (!body) return;
+  const row = body.querySelector('.req-item-row').cloneNode(true);
+  row.querySelector('input[name="req_item_name"]').value = '';
+  row.querySelector('input[name="req_item_qty"]').value = 1;
+  body.appendChild(row);
+});
+document.addEventListener('click', (e) => {
+  const del = e.target.closest('.req-item-del');
+  if (!del) return;
+  const rows = document.querySelectorAll('#reqItemsBody .req-item-row');
+  if (rows.length > 1) del.closest('.req-item-row').remove();
 });
 $('#reqForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -543,45 +587,123 @@ $('#reqForm')?.addEventListener('submit', async (e) => {
   const custom = (form.querySelector('#reqPurposeCustom')?.value || '').trim();
   let purpose = purposes.filter((p) => p !== 'Other').join(', ');
   if (purposes.includes('Other')) purpose = (purpose ? purpose + ', ' : '') + 'Other' + (custom ? `: ${custom}` : '');
+  const items = [...form.querySelectorAll('.req-item-row')].map((row) => ({
+    item_name: row.querySelector('input[name="req_item_name"]').value.trim(),
+    quantity: parseInt(row.querySelector('input[name="req_item_qty"]').value, 10) || 1,
+  })).filter((i) => i.item_name !== '');
+  if (!items.length) { alert('Add at least one item to the request.'); return; }
   const f = Object.fromEntries(new FormData(form).entries());
-  const res = await fetch('/api/v1/procurement/requisitions', {
+  const res = await fetch('/api/v1/supply-requests', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       title: f.title, department: f.department, purpose: purpose || null,
-      description: f.description, estimated_cost: f.estimated_cost,
-      priority: f.priority, needed_by: f.needed_by || null,
+      requesting_employee: f.requesting_employee || null,
+      priority: f.priority, needed_by: f.needed_by || null, items,
     }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) { alert(data.error || 'Unable to submit requisition.'); return; }
+  if (!res.ok) { alert(data.error || 'Unable to submit request.'); return; }
   closeDialog(reqModal);
   form.reset();
   invLoaded.requisitions = false;
   loadInvRequisitions();
 });
 
-// Approve / Reject controls — rendered only for Admins; the API enforces
-// the exclusive authority server-side (403 for non-Admin status changes).
+// Approvals tab: supply requests awaiting an Admin decision.
 async function loadInvApprovals() {
-  const res = await api('procurement/requisitions');
-  const pending = (res.requisitions || []).filter(r => !['Approved', 'Rejected', 'Closed', 'Cancelled', 'Ordered', 'Completed'].includes(r.status));
+  const res = await api('supply-requests').catch(() => ({}));
+  const pending = (res.requests || []).filter(r => r.status === 'Submitted');
   const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
-  const isManager = currentUserRole === 'Manager';
   const el = $('#invApprovalsTable');
   if (!el) return;
   el.innerHTML = pending.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Department</th><th class="text-left p-4">Est. Cost</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Requested</th><th class="text-left p-4">Action</th></tr></thead>
-    <tbody>${pending.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.req_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
-    <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td><td class="p-4 font-mono">${r.estimated_cost != null ? money(r.estimated_cost) : '—'}</td>
+    <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Items</th><th class="text-left p-4">Department</th><th class="text-left p-4">Requester</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Requested</th><th class="text-left p-4">Action</th></tr></thead>
+    <tbody>${pending.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.request_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
+    <td class="p-4 text-xs text-on-surface-variant">${(r.items || []).map(i => `${escapeHTML(i.item_name)} ×${i.quantity}`).join(', ') || '—'}</td>
+    <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td>
+    <td class="p-4 text-on-surface-variant">${escapeHTML(r.requesting_employee || '—')}</td>
     <td class="p-4">${escapeHTML(r.priority || 'Normal')}</td>
-    <td class="p-4">${reqStatusBadge(r.status)}</td>
     <td class="p-4 text-on-surface-variant">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
-    <td class="p-4 whitespace-nowrap">${(isAdmin || isManager)
-      ? `<button type="button" title="Approve" aria-label="Approve requisition" class="action-btn !px-2 text-emerald-600" data-req-action="approve" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">check_circle</span></button>` +
-        (isAdmin ? ` <button type="button" title="Reject" aria-label="Reject requisition" class="action-btn !px-2 text-red-600" data-req-action="reject" data-req-id="${r.id}"><span class="material-symbols-outlined text-base">cancel</span></button>` : '')
-      : '<span class="text-xs text-on-surface-variant">Manager review required</span>'}</td></tr>`).join('')}</tbody></table>`
-    : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending approvals — all requisitions have been decided.</div>';
+    <td class="p-4 whitespace-nowrap">${isAdmin
+      ? `<button type="button" title="Approve" aria-label="Approve request" class="action-btn !px-2 text-emerald-600" data-sr-action="approve" data-sr-id="${r.id}"><span class="material-symbols-outlined text-base">check_circle</span></button>
+         <button type="button" title="Reject" aria-label="Reject request" class="action-btn !px-2 text-red-600" data-sr-action="reject" data-sr-id="${r.id}"><span class="material-symbols-outlined text-base">cancel</span></button>`
+      : '<span class="text-xs text-on-surface-variant">Admin review required</span>'}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending approvals — all requests have been decided.</div>';
 }
+
+// Stock-issue modal: pick real warehouse serials for each request line.
+async function openIssueModal(requestId) {
+  const d = await api(`supply-requests/${requestId}`).catch(() => null);
+  if (!d || !d.id) { alert('Could not load the request.'); return; }
+  const lines = (d.items || []).filter(i => (i.quantity - i.quantity_issued) > 0);
+  if (!lines.length) { alert('All items on this request have already been issued.'); return; }
+  $('#issueRequestId').value = d.id;
+  $('#issueRequestInfo').innerHTML = `<b>${escapeHTML(d.request_number)}</b> — ${escapeHTML(d.title)}<br><span class="text-xs text-on-surface-variant">For ${escapeHTML(d.requesting_employee || 'staff')} · ${escapeHTML(d.department || '—')}</span>`;
+  $('#issueItemsBody').innerHTML = lines.map((i) => `
+    <div class="border border-outline-variant/60 rounded-xl p-3" data-req-item="${i.id}" data-item-name="${escapeHTML(i.item_name)}">
+      <div class="text-sm font-semibold">${escapeHTML(i.item_name)} <span class="text-xs text-on-surface-variant font-normal">— ${i.quantity - i.quantity_issued} still needed</span></div>
+      <input class="issue-serials w-full mt-2 px-3.5 py-2 border border-outline-variant rounded-lg text-sm" placeholder="QR serials, comma-separated (e.g. CHAIR-001, CHAIR-002)">
+    </div>`).join('');
+  showDialog($('#issueModal'));
+}
+
+$('#issueForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const reqId = $('#issueRequestId').value;
+  const items = [...document.querySelectorAll('#issueItemsBody [data-req-item]')].map((row) => ({
+    request_item_id: parseInt(row.dataset.reqItem, 10),
+    serials: (row.querySelector('.issue-serials').value || '').split(',').map((s) => s.trim()).filter(Boolean),
+  })).filter((i) => i.serials.length);
+  if (!items.length) { alert('Enter at least one serial to issue.'); return; }
+  const res = await fetch(`/api/v1/supply-requests/${reqId}/issue`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, notes: $('#issueNotes')?.value || '' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || 'Issuance failed.'); return; }
+  closeDialog($('#issueModal'));
+  invLoaded.requisitions = false; invLoaded.approvals = false; invLoaded.reqlog = false; invLoaded.assets = false;
+  loadInvRequisitions();
+  if (data.line_errors && data.line_errors.length) alert(`Issued ${data.issued.length} unit(s) as ${data.issuance_number}.\nSkipped:\n${data.line_errors.join('\n')}`);
+});
+
+// Supply-request action dispatcher — all status moves go through the
+// server-side state machine.
+document.addEventListener('click', async (event) => {
+  const btn = event.target.closest('[data-sr-action][data-sr-id]');
+  if (!btn) return;
+  const action = btn.dataset.srAction;
+  const id = btn.dataset.srId;
+  if (action === 'issue') { openIssueModal(id); return; }
+  if (action === 'review') {
+    const sc = await api(`supply-requests/${id}/stock-check`).catch(() => null);
+    if (!sc || !sc.lines) { alert(sc && sc.error ? sc.error : 'Could not check stock.'); return; }
+    alert(sc.lines.map((l) => `${l.item_name}: need ${l.needed}, in stock ${l.in_stock} ${l.sufficient ? '✓' : '✗'}`).join('\n')
+      + (sc.sufficient ? '\n\nAll lines are in stock — this request can be issued.' : '\n\nSome lines are short — send this request to procurement.'));
+    return;
+  }
+  const map = {
+    approve: { status: 'Approved', label: 'Approve' },
+    reject: { status: 'Rejected', label: 'Reject' },
+    review_go: { status: 'Inventory Review', label: 'Send to inventory review' },
+    procure: { status: 'In Procurement', label: 'Send to procurement' },
+  };
+  const step = map[action];
+  if (!step) return;
+  const ok = await (window.scimConfirm ? scimConfirm({
+    title: `${step.label} request?`,
+    message: action === 'procure' ? 'The request moves to Procurement — raise a PO against it there.' : `This marks the request as ${step.status}.`,
+    confirmLabel: step.label, icon: 'check_circle', danger: action === 'reject',
+  }) : Promise.resolve(true));
+  if (!ok) return;
+  const res = await fetch(`/api/v1/supply-requests/${id}/status`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: step.status }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || `Unable to ${step.label.toLowerCase()} request.`); return; }
+  invLoaded.approvals = false; invLoaded.requisitions = false; invLoaded.reqlog = false;
+  loadInvApprovals(); loadInvRequisitions();
+});
 
 // Discard a pending (unscanned) generated serial — never reached active stock.
 document.addEventListener('click', async (event) => {

@@ -10,3 +10,8 @@ RewriteRule ^api/ api/index.php [L,QSA]
 <FilesMatch "^(config\.php|config\.example\.php|init\.sql)$">
   Require all denied
 </FilesMatch>
+
+# Never serve SQL dumps or backups over HTTP.
+<FilesMatch "\.(sql|sql\.gz|sql\.zip|bak|dump)$">
+  Require all denied
+</FilesMatch>

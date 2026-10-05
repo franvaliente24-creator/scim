@@ -289,16 +289,18 @@ const updateScanExtraFields = () => {
     'Assign to Staff': 'Employee name (validated against Employee Info)…',
     'Move to Zone': 'Zone or zone-row (e.g. B or B-02)…',
     'PO Receipt': 'PO number — required (e.g. PO-2026-001)…',
+    'Report Damage': 'Damage note (e.g. cracked screen, water damage)…',
   };
   if (labels[currentAction]) {
     wrap.classList.remove('hidden');
     input.placeholder = labels[currentAction];
+  } else {
+    wrap.classList.add('hidden');
   }
   if (currentAction === 'Move to Zone') {
     input.setAttribute('list', 'zoneSuggestions');
   } else {
     input.removeAttribute('list');
-    wrap.classList.add('hidden');
   }
 };
 modeButtons.forEach((btn) => {
@@ -396,6 +398,7 @@ if (scanNow) {
     if (currentAction === 'Assign to Staff') payload.assignee = extraVal;
     if (currentAction === 'Move to Zone') payload.zone = extraVal;
     if (currentAction === 'PO Receipt') payload.po_number = extraVal;
+    if (currentAction === 'Report Damage') payload.reason = extraVal;
     if (currentAction === 'Check-In' && extraVal) payload.zone = extraVal;
 
     try {

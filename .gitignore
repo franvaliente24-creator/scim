@@ -1,2 +1,6 @@
 config.php
 .env
+*.sql
+*.dump
+*.bak
+scim_db-*.sql
