@@ -18,7 +18,7 @@ register_shutdown_function(function () {
 // Bump whenever schema changes are added to migrate() — the gate uses it to
 // decide whether the (idempotent) migration set must re-run. Declared before
 // the CLI hook because `const` is a runtime statement, not hoisted.
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 // CLI deploy hook — `php api/index.php migrate [--force]` applies schema
 // migrations at deploy time so no HTTP request ever pays the cost.
@@ -471,13 +471,27 @@ function migrate(PDO $d, bool $force = false): void {
     }
     
     // Insert default roles
-    $d->exec("INSERT IGNORE INTO roles(name) VALUES ('Admin'),('Manager'),('WarehouseStaff')");
+    $d->exec("INSERT IGNORE INTO roles(name) VALUES ('Admin'),('Manager'),('WarehouseStaff'),('Staff')");
     
     // Create default admin user if not exists
     if (!(int)$d->query('SELECT COUNT(*) FROM users')->fetchColumn()) {
         $q = $d->prepare('INSERT INTO users(full_name, email, password_hash, role) VALUES(?, ?, ?, ?)');
         $q->execute(['System Administrator', 'admin@greatsolomon.test', password_hash('Welcome123!', PASSWORD_DEFAULT), 'Admin']);
     }
+
+    // Standalone-mode demo accounts (idempotent, keyed by email). The SCIM
+    // Manager acts as the all-department approver until HRIS integration
+    // feeds real department_approvers mappings; SCIM Staff exercises the
+    // request-entry side of the portal.
+    $seedUser = function (string $name, string $email, string $role) use ($d): void {
+        $chk = $d->prepare('SELECT id FROM users WHERE email = ?');
+        $chk->execute([$email]);
+        if ($chk->fetch()) return;
+        $q = $d->prepare('INSERT INTO users(full_name, email, password_hash, role) VALUES(?, ?, ?, ?)');
+        $q->execute([$name, $email, password_hash('Welcome123!', PASSWORD_DEFAULT), $role]);
+    };
+    $seedUser('SCIM Manager', 'manager@greatsolomon.test', 'Manager');
+    $seedUser('SCIM Staff', 'staff@greatsolomon.test', 'Staff');
     
     // Zone categorization column must exist before the seed below writes it.
     try { $d->exec("ALTER TABLE warehouse_zones ADD COLUMN category VARCHAR(60) NULL"); } catch (Exception $e) {}
@@ -1479,12 +1493,23 @@ if ($method === 'POST' && $path === '/api/v1/auth/login') {
 
     // Respond instantly, then send the email in the background so the
     // user reaches the OTP page without waiting for SMTP.
-    $payload = json_encode([
+    $loginPayload = [
         'requires_2fa' => true,
         'message' => 'Verification code sent to your email',
         'email' => $u['email'],
         'ticket' => $ticket,
-    ]);
+    ];
+    // Dev fallback: with no authenticated SMTP configured AND served from
+    // localhost, the OTP would be undeliverable — surface it so the workflow
+    // can still be demonstrated. Never fires when SMTP creds exist or the
+    // site is reached by a real hostname (production).
+    $sc = smtpConfig();
+    $localHost = in_array($_SERVER['SERVER_NAME'] ?? '', ['127.0.0.1', 'localhost', '::1'], true);
+    if ($localHost && (empty($sc['user']) || empty($sc['pass']))) {
+        $loginPayload['dev_otp'] = $otp;
+        $loginPayload['message'] = 'Verification code (dev mode — no SMTP configured)';
+    }
+    $payload = json_encode($loginPayload);
     http_response_code(200);
     header('Content-Length: ' . strlen($payload));
     echo $payload;
@@ -2595,7 +2620,13 @@ if ($method === 'POST' && $path === '/api/v1/mfa/resend-otp') {
       ->execute([$newTicket, (int)$user['id'], $otp, time() + 300]);
     
     // Respond first, send email in background
-    $payload = json_encode(['ok' => true, 'ticket' => $newTicket]);
+    $resendPayload = ['ok' => true, 'ticket' => $newTicket];
+    $sc = smtpConfig();
+    if (in_array($_SERVER['SERVER_NAME'] ?? '', ['127.0.0.1', 'localhost', '::1'], true)
+        && (empty($sc['user']) || empty($sc['pass']))) {
+        $resendPayload['dev_otp'] = $otp;
+    }
+    $payload = json_encode($resendPayload);
     http_response_code(200);
     header('Content-Length: ' . strlen($payload));
     echo $payload;
@@ -3043,8 +3074,10 @@ $SR_DEPT_STATUSES = ['Submitted', 'Under Department Review'];
 $SR_SC_ROLES = ['Admin', 'Manager', 'WarehouseStaff'];
 
 // Is this user an authorized approver for the given department? Driven by
-// the department_approvers mapping (future HRIS-owned); falls back to a
-// Manager whose own department matches when no mapping exists.
+// the department_approvers mapping (future HRIS-owned). In standalone SCIM
+// mode — no approver mapping for that department yet — any Manager acts as
+// the authorized approver. Once a department has mapped approvers (e.g. an
+// HRIS-fed department head), only they can decide.
 function isDeptApprover(PDO $d, array $u, ?string $dept): bool {
     if ($dept === null || $dept === '') return false;
     $cnt = $d->prepare('SELECT COUNT(*) FROM department_approvers WHERE department = ? AND is_active = 1');
@@ -3055,7 +3088,8 @@ function isDeptApprover(PDO $d, array $u, ?string $dept): bool {
         $q->execute([$dept, $u['id']]);
         return (bool)$q->fetchColumn();
     }
-    return $u['role'] === 'Manager' && strcasecmp(trim($u['department'] ?? ''), trim($dept)) === 0;
+    // Standalone mode: the SCIM Manager validates all departments.
+    return $u['role'] === 'Manager';
 }
 
 if ($method === 'GET' && $path === '/api/v1/supply-requests') {
@@ -3070,10 +3104,16 @@ if ($method === 'GET' && $path === '/api/v1/supply-requests') {
         $depts = $d->prepare('SELECT department FROM department_approvers WHERE user_id = ? AND is_active = 1');
         $depts->execute([$u['id']]);
         $names = $depts->fetchAll(PDO::FETCH_COLUMN);
-        if (!$names && $u['role'] === 'Manager' && trim($u['department'] ?? '') !== '') $names = [trim($u['department'])];
-        if (!$names) reply(['requests' => []]);
-        $where = 'sr.department IN (' . implode(',', array_fill(0, count($names), '?')) . ')';
-        $params = $names;
+        if (!$names && $u['role'] === 'Manager') {
+            // Standalone mode: the SCIM Manager approves every department —
+            // show the department-stage queue (anything awaiting decision).
+            $where = "sr.status IN ('" . implode("','", $SR_DEPT_STATUSES) . "')";
+        } elseif (!$names) {
+            reply(['requests' => []]);
+        } else {
+            $where = 'sr.department IN (' . implode(',', array_fill(0, count($names), '?')) . ')';
+            $params = $names;
+        }
     } elseif ($scope === 'incoming') {
         auth($SR_SC_ROLES);
         $where = "sr.status IN ('" . implode("','", $SR_SC_STATUSES) . "')";

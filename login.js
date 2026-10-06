@@ -97,6 +97,10 @@ form.onsubmit = async (e) => {
       if (window.scimSetTicket) scimSetTicket(data.ticket || '');
       sessionStorage.setItem('mfa_email', data.email || '');
       sessionStorage.setItem('otp_issued_at', Date.now().toString());
+      // Local demo mode (no SMTP): the API returns the code so the flow can
+      // be demonstrated without a mailbox.
+      if (data.dev_otp) sessionStorage.setItem('dev_otp', data.dev_otp);
+      else sessionStorage.removeItem('dev_otp');
       window.location.href = 'otp.html';
       return;
     }

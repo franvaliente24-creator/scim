@@ -16,6 +16,21 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
 
+  // Dev/demo hint: when the API returned the code inline (no SMTP
+  // configured, localhost only), show it so the login flow is demonstrable.
+  const devHint = document.getElementById('otpDevHint');
+  function showDevHint(code) {
+    if (!devHint) return;
+    if (code) {
+      devHint.style.display = '';
+      devHint.textContent = 'Dev mode — no email configured. Your code is: ' + code;
+    } else {
+      devHint.style.display = 'none';
+      devHint.textContent = '';
+    }
+  }
+  showDevHint(sessionStorage.getItem('dev_otp'));
+
   // ---- Real-time 5-minute countdown -------------------------------------
   // Driven by the timestamp captured at login so a page refresh can't
   // reset the window. When it hits zero the code is dead server-side too.
@@ -107,9 +122,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.scimSetToken) scimSetToken(data.token);
         if (window.scimClearTicket) scimClearTicket();
         sessionStorage.removeItem('otp_issued_at');
-        // Operations roles land on the warehouse — the system's main stage
+        sessionStorage.removeItem('dev_otp');
+        // Operations roles land on the warehouse — the system's main stage;
+        // requester-only accounts go straight to the supply-request portal
         const role = data.user?.role || '';
-        window.location.href = role === 'Warehouse Staff' ? 'warehousing.html' : 'index.html';
+        window.location.href = role === 'Warehouse Staff' ? 'warehousing.html'
+          : role === 'Staff' ? 'requests.html' : 'index.html';
         return;
       }
 
@@ -159,6 +177,10 @@ document.addEventListener('DOMContentLoaded', () => {
           if (!countdownTimer) countdownTimer = setInterval(tickCountdown, 1000);
           tickCountdown();
 
+          if (data.dev_otp) {
+            sessionStorage.setItem('dev_otp', data.dev_otp);
+            showDevHint(data.dev_otp);
+          }
           otpError.style.color = '#059669';
           otpError.textContent = 'A new code has been sent to your email.';
           setTimeout(() => { otpError.textContent = ''; otpError.style.color = ''; }, 5000);

@@ -156,7 +156,7 @@
                 <nav class="hub-tabs" aria-label="Inventory modules">
                     <button class="hub-tab-btn active" data-tab-target="ledger"><span class="material-symbols-outlined">inventory_2</span>Asset Inventory</button>
                     <button class="hub-tab-btn" data-tab-target="adjustments"><span class="material-symbols-outlined">tune</span>Pending Adjustments</button>
-                    <button class="hub-tab-btn" data-tab-target="requisitions"><span class="material-symbols-outlined">shopping_bag</span>Requisitions</button>
+                    <button class="hub-tab-btn" data-tab-target="requisitions"><span class="material-symbols-outlined">shopping_bag</span>Supply Requests</button>
                     <button class="hub-tab-btn" data-tab-target="approvals"><span class="material-symbols-outlined">fact_check</span>Incoming Requests</button>
                     <button class="hub-tab-btn" data-tab-target="valuation"><span class="material-symbols-outlined">request_quote</span>Valuation</button>
                     <button class="hub-tab-btn" data-tab-target="history"><span class="material-symbols-outlined">history</span>Activity Log</button>
@@ -227,20 +227,21 @@
                 </div>
                 </section>
 
-                <!-- Purchase Requisitions — submitted here, decided in Approvals -->
+                <!-- Supply Requests — tracking view of the supply_requests model;
+                     processing happens in Incoming Requests after approval -->
                 <section class="hub-section" data-tab="requisitions">
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30 flex flex-wrap justify-between items-center gap-3">
                         <div>
-                            <h2 class="text-lg font-headline font-semibold text-on-surface">Open Requisitions</h2>
-                            <p class="text-xs text-on-surface-variant mt-0.5">In-flight requests moving through the approval workflow.</p>
+                            <h2 class="text-lg font-headline font-semibold text-on-surface">Supply Requests</h2>
+                            <p class="text-xs text-on-surface-variant mt-0.5">All requests moving through department approval → inventory review → issuance.</p>
                         </div>
                         <div class="flex gap-3">
-                            <input type="text" id="invReqSearch" placeholder="Search requisitions..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            <input type="text" id="invReqSearch" placeholder="Search requests..." class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
                             <select id="invReqRange" class="px-4 py-2 border border-outline-variant rounded-lg text-sm focus:outline-none focus:border-primary">
                                 <option value="0">All time</option><option value="1">Today</option><option value="7">This week</option><option value="30">This month</option><option value="365">This year</option>
                             </select>
-                            <button type="button" id="newRequisition" class="btn-primary m-0 flex items-center gap-1.5 text-sm"><span class="material-symbols-outlined text-base">add</span>New Requisition</button>
+                            <button type="button" id="newRequisition" class="btn-primary m-0 flex items-center gap-1.5 text-sm"><span class="material-symbols-outlined text-base">add</span>New Supply Request</button>
                         </div>
                     </div>
                     <div id="invRequisitionsTable" class="data-table-container"></div>
@@ -312,7 +313,7 @@
         <div class="scanner">
             <button class="close" type="button" aria-label="Close" onclick="this.closest('dialog').close()">×</button>
             <h2>New Internal Supply Request</h2>
-            <p class="text-xs text-on-surface-variant -mt-1 mb-1">Record a supply request on behalf of a department — their authorized approver still validates it before fulfillment. Staff normally file these themselves via the Supply Requests portal.</p>
+            <p class="text-xs text-on-surface-variant -mt-1 mb-1">Record a supply request on behalf of a department — the SCIM Manager still validates it before fulfillment. Staff normally file these themselves via the Supply Requests portal.</p>
             <form id="reqForm" class="space-y-4">
                 <label class="block text-sm">Title
                     <input name="title" required class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. Replacement laptops for Finance">
