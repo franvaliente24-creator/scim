@@ -157,7 +157,7 @@
                     <button class="hub-tab-btn active" data-tab-target="ledger"><span class="material-symbols-outlined">inventory_2</span>Asset Inventory</button>
                     <button class="hub-tab-btn" data-tab-target="adjustments"><span class="material-symbols-outlined">tune</span>Pending Adjustments</button>
                     <button class="hub-tab-btn" data-tab-target="requisitions"><span class="material-symbols-outlined">shopping_bag</span>Requisitions</button>
-                    <button class="hub-tab-btn" data-tab-target="approvals"><span class="material-symbols-outlined">fact_check</span>Approvals</button>
+                    <button class="hub-tab-btn" data-tab-target="approvals"><span class="material-symbols-outlined">fact_check</span>Incoming Requests</button>
                     <button class="hub-tab-btn" data-tab-target="valuation"><span class="material-symbols-outlined">request_quote</span>Valuation</button>
                     <button class="hub-tab-btn" data-tab-target="history"><span class="material-symbols-outlined">history</span>Activity Log</button>
                     <button class="hub-tab-btn" data-tab-target="reqlog"><span class="material-symbols-outlined">receipt_long</span>Requisition Log</button>
@@ -252,8 +252,8 @@
                 <section class="hub-section" data-tab="approvals">
                 <div class="dashboard-card bg-white shadow-sm border border-slate-200">
                     <div class="px-6 py-4 border-b border-outline-variant/30">
-                        <h2 class="text-lg font-headline font-semibold text-on-surface">Requisition Approvals</h2>
-                        <p class="text-xs text-on-surface-variant mt-0.5">Pending requests awaiting managerial sign-off.</p>
+                        <h2 class="text-lg font-headline font-semibold text-on-surface">Incoming Supply Requests</h2>
+                        <p class="text-xs text-on-surface-variant mt-0.5">Department-approved requests awaiting inventory review, issuance, or procurement.</p>
                     </div>
                     <div id="invApprovalsTable" class="data-table-container"></div>
                 </div>
@@ -312,7 +312,7 @@
         <div class="scanner">
             <button class="close" type="button" aria-label="Close" onclick="this.closest('dialog').close()">×</button>
             <h2>New Internal Supply Request</h2>
-            <p class="text-xs text-on-surface-variant -mt-1 mb-1">Request items <b>already held in company inventory</b>. If stock is insufficient, the request routes to Procurement — it does not create a supplier order by itself.</p>
+            <p class="text-xs text-on-surface-variant -mt-1 mb-1">Record a supply request on behalf of a department — their authorized approver still validates it before fulfillment. Staff normally file these themselves via the Supply Requests portal.</p>
             <form id="reqForm" class="space-y-4">
                 <label class="block text-sm">Title
                     <input name="title" required class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. Replacement laptops for Finance">
@@ -353,7 +353,10 @@
                     <label class="block text-sm">Needed By
                         <input name="needed_by" type="date" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm">
                     </label>
-                    <label class="block text-sm col-span-2">Requesting Employee
+                    <label class="block text-sm">Employee ID
+                        <input name="employee_id" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="e.g. EMP-0042">
+                    </label>
+                    <label class="block text-sm">Requesting Employee
                         <input name="requesting_employee" class="w-full mt-1 px-3.5 py-2.5 border border-outline-variant rounded-xl text-sm" placeholder="Defaults to your account name">
                     </label>
                 </div>
@@ -455,8 +458,8 @@
     <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
     <script src="token.js?v=1"></script>
     <script src="permissions.js?v=11"></script>
-    <script src="layout.js?v=12"></script>
-    <script src="inventory.js?v=18"></script>
+    <script src="layout.js?v=13"></script>
+    <script src="inventory.js?v=19"></script>
     <script src="inactivity.js?v=3"></script>
 </body>
 </html>

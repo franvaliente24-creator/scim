@@ -438,11 +438,13 @@ async function loadAdjustments() {
 }
 
 function reqStatusBadge(s) {
-  const cls = ['Approved', 'Completed', 'Inventory Approved', 'Issued'].includes(s) ? 'bg-emerald-100 text-emerald-700'
+  const cls = ['Approved', 'Completed', 'Inventory Approved', 'Issued', 'For Issuance'].includes(s) ? 'bg-emerald-100 text-emerald-700'
     : s === 'Rejected' || s === 'Cancelled' ? 'bg-red-100 text-red-700'
     : s === 'Ordered' || s === 'Closed' || s === 'In Procurement' ? 'bg-blue-100 text-blue-700'
     : s === 'Inventory Review' ? 'bg-indigo-100 text-indigo-700'
+    : s === 'Under Department Review' ? 'bg-amber-100 text-amber-700'
     : s === 'Partially Issued' ? 'bg-purple-100 text-purple-700'
+    : s === 'Draft' ? 'bg-slate-100 text-slate-500'
     : 'bg-amber-100 text-amber-700';
   return `<span class="px-2 py-1 rounded text-xs font-semibold ${cls}">${escapeHTML(s || 'Submitted')}</span>`;
 }
@@ -453,8 +455,9 @@ function reqStatusBadge(s) {
 // Decided/fulfilled requests flow to the Requisition Log tab.
 let invReqPage = 1;
 const INV_REQ_PAGE = 10;
-const SR_OPEN = ['Submitted', 'Approved', 'Inventory Review', 'In Procurement', 'Partially Issued'];
+const SR_OPEN = ['Submitted', 'Under Department Review', 'Approved', 'Inventory Review', 'For Issuance', 'In Procurement', 'Partially Issued'];
 const SR_DONE = ['Issued', 'Closed', 'Rejected', 'Cancelled'];
+const SR_DEPT_STAGE = ['Submitted', 'Under Department Review'];
 async function loadInvRequisitions() {
   const res = await api('supply-requests').catch(() => ({}));
   const reqs = (res.requests || []).filter(r => SR_OPEN.includes(r.status));
@@ -466,17 +469,19 @@ async function loadInvRequisitions() {
   const icon = (cls, glyph, title, action, id) =>
     `<button type="button" title="${title}" aria-label="${title}" class="action-btn ${cls} !px-2" data-sr-action="${action}" data-sr-id="${id}"><span class="material-symbols-outlined text-base">${glyph}</span></button>`;
   const actions = (r) => {
-    const b = [];
-    if (r.status === 'Submitted' && canReview) {
-      if (isAdmin) b.push(icon('text-emerald-600', 'check_circle', 'Approve request', 'approve', r.id));
-      if (isAdmin) b.push(icon('text-red-600', 'cancel', 'Reject request', 'reject', r.id));
+    // Department-stage requests are the department approver's job — supply
+    // chain only receives them once Approved.
+    if (SR_DEPT_STAGE.includes(r.status)) {
+      return '<span class="text-xs text-amber-600 font-semibold">Awaiting dept approval</span>';
     }
-    if (r.status === 'Approved' && canReview) b.push(icon('text-indigo-600', 'inventory', 'Review stock levels', 'review', r.id));
+    const b = [];
+    if (r.status === 'Approved' && canReview) b.push(icon('text-indigo-600', 'inventory', 'Check stock & send to inventory review', 'review', r.id));
     if (r.status === 'Inventory Review' && canReview) {
-      b.push(icon('text-emerald-600', 'output', 'Stock sufficient — issue items', 'issue', r.id));
+      b.push(icon('text-indigo-600', 'inventory', 'Re-check stock levels', 'review', r.id));
+      b.push(icon('text-emerald-600', 'output', 'Stock sufficient — release for issuance', 'forissue', r.id));
       b.push(icon('text-amber-600', 'shopping_cart', 'Stock insufficient — send to procurement', 'procure', r.id));
     }
-    if ((r.status === 'Approved' || r.status === 'Partially Issued') && canIssue && r.status !== 'Inventory Review') b.push(icon('text-emerald-600', 'output', 'Issue stock', 'issue', r.id));
+    if ((r.status === 'For Issuance' || r.status === 'Partially Issued') && canIssue) b.push(icon('text-emerald-600', 'output', 'Issue stock', 'issue', r.id));
     if (r.status === 'In Procurement') b.push('<span class="text-xs text-amber-600 font-semibold">Awaiting delivery</span>');
     return b.join(' ') || '<span class="text-xs text-on-surface-variant">—</span>';
   };
@@ -597,7 +602,7 @@ $('#reqForm')?.addEventListener('submit', async (e) => {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       title: f.title, department: f.department, purpose: purpose || null,
-      requesting_employee: f.requesting_employee || null,
+      requesting_employee: f.requesting_employee || null, employee_id: f.employee_id || null,
       priority: f.priority, needed_by: f.needed_by || null, items,
     }),
   });
@@ -609,26 +614,41 @@ $('#reqForm')?.addEventListener('submit', async (e) => {
   loadInvRequisitions();
 });
 
-// Approvals tab: supply requests awaiting an Admin decision.
+// Incoming Requests tab: the supply-chain queue — requests that cleared
+// department approval and now need inventory review, issuance, or
+// procurement. Business-need validation happened upstream (dept approver).
 async function loadInvApprovals() {
-  const res = await api('supply-requests').catch(() => ({}));
-  const pending = (res.requests || []).filter(r => r.status === 'Submitted');
+  const res = await api('supply-requests?scope=incoming').catch(() => ({}));
+  const rows = res.requests || [];
   const isAdmin = typeof currentUserRole === 'undefined' || currentUserRole === 'Admin';
+  const canReview = isAdmin || currentUserRole === 'Manager';
+  const canIssue = canReview || currentUserRole === 'WarehouseStaff';
+  const icon = (cls, glyph, title, action, id) =>
+    `<button type="button" title="${title}" aria-label="${title}" class="action-btn ${cls} !px-2" data-sr-action="${action}" data-sr-id="${id}"><span class="material-symbols-outlined text-base">${glyph}</span></button>`;
+  const act = (r) => {
+    const b = [];
+    if (r.status === 'Approved' && canReview) b.push(icon('text-indigo-600', 'inventory', 'Check stock & send to inventory review', 'review', r.id));
+    if (r.status === 'Inventory Review' && canReview) {
+      b.push(icon('text-indigo-600', 'inventory', 'Re-check stock levels', 'review', r.id));
+      b.push(icon('text-emerald-600', 'output', 'Release for issuance', 'forissue', r.id));
+      b.push(icon('text-amber-600', 'shopping_cart', 'Send to procurement', 'procure', r.id));
+    }
+    if ((r.status === 'For Issuance' || r.status === 'Partially Issued') && canIssue) b.push(icon('text-emerald-600', 'output', 'Issue stock', 'issue', r.id));
+    if (r.status === 'In Procurement') return '<span class="text-xs text-amber-600 font-semibold">Awaiting delivery</span>';
+    return b.join(' ') || '<span class="text-xs text-on-surface-variant">—</span>';
+  };
   const el = $('#invApprovalsTable');
   if (!el) return;
-  el.innerHTML = pending.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
-    <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Items</th><th class="text-left p-4">Department</th><th class="text-left p-4">Requester</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Requested</th><th class="text-left p-4">Action</th></tr></thead>
-    <tbody>${pending.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.request_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
+  el.innerHTML = rows.length ? `<table class="w-full text-sm data-table"><thead class="bg-slate-50 border-b border-slate-200"><tr>
+    <th class="text-left p-4">Req #</th><th class="text-left p-4">Title</th><th class="text-left p-4">Items</th><th class="text-left p-4">Department</th><th class="text-left p-4">Requester</th><th class="text-left p-4">Priority</th><th class="text-left p-4">Status</th><th class="text-left p-4">Action</th></tr></thead>
+    <tbody>${rows.map(r => `<tr class="border-b border-slate-50"><td class="p-4 font-mono text-xs">${escapeHTML(r.request_number)}</td><td class="p-4 font-medium">${escapeHTML(r.title)}</td>
     <td class="p-4 text-xs text-on-surface-variant">${(r.items || []).map(i => `${escapeHTML(i.item_name)} ×${i.quantity}`).join(', ') || '—'}</td>
     <td class="p-4 text-on-surface-variant">${escapeHTML(r.department || '—')}</td>
     <td class="p-4 text-on-surface-variant">${escapeHTML(r.requesting_employee || '—')}</td>
     <td class="p-4">${escapeHTML(r.priority || 'Normal')}</td>
-    <td class="p-4 text-on-surface-variant">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
-    <td class="p-4 whitespace-nowrap">${isAdmin
-      ? `<button type="button" title="Approve" aria-label="Approve request" class="action-btn !px-2 text-emerald-600" data-sr-action="approve" data-sr-id="${r.id}"><span class="material-symbols-outlined text-base">check_circle</span></button>
-         <button type="button" title="Reject" aria-label="Reject request" class="action-btn !px-2 text-red-600" data-sr-action="reject" data-sr-id="${r.id}"><span class="material-symbols-outlined text-base">cancel</span></button>`
-      : '<span class="text-xs text-on-surface-variant">Admin review required</span>'}</td></tr>`).join('')}</tbody></table>`
-    : '<div class="p-10 text-center text-on-surface-variant text-sm">No pending approvals — all requests have been decided.</div>';
+    <td class="p-4">${reqStatusBadge(r.status)}</td>
+    <td class="p-4 whitespace-nowrap">${act(r)}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="p-10 text-center text-on-surface-variant text-sm">No incoming requests — department-approved requests land here for inventory review.</div>';
 }
 
 // Stock-issue modal: pick real warehouse serials for each request line.
@@ -682,22 +702,32 @@ document.addEventListener('click', async (event) => {
   if (action === 'review') {
     const sc = await api(`supply-requests/${id}/stock-check`).catch(() => null);
     if (!sc || !sc.lines) { alert(sc && sc.error ? sc.error : 'Could not check stock.'); return; }
-    alert(sc.lines.map((l) => `${l.item_name}: need ${l.needed}, in stock ${l.in_stock} ${l.sufficient ? '✓' : '✗'}`).join('\n')
-      + (sc.sufficient ? '\n\nAll lines are in stock — this request can be issued.' : '\n\nSome lines are short — send this request to procurement.'));
+    const report = sc.lines.map((l) => `${l.item_name}: need ${l.needed}, in stock ${l.in_stock} ${l.sufficient ? '✓' : '✗'}`).join('\n')
+      + (sc.sufficient ? '\n\nAll lines are in stock — this request can be released for issuance.' : '\n\nSome lines are short — send this request to procurement.');
+    const d = await api(`supply-requests/${id}`).catch(() => null);
+    if (d && d.status === 'Approved') {
+      const ok = await (window.scimConfirm ? scimConfirm({ title: 'Send to inventory review?', message: report, confirmLabel: 'Start Review', icon: 'inventory', danger: false }) : (alert(report), Promise.resolve(true)));
+      if (!ok) return;
+      const res = await fetch(`/api/v1/supply-requests/${id}/status`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'Inventory Review' }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(data.error || 'Unable to start review.'); return; }
+      invLoaded.approvals = false; invLoaded.requisitions = false;
+      loadInvApprovals(); loadInvRequisitions();
+    } else {
+      alert(report);
+    }
     return;
   }
   const map = {
-    approve: { status: 'Approved', label: 'Approve' },
-    reject: { status: 'Rejected', label: 'Reject' },
-    review_go: { status: 'Inventory Review', label: 'Send to inventory review' },
+    forissue: { status: 'For Issuance', label: 'Release for issuance' },
     procure: { status: 'In Procurement', label: 'Send to procurement' },
   };
   const step = map[action];
   if (!step) return;
   const ok = await (window.scimConfirm ? scimConfirm({
     title: `${step.label} request?`,
-    message: action === 'procure' ? 'The request moves to Procurement — raise a PO against it there.' : `This marks the request as ${step.status}.`,
-    confirmLabel: step.label, icon: 'check_circle', danger: action === 'reject',
+    message: action === 'procure' ? 'The request moves to Procurement — raise a PO against it there.' : `This marks the request as ${step.status} — warehouse staff can now issue stock.`,
+    confirmLabel: step.label, icon: 'check_circle', danger: false,
   }) : Promise.resolve(true));
   if (!ok) return;
   const res = await fetch(`/api/v1/supply-requests/${id}/status`, {

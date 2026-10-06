@@ -473,6 +473,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const sidebar = document.getElementById('app-sidebar');
       if (!nav || !sidebar) return;
 
+      // Supply Requests portal — the staff request-entry point — sits at the
+      // top of the module nav on every page (idempotent).
+      if (!nav.querySelector('a[href="requests.html"]')) {
+        const reqLink = document.createElement('a');
+        reqLink.className = 'sidebar-subsystem-link' + (location.pathname.endsWith('/requests.html') ? ' active' : '');
+        reqLink.href = 'requests.html';
+        reqLink.innerHTML = '<span class="material-symbols-outlined">shopping_bag</span><span>Supply Requests</span>';
+        nav.prepend(reqLink);
+      }
+
       // Pull the fleet link out of the module nav (it may be marked active).
       const fleetLink = nav.querySelector('a[href="fleet.html"]');
       const fleetActive = fleetLink?.classList.contains('active');
@@ -578,7 +588,7 @@ window.scimConfirm = function (opts) {
           </div>
           <h2 class="text-xl font-bold text-slate-900 mb-2">${safeText(opts.title || 'Are you sure?')}</h2>
           <p class="text-sm text-slate-500 leading-relaxed mb-5">${safeText(opts.message || '')}</p>
-          ${opts.reasonInput ? '<textarea data-reason rows="2" placeholder="Reason (required)…" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm mb-5 focus:outline-none focus:border-indigo-500"></textarea>' : ''}
+          ${opts.reasonInput ? `<textarea data-reason rows="2" placeholder="${opts.reasonOptional ? 'Remarks (optional)…' : 'Reason (required)…'}" class="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm mb-5 focus:outline-none focus:border-indigo-500"></textarea>` : ''}
           <div class="flex gap-3">
             <button data-c="no" class="flex-1 px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancel</button>
             <button data-c="yes" class="flex-1 px-5 py-2.5 rounded-xl ${btnColor} text-white font-semibold text-sm transition-colors">${safeText(opts.confirmLabel || 'Confirm')}</button>
@@ -590,7 +600,7 @@ window.scimConfirm = function (opts) {
     modal.querySelector('[data-c="yes"]').onclick = () => {
       if (opts.reasonInput) {
         const v = (modal.querySelector('[data-reason]')?.value || '').trim();
-        if (!v) { modal.querySelector('[data-reason]')?.focus(); return; }
+        if (!v && !opts.reasonOptional) { modal.querySelector('[data-reason]')?.focus(); return; }
         return done(v);
       }
       done(true);

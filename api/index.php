@@ -18,7 +18,7 @@ register_shutdown_function(function () {
 // Bump whenever schema changes are added to migrate() — the gate uses it to
 // decide whether the (idempotent) migration set must re-run. Declared before
 // the CLI hook because `const` is a runtime statement, not hoisted.
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 // CLI deploy hook — `php api/index.php migrate [--force]` applies schema
 // migrations at deploy time so no HTTP request ever pays the cost.
@@ -1219,6 +1219,24 @@ function migrate(PDO $d, bool $force = false): void {
             LEFT JOIN assets a ON a.id = at.asset_id");
     }
 
+    // ---- v7: department approval stage ---------------------------------
+    // Requests pass through an authorized department approver before they
+    // enter the supply-chain queue. Approver authorization lives in a
+    // mapping table so HRIS can own it later — not in this schema.
+    $d->exec("CREATE TABLE IF NOT EXISTS department_approvers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        department VARCHAR(120) NOT NULL,
+        user_id INT NOT NULL,
+        approver_name VARCHAR(160) NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_dept_approver (department, user_id)
+    )");
+    try { $d->exec('ALTER TABLE users ADD COLUMN department VARCHAR(120) NULL'); } catch (Exception $e) {}
+    try { $d->exec('ALTER TABLE supply_requests ADD COLUMN dept_approver_id INT NULL'); } catch (Exception $e) {}
+    try { $d->exec('ALTER TABLE supply_requests ADD COLUMN dept_remarks TEXT NULL'); } catch (Exception $e) {}
+    try { $d->exec('ALTER TABLE supply_requests ADD COLUMN submitted_at DATETIME NULL'); } catch (Exception $e) {}
+
     $d->prepare('INSERT INTO schema_migrations(version) VALUES(?)')->execute([SCHEMA_VERSION]);
 }
 
@@ -1226,7 +1244,7 @@ function migrate(PDO $d, bool $force = false): void {
 function tokenUser(PDO $d): ?array {
     $t = $_SERVER['HTTP_X_SCIM_TOKEN'] ?? '';
     if (!preg_match('/^[a-f0-9]{64}$/', $t)) return null;
-    $q = $d->prepare("SELECT u.id, u.full_name AS name, u.email, u.role, u.avatar
+    $q = $d->prepare("SELECT u.id, u.full_name AS name, u.email, u.role, u.avatar, u.department
                       FROM session_tokens st JOIN users u ON u.id = st.user_id
                       WHERE st.token = ? AND st.expires_at > NOW() AND u.is_active = 1");
     $q->execute([$t]);
@@ -2538,6 +2556,7 @@ if ($method === 'POST' && $path === '/api/v1/mfa/login-verify') {
         'name' => $user['full_name'],
         'email' => $user['email'],
         'role' => $user['role'],
+        'department' => $user['department'] ?? null,
         'avatar' => $user['avatar'] ?? null,
         'initials' => strtoupper(substr($user['full_name'], 0, 1))
     ];
@@ -3001,27 +3020,72 @@ if ($method === 'PUT' && preg_match('#^/api/v1/procurement/requisitions/([^/]+)$
 }
 
 // ==========================================================================
-// SUPPLY REQUESTS (v6) — the primary internal workflow spine:
-// Staff → Request → Approval → Inventory Review → Issue (stock available)
-//                                          or → Procurement → PO → Receipt
-//                                          → back to issuance → Closed
+// SUPPLY REQUESTS (v7) — the primary internal workflow spine:
+// Staff → Draft → Submitted → Dept Approver Review → Approved
+//   → Inventory Review → For Issuance (stock) or In Procurement
+//   → PO → Receipt → back to For Issuance → Issued → Closed
 // ==========================================================================
 $SR_TRANSITIONS = [
-    'Submitted'         => ['Approved', 'Rejected', 'Cancelled'],
-    'Approved'          => ['Inventory Review', 'In Procurement', 'Cancelled'],
-    'Inventory Review'  => ['Approved', 'In Procurement', 'Cancelled'],
-    'In Procurement'    => ['Approved', 'Cancelled'],
-    'Partially Issued'  => ['Closed', 'Cancelled'],
-    'Issued'            => ['Closed'],
-    'Closed'            => [], 'Rejected' => [], 'Cancelled' => [],
+    'Draft'                   => ['Submitted', 'Cancelled'],
+    'Submitted'               => ['Under Department Review', 'Cancelled'],
+    'Under Department Review' => ['Approved', 'Rejected', 'Cancelled'],
+    'Approved'                => ['Inventory Review', 'Cancelled'],
+    'Inventory Review'        => ['For Issuance', 'In Procurement', 'Cancelled'],
+    'For Issuance'            => ['Issued', 'Partially Issued', 'Cancelled'],
+    'In Procurement'          => ['For Issuance', 'Cancelled'],
+    'Partially Issued'        => ['Issued', 'For Issuance', 'Cancelled'],
+    'Issued'                  => ['Closed'],
+    'Closed'                  => [], 'Rejected' => [], 'Cancelled' => [],
 ];
+// Statuses owned by supply-chain staff (vs requester vs dept approver).
+$SR_SC_STATUSES = ['Approved', 'Inventory Review', 'For Issuance', 'In Procurement', 'Partially Issued', 'Issued', 'Closed'];
+$SR_DEPT_STATUSES = ['Submitted', 'Under Department Review'];
+$SR_SC_ROLES = ['Admin', 'Manager', 'WarehouseStaff'];
+
+// Is this user an authorized approver for the given department? Driven by
+// the department_approvers mapping (future HRIS-owned); falls back to a
+// Manager whose own department matches when no mapping exists.
+function isDeptApprover(PDO $d, array $u, ?string $dept): bool {
+    if ($dept === null || $dept === '') return false;
+    $cnt = $d->prepare('SELECT COUNT(*) FROM department_approvers WHERE department = ? AND is_active = 1');
+    $cnt->execute([$dept]);
+    $configured = (int)$cnt->fetchColumn() > 0;
+    if ($configured) {
+        $q = $d->prepare('SELECT 1 FROM department_approvers WHERE department = ? AND user_id = ? AND is_active = 1');
+        $q->execute([$dept, $u['id']]);
+        return (bool)$q->fetchColumn();
+    }
+    return $u['role'] === 'Manager' && strcasecmp(trim($u['department'] ?? ''), trim($dept)) === 0;
+}
 
 if ($method === 'GET' && $path === '/api/v1/supply-requests') {
-    auth();
+    $u = auth();
     $d = db();
-    $reqs = $d->query("SELECT sr.*, u.full_name AS created_by_name,
+    $scope = trim($_GET['scope'] ?? '');
+    $where = '1=1'; $params = [];
+    if ($scope === 'mine') {
+        $where = 'sr.created_by = ?'; $params[] = $u['id'];
+    } elseif ($scope === 'dept') {
+        // Requests in departments this user is authorized to approve.
+        $depts = $d->prepare('SELECT department FROM department_approvers WHERE user_id = ? AND is_active = 1');
+        $depts->execute([$u['id']]);
+        $names = $depts->fetchAll(PDO::FETCH_COLUMN);
+        if (!$names && $u['role'] === 'Manager' && trim($u['department'] ?? '') !== '') $names = [trim($u['department'])];
+        if (!$names) reply(['requests' => []]);
+        $where = 'sr.department IN (' . implode(',', array_fill(0, count($names), '?')) . ')';
+        $params = $names;
+    } elseif ($scope === 'incoming') {
+        auth($SR_SC_ROLES);
+        $where = "sr.status IN ('" . implode("','", $SR_SC_STATUSES) . "')";
+    }
+    $st = trim($_GET['status'] ?? '');
+    if ($st !== '') { $where .= ' AND sr.status = ?'; $params[] = $st; }
+    $q = $d->prepare("SELECT sr.*, u.full_name AS created_by_name,
         (SELECT COUNT(*) FROM supply_request_items i WHERE i.request_id = sr.id) AS item_count
-        FROM supply_requests sr LEFT JOIN users u ON u.id = sr.created_by ORDER BY sr.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+        FROM supply_requests sr LEFT JOIN users u ON u.id = sr.created_by
+        WHERE $where ORDER BY sr.created_at DESC");
+    $q->execute($params);
+    $reqs = $q->fetchAll(PDO::FETCH_ASSOC);
     $iq = $d->prepare('SELECT * FROM supply_request_items WHERE request_id = ? ORDER BY id');
     foreach ($reqs as &$r) { $iq->execute([$r['id']]); $r['items'] = $iq->fetchAll(PDO::FETCH_ASSOC); }
     reply(['requests' => $reqs]);
@@ -3055,14 +3119,21 @@ if ($method === 'POST' && $path === '/api/v1/supply-requests') {
     try {
         $cnt = (int)$d->query("SELECT COUNT(*)+1 FROM supply_requests WHERE YEAR(created_at)=YEAR(NOW())")->fetchColumn();
         $reqNo = 'SR-' . date('Y') . '-' . str_pad((string)$cnt, 3, '0', STR_PAD_LEFT);
-        $d->prepare('INSERT INTO supply_requests(request_number, source, title, requesting_employee, employee_id, department, purpose, priority, needed_by, status, created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-          ->execute([$reqNo, 'INTERNAL', trim($x['title']),
+        // Drafts are saved but not yet submitted; anything else enters the
+        // department-review queue as Submitted. `source` identifies the
+        // originating system (STAFF_PORTAL default; HRIS/FACILITIES/etc.
+        // submit through integration later).
+        $src = strtoupper(substr(preg_replace('/[^A-Za-z0-9_\-]/', '', (string)($x['source'] ?? 'STAFF_PORTAL')), 0, 40)) ?: 'STAFF_PORTAL';
+        $status = !empty($x['draft']) ? 'Draft' : 'Submitted';
+        $d->prepare('INSERT INTO supply_requests(request_number, source, title, requesting_employee, employee_id, department, purpose, priority, needed_by, status, submitted_at, created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+          ->execute([$reqNo, $src, trim($x['title']),
                      trim($x['requesting_employee'] ?? '') ?: $u['name'],
                      trim($x['employee_id'] ?? '') ?: null,
-                     trim($x['department'] ?? '') ?: null,
+                     trim($x['department'] ?? ($u['department'] ?? '')) ?: null,
                      trim($x['purpose'] ?? '') ?: null,
                      in_array($x['priority'] ?? '', ['Low','Normal','High','Urgent'], true) ? $x['priority'] : 'Normal',
-                     $x['needed_by'] ?: null, 'Submitted', $u['id']]);
+                     $x['needed_by'] ?: null, $status,
+                     $status === 'Draft' ? null : date('Y-m-d H:i:s'), $u['id']]);
         $reqId = (int)$d->lastInsertId();
         $ii = $d->prepare('INSERT INTO supply_request_items(request_id, item_name, category, quantity) VALUES(?,?,?,?)');
         $n = 0;
@@ -3074,18 +3145,20 @@ if ($method === 'POST' && $path === '/api/v1/supply-requests') {
             $n++;
         }
         if ($n === 0) { $d->rollBack(); reply(['error' => 'At least one valid item row is required.'], 400); }
-        logActivity($d, $u, 'Submitted supply request', 'supply_request', $reqNo, $n . ' item(s)');
+        logActivity($d, $u, $status === 'Draft' ? 'Saved supply request draft' : 'Submitted supply request', 'supply_request', $reqNo, $n . ' item(s)');
         $d->commit();
-        reply(['id' => $reqId, 'request_number' => $reqNo], 201);
+        reply(['id' => $reqId, 'request_number' => $reqNo, 'status' => $status], 201);
     } catch (Exception $e) {
         if ($d->inTransaction()) $d->rollBack();
         reply(['error' => 'Request failed: ' . $e->getMessage()], 500);
     }
 }
 
-// Status transitions — enforced by the SR state machine.
+// Status transitions — enforced by the SR state machine with per-step
+// authorization: requesters submit their own requests, authorized
+// department approvers approve/reject, supply-chain staff do the rest.
 if ($method === 'PUT' && preg_match('#^/api/v1/supply-requests/(\d+)/status$#', $path, $m)) {
-    $u = auth(['Admin', 'Manager']);
+    $u = auth();
     $x = body();
     $d = db();
     $q = $d->prepare('SELECT * FROM supply_requests WHERE id = ?');
@@ -3097,14 +3170,97 @@ if ($method === 'PUT' && preg_match('#^/api/v1/supply-requests/(\d+)/status$#', 
     if (!in_array($new, $SR_TRANSITIONS[$r['status']] ?? [], true)) {
         reply(['error' => "Cannot move request from '{$r['status']}' to '{$new}'. Allowed: " . ($SR_TRANSITIONS[$r['status']] ? implode(', ', $SR_TRANSITIONS[$r['status']]) : 'none — terminal state')], 409);
     }
-    if (in_array($new, ['Approved', 'Rejected'], true) && $u['role'] !== 'Admin') {
-        reply(['error' => 'Only a System Administrator may approve or reject supply requests.'], 403);
+
+    $isSC = in_array($u['role'], $SR_SC_ROLES, true);
+    $isOwner = (int)$r['created_by'] === (int)$u['id'];
+    $remarks = trim($x['remarks'] ?? '');
+
+    if ($r['status'] === 'Under Department Review' && in_array($new, ['Approved', 'Rejected'], true)) {
+        // Business-need validation belongs to the department, not IT/Admin.
+        if (!isDeptApprover($d, $u, $r['department'])) {
+            reply(['error' => "Only an authorized approver for '{$r['department']}' may approve or reject this request."], 403);
+        }
+        if ($new === 'Rejected' && $remarks === '') {
+            reply(['error' => 'A rejection requires remarks explaining why.'], 400);
+        }
+    } elseif (in_array($new, ['Submitted', 'Under Department Review'], true)) {
+        // Submitting one's own request; SC staff may route any; a dept
+        // approver may pull a Submitted request into review themselves.
+        if (!$isOwner && !$isSC && !($new === 'Under Department Review' && isDeptApprover($d, $u, $r['department']))) {
+            reply(['error' => 'Only the requester may submit this request.'], 403);
+        }
+    } elseif ($new === 'Cancelled') {
+        if (!$isOwner && !$isSC && !isDeptApprover($d, $u, $r['department'])) {
+            reply(['error' => 'Only the requester, an authorized approver, or supply-chain staff may cancel.'], 403);
+        }
+    } else {
+        // Inventory Review / For Issuance / In Procurement / Issued / Closed.
+        if (!$isSC) reply(['error' => 'This step belongs to supply-chain staff.'], 403);
     }
-    $appr = in_array($new, ['Approved', 'Rejected'], true) ? ', approved_by = ?, approved_at = NOW()' : '';
-    $params = in_array($new, ['Approved', 'Rejected'], true) ? [$new, $u['name'], $r['id']] : [$new, $r['id']];
-    $d->prepare('UPDATE supply_requests SET status = ?' . $appr . ', updated_at = NOW() WHERE id = ?')->execute($params);
-    logActivity($d, $u, 'Supply request ' . $new, 'supply_request', $r['request_number']);
+
+    if (in_array($new, ['Approved', 'Rejected'], true) && $r['status'] === 'Under Department Review') {
+        $d->prepare('UPDATE supply_requests SET status = ?, dept_approver_id = ?, approved_by = ?, approved_at = NOW(), dept_remarks = ?, updated_at = NOW() WHERE id = ?')
+          ->execute([$new, $u['id'], $u['name'], $remarks !== '' ? $remarks : null, $r['id']]);
+    } elseif (in_array($new, ['Submitted', 'Under Department Review'], true)) {
+        $d->prepare('UPDATE supply_requests SET status = ?, submitted_at = COALESCE(submitted_at, NOW()), updated_at = NOW() WHERE id = ?')
+          ->execute([$new, $r['id']]);
+    } else {
+        $d->prepare('UPDATE supply_requests SET status = ?, updated_at = NOW() WHERE id = ?')->execute([$new, $r['id']]);
+    }
+    logActivity($d, $u, 'Supply request ' . $new, 'supply_request', $r['request_number'], $remarks);
     reply(['ok' => true, 'status' => $new]);
+}
+
+// Department approver registry — who is authorized to validate a
+// department's business need. Admin manages the mapping; HRIS owns it
+// once that subsystem is integrated.
+if ($method === 'GET' && $path === '/api/v1/department-approvers') {
+    $u = auth();
+    $d = db();
+    // Privileged roles see the full registry; everyone else sees only their
+    // own approver assignments (so the portal can show the approval queue).
+    if (in_array($u['role'], ['Admin', 'Manager'], true)) {
+        $rows = $d->query('SELECT da.*, u.full_name, u.email, u.role, u.department AS user_department
+                           FROM department_approvers da LEFT JOIN users u ON u.id = da.user_id
+                           WHERE da.is_active = 1 ORDER BY da.department, u.full_name')->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $q = $d->prepare('SELECT da.*, u.full_name, u.email, u.role FROM department_approvers da
+                          LEFT JOIN users u ON u.id = da.user_id
+                          WHERE da.is_active = 1 AND da.user_id = ? ORDER BY da.department');
+        $q->execute([$u['id']]);
+        $rows = $q->fetchAll(PDO::FETCH_ASSOC);
+    }
+    reply(['approvers' => $rows]);
+}
+
+if ($method === 'POST' && $path === '/api/v1/department-approvers') {
+    $u = auth(['Admin']);
+    $x = body();
+    $d = db();
+    $dept = trim($x['department'] ?? '');
+    $uid = (int)($x['user_id'] ?? 0);
+    if ($dept === '' || !$uid) reply(['error' => 'department and user_id are required.'], 400);
+    $uq = $d->prepare('SELECT id, full_name FROM users WHERE id = ? AND is_active = 1');
+    $uq->execute([$uid]);
+    $usr = $uq->fetch(PDO::FETCH_ASSOC);
+    if (!$usr) reply(['error' => 'User not found or inactive.'], 404);
+    $d->prepare('INSERT INTO department_approvers(department, user_id, approver_name) VALUES(?,?,?)
+                 ON DUPLICATE KEY UPDATE is_active = 1, approver_name = VALUES(approver_name)')
+      ->execute([$dept, $uid, $usr['full_name']]);
+    logActivity($d, $u, 'Assigned department approver', 'department', $dept, $usr['full_name']);
+    reply(['ok' => true]);
+}
+
+if ($method === 'DELETE' && preg_match('#^/api/v1/department-approvers/(\d+)$#', $path, $m)) {
+    $u = auth(['Admin']);
+    $d = db();
+    $q = $d->prepare('SELECT * FROM department_approvers WHERE id = ?');
+    $q->execute([$m[1]]);
+    $row = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$row) reply(['error' => 'Approver mapping not found'], 404);
+    $d->prepare('UPDATE department_approvers SET is_active = 0 WHERE id = ?')->execute([$m[1]]);
+    logActivity($d, $u, 'Removed department approver', 'department', $row['department'], $row['approver_name']);
+    reply(['ok' => true]);
 }
 
 // Inventory review: check each request line against warehouse stock.
@@ -3143,8 +3299,8 @@ if ($method === 'POST' && preg_match('#^/api/v1/supply-requests/(\d+)/issue$#', 
     $q->execute([$m[1]]);
     $r = $q->fetch(PDO::FETCH_ASSOC);
     if (!$r) reply(['error' => 'Supply request not found'], 404);
-    if (!in_array($r['status'], ['Approved', 'Inventory Review', 'Partially Issued'], true)) {
-        reply(['error' => "Request '{$r['request_number']}' is '{$r['status']}' — only approved/reviewed requests can be issued."], 409);
+    if (!in_array($r['status'], ['For Issuance', 'Partially Issued', 'Approved', 'Inventory Review'], true)) {
+        reply(['error' => "Request '{$r['request_number']}' is '{$r['status']}' — it must reach 'For Issuance' before stock can be issued."], 409);
     }
     $items = $x['items'] ?? [];
     if (!is_array($items) || !$items) reply(['error' => 'items[] required: {request_item_id, serials[]}'], 400);
@@ -3488,7 +3644,7 @@ if ($method === 'POST' && $path === '/api/v1/pos') {
     // If this PO was raised from a supply request, mark the request lines as
     // being procured so the request trace stays intact.
     if (!empty($x['supply_request_id'])) {
-        $d->prepare("UPDATE supply_requests SET status = 'In Procurement', updated_at = NOW() WHERE id = ? AND status IN ('Approved','Inventory Review')")
+        $d->prepare("UPDATE supply_requests SET status = 'In Procurement', updated_at = NOW() WHERE id = ? AND status IN ('Approved','Inventory Review','For Issuance')")
           ->execute([(int)$x['supply_request_id']]);
         $d->prepare("UPDATE supply_request_items SET po_id = ? WHERE request_id = ?")
           ->execute([$po_id, (int)$x['supply_request_id']]);
@@ -3695,7 +3851,7 @@ if ($method === 'POST' && preg_match('#^/api/v1/pos/(\d+)/receive$#', $path, $m)
             $po['status'] = $newStatus;
             forwardToFinance($d, $po);
             if (!empty($po['supply_request_id'])) {
-                $d->prepare("UPDATE supply_requests SET status = 'Approved', stock_status = 'Received via PO {$po['po_number']}', updated_at = NOW() WHERE id = ? AND status = 'In Procurement'")
+                $d->prepare("UPDATE supply_requests SET status = 'For Issuance', stock_status = 'Received via PO {$po['po_number']}', updated_at = NOW() WHERE id = ? AND status = 'In Procurement'")
                   ->execute([$po['supply_request_id']]);
             }
         }
