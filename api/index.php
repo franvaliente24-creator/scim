@@ -479,20 +479,10 @@ function migrate(PDO $d, bool $force = false): void {
         $q->execute(['System Administrator', 'admin@greatsolomon.test', password_hash('Welcome123!', PASSWORD_DEFAULT), 'Admin']);
     }
 
-    // Standalone-mode demo accounts (idempotent, keyed by email). The SCIM
-    // Manager acts as the all-department approver until HRIS integration
-    // feeds real department_approvers mappings; SCIM Staff exercises the
-    // request-entry side of the portal.
-    $seedUser = function (string $name, string $email, string $role) use ($d): void {
-        $chk = $d->prepare('SELECT id FROM users WHERE email = ?');
-        $chk->execute([$email]);
-        if ($chk->fetch()) return;
-        $q = $d->prepare('INSERT INTO users(full_name, email, password_hash, role) VALUES(?, ?, ?, ?)');
-        $q->execute([$name, $email, password_hash('Welcome123!', PASSWORD_DEFAULT), $role]);
-    };
-    $seedUser('SCIM Manager', 'manager@greatsolomon.test', 'Manager');
-    $seedUser('SCIM Staff', 'staff@greatsolomon.test', 'Staff');
-    
+    // No demo accounts are seeded — standalone approval resolves purely by
+    // RBAC role: any active Manager may approve departments that have no
+    // department_approvers mappings yet (see isDeptApprover()).
+
     // Zone categorization column must exist before the seed below writes it.
     try { $d->exec("ALTER TABLE warehouse_zones ADD COLUMN category VARCHAR(60) NULL"); } catch (Exception $e) {}
 

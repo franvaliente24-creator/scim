@@ -13,7 +13,7 @@ the requester, employee ID, department, itemized quantities, purpose or
 justification, priority, and needed-by date. On submission the request moves
 through Submitted into Under Department Review, exactly as before.
 
-The SCIM Manager account now acts as the authorized approver for every
+Any account with the `Manager` role acts as the authorized approver for every
 department. From the Supply Requests portal the manager sees the Department
 Approvals card, can review business need and quantities, add remarks, and
 approve or reject. Approval is enforced server-side: only the configured
@@ -51,7 +51,18 @@ clearly a tracking view over the same `supply_requests` records — the create
 button files a request on behalf of a department and still routes through
 manager approval, so no parallel requisition workflow exists.
 
-## Demo accounts
+## Accounts and access
+
+No demo or test accounts are created or required. The workflow runs entirely
+on the existing users' RBAC roles:
+
+- Any `Staff`-role account (or any authenticated user) creates, submits, and
+  tracks requests through the Supply Requests portal — and nothing else.
+- Any active `Manager`-role account sees the Department Approvals queue and
+  may approve or reject requests for every department while no approver
+  mappings exist.
+- `Admin` cannot approve department requests and remains responsible for
+  user, system, and approver configuration.
 
 Because every login requires an emailed OTP and the standalone environment
 has no mail transport, the API returns the code inline as a development hint
@@ -60,14 +71,6 @@ credentials are configured. The OTP page displays the code as a "dev mode"
 banner; on the hosted deployment with real SMTP settings the hint never
 appears and the code is delivered by email as before.
 
-Two demo accounts are seeded automatically (schema v8) with password
-`Welcome123!`:
-
-- `manager@greatsolomon.test` — role Manager; approves or rejects any
-  department's requests in standalone mode.
-- `staff@greatsolomon.test` — role Staff; requester-only account that lands
-  directly on the Supply Requests portal and has no supply-chain powers.
-
 The leftover QA/HR department-approver mappings created by earlier testing
 were deactivated so the Manager fallback covers every department in demos;
 the `department_approvers` architecture itself is untouched and remains the
@@ -75,8 +78,9 @@ integration point for future department-specific approvers.
 
 ## Validation
 
-The complete standalone chain was exercised over HTTP with the seeded
-accounts: staff login → request submitted to Under Department Review →
-invisible to the supply-chain incoming queue → manager approval with remarks
-→ request appears in Incoming Requests as Approved. The V5.1 department
-workflow suite still reports 25/25 and the Phase 0–2 regression suite 42/42.
+The complete standalone chain was exercised over HTTP with existing accounts:
+staff login → request submitted to Under Department Review → invisible to the
+supply-chain incoming queue → staff self-approval and Admin approval both
+rejected server-side → Manager approval with remarks → request appears in
+Incoming Requests as Approved. The V5.1 department workflow suite still
+reports 25/25 and the Phase 0–2 regression suite 42/42.
